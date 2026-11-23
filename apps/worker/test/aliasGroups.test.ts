@@ -82,6 +82,7 @@ beforeEach(async () => {
     GENERATOR_BRANCH: 'v2',
   } as GitHub['env']);
   vi.spyOn(repo, 'head').mockImplementation(async () => head);
+  vi.spyOn(repo, 'generatorRevision').mockResolvedValue(sha(100));
   vi.spyOn(repo, 'file').mockImplementation(async (path) => read(path));
   vi.spyOn(repo, 'files').mockImplementation(async (paths) => paths.map(read));
   vi.spyOn(repo, 'publishSnapshot').mockImplementation(async () => ({
@@ -615,3 +616,204 @@ it.each([45, 90])(
     expect(read('tooltips/45.json')!.value).toEqual(document(45, exported));
   },
 );
+
+it('removes one member: copies the current document with stamps, keeps a restorable archive, and remembers it', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  const translated = document(42, 'Group text');
+  Object.assign(translated.text, {
+    de: { ...translated.text.en, text: 'Gruppe', sourceUpdatedAt: translated.text.en!.updatedAt },
+  });
+  await put('tooltips/42.json', translated);
+  await put('tooltips/43.json', document(43, 'Group text'));
+  const before = new Map(files);
+  items[43] = { ...items[43]!, sandboxPerkHashes: [900] };
+  generated = { 900: { to: 43, kind: 'sandbox' } };
+  await run([
+    {
+      ...(await intent('accept', [42, 43, 44])),
+      acknowledgeConflicts: true,
+    } as AliasGroupOperation,
+  ]);
+  const result = await run([{ op: 'removeMember', canonical: 42, member: 43 }]);
+  expect(result.config.groups[42]!.members).toEqual([42, 44]);
+  expect(result.config.removed).toEqual({
+    43: { canonical: 42, by: { id: '1', login: 'alice' }, at: expect.any(String) },
+  });
+  // Same text in every language, stamps unchanged: no translation turns outdated.
+  expect(read('tooltips/43.json')!.value).toEqual({ ...translated, hash: 43 });
+  expect(result.affectedCanonicals).toEqual(expect.arrayContaining([42, 43]));
+  // The reduced archive keeps the remaining members' original blobs, so ungroup still restores.
+  const archive = result.config.archives!.at(-1)!;
+  expect(archive.files).toEqual({ 42: before.get('tooltips/42.json'), 44: null });
+  const restored = await run([{ op: 'ungroup', canonical: 42 }]);
+  expect(restored.config.groups).toEqual({});
+  expect(restored.config.removed).toEqual(result.config.removed);
+  expect(files.get('tooltips/42.json')).toBe(before.get('tooltips/42.json'));
+  // A manual accept regroups it explicitly and clears the memory.
+  const regrouped = await run([await intent('accept', [42, 43])]);
+  expect(regrouped.config.removed).toBeUndefined();
+});
+
+it('dissolves a two-member group into the canonical alone', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  await put('tooltips/43.json', document(43));
+  await run([await intent()]);
+  const result = await run([{ op: 'removeMember', canonical: 42, member: 43 }]);
+  expect(result.config.groups).toEqual({});
+  expect(read('tooltips/43.json')!.value).toEqual(document(43));
+  expect(read('tooltips/42.json')!.value).toEqual(document(42));
+});
+
+it('refuses removal for a shared sandbox perk, the main entry, an old publisher, and non-maintainers', async () => {
+  await run([await intent()]);
+  const op = { op: 'removeMember', canonical: 42, member: 43 } as AliasGroupOperation;
+  await expect(run([op])).rejects.toMatchObject({
+    status: 409,
+    message: 'Removing a group member needs the updated publisher',
+  });
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  items[43] = { ...items[43]!, sandboxPerkHashes: [900, 901] };
+  for (const shared of [
+    { conflicts: { 900: [42, 43] }, generated: {} },
+    { conflicts: {}, generated: { 900: { to: 42, kind: 'sandbox' } } },
+  ]) {
+    ({ conflicts, generated } = shared);
+    await expect(run([op])).rejects.toMatchObject({
+      status: 422,
+      message: 'Sandbox perk 900 is shared with another inventory item; 43 stays grouped',
+    });
+  }
+  await expect(
+    run([{ op: 'removeMember', canonical: 42, member: 42 } as AliasGroupOperation]),
+  ).rejects.toMatchObject({ status: 400 });
+  await expect(
+    run([{ op: 'removeMember', canonical: 42, member: 45 } as AliasGroupOperation]),
+  ).rejects.toMatchObject({ status: 422 });
+  await expect(run([op], { id: 2, login: 'other' })).rejects.toMatchObject({ status: 403 });
+  // One removal per request: it runs on the scoped path, outside the batch.
+  generated = {};
+  await expect(run([op, await intent('reject', [44, 45])])).rejects.toMatchObject({ status: 422 });
+  await expect(run([op], actor, sha(1))).rejects.toMatchObject({ status: 409 });
+  expect(writes).toHaveBeenCalledTimes(1);
+});
+
+it('refuses removing a base member that would disable an accepted enhanced group', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  for (const [hash, baseHash] of [
+    [52, 42],
+    [53, 43],
+  ] as const)
+    items[hash] = {
+      ...item(hash),
+      name: 'Enhanced name',
+      categoryId: 'weapon-trait-enhanced',
+      isEnhanced: true,
+      baseHash,
+    };
+  await run([await intent()]);
+  await run([await intent('accept', [52, 53])]);
+  const op = { op: 'removeMember', canonical: 42, member: 43 } as const;
+  await expect(run([op])).rejects.toMatchObject({
+    status: 422,
+    message:
+      '43 is the base of a grouped enhanced version; remove that enhanced version from its group first',
+  });
+  expect(writes).toHaveBeenCalledTimes(2);
+  await run([{ op: 'removeMember', canonical: 52, member: 53 }]);
+  expect((await run([op])).config.groups).toEqual({});
+});
+
+it('also protects enhanced groups whose bases reach the group through generated aliases', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  for (const [hash, baseHash] of [
+    [52, 62],
+    [53, 63],
+  ] as const) {
+    items[baseHash] = { ...item(baseHash), name: 'Other base' };
+    items[hash] = {
+      ...item(hash),
+      name: 'Enhanced name',
+      categoryId: 'weapon-trait-enhanced',
+      isEnhanced: true,
+      baseHash,
+    };
+  }
+  generated = { 62: { to: 42, kind: 'frame' }, 63: { to: 43, kind: 'frame' } };
+  await run([await intent()]);
+  await run([await intent('accept', [52, 53])]);
+  await expect(run([{ op: 'removeMember', canonical: 42, member: 43 }])).rejects.toMatchObject({
+    status: 422,
+  });
+  expect((await run()).issues).toEqual([]);
+  expect(writes).toHaveBeenCalledTimes(2);
+});
+
+it('refuses removing a member the generator has aliased since', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  await run([await intent()]);
+  generated = { 43: { to: 44, kind: 'frame' } };
+  await expect(run([{ op: 'removeMember', canonical: 42, member: 43 }])).rejects.toMatchObject({
+    status: 409,
+    message: 'The generator now aliases 43; it has no entry of its own',
+  });
+  expect(read('tooltips/43.json')).toBeNull();
+});
+
+it.each([false, true])(
+  'is safe to retry after a cut-off (ref update landed=%s)',
+  async (landed) => {
+    await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+    await run([await intent()]);
+    const before = new Map(files);
+    const op = { op: 'removeMember', canonical: 42, member: 43 } as const;
+    const commit = writes.getMockImplementation()!;
+    writes.mockImplementationOnce(async (...args) => {
+      if (landed) await commit(...args);
+      throw new Error('cut off');
+    });
+    await expect(run([op])).rejects.toThrow('cut off');
+    if (!landed) expect(files).toEqual(before);
+    const cut = new Map(files);
+    const retry = await run([op]);
+    expect(retry.config.removed).toHaveProperty('43');
+    expect(retry.tooltip).toEqual(document(43));
+    expect(read('tooltips/43.json')!.value).toEqual(document(43));
+    if (landed) expect(files).toEqual(cut);
+  },
+);
+
+it('drops the publish marker from before the grouping, so Review lists the member as new', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  const markers = { 42: 'a'.repeat(64), 43: 'b'.repeat(64) };
+  await put('live/pushed.json', markers);
+  await run([await intent()]);
+  expect(read('live/pushed.json')!.value).toEqual(markers);
+  await run([{ op: 'removeMember', canonical: 42, member: 43 }]);
+  expect(read('live/pushed.json')!.value).toEqual({ 42: markers[42] });
+});
+
+it('copies the Bungie snapshot only to a member with the same in-game text', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  const bungieSnapshot = { description: 'Same text', snapshotAt: '2026-11-01T00:00:00Z' };
+  await put('tooltips/42.json', { ...document(42), bungieSnapshot });
+  items[44] = { ...item(44), inGameDescription: 'Other text' };
+  await run([
+    {
+      ...(await intent('accept', [42, 43, 44])),
+      acknowledgeConflicts: true,
+    } as AliasGroupOperation,
+  ]);
+  const other = await run([{ op: 'removeMember', canonical: 42, member: 44 }]);
+  expect(other.tooltip).toEqual(document(44));
+  const same = await run([{ op: 'removeMember', canonical: 42, member: 43 }]);
+  expect(same.tooltip).toEqual({ ...document(43), bungieSnapshot });
+});
+
+it('answers the confirm with the CAS head alone, for maintainers only', async () => {
+  const request = new Request('https://api.example/alias-groups?head=1');
+  expect(await (await aliasGroupsRoute(request, repo, actor)).json()).toEqual({ head });
+  expect(generatorUrls).toEqual([]);
+  await expect(aliasGroupsRoute(request, repo, { id: 2, login: 'o' })).rejects.toMatchObject({
+    status: 403,
+  });
+});

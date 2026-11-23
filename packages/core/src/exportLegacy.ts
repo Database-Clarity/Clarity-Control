@@ -4,6 +4,7 @@ import { languages } from './languages.js';
 import type { LegacyCatalog, LegacyFacts, LegacyMetadata, LegacyPerk } from './legacy.js';
 import { isTextlessDescription, tooltipSchema, type Tooltip } from './schemas.js';
 import { resolveAlias, type Aliases } from './aliases.js';
+import type { AliasGroups } from './aliasGroups.js';
 import { validateTextWithReads } from './validation/index.js';
 import { numberTokens, numberValues, resolveNumberTokens } from './numbers/map.js';
 import { validateNumberTooltip } from './validation/numbers.js';
@@ -81,6 +82,31 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
 /**
+ * Until its own first publish, a member a maintainer removed from an alias group keeps its live
+ * stub, and stubs that resolve through it keep reading its former canonical: unrelated publishes
+ * never leave a window without its text (root 2026-11-23). Only a removed member whose live row is
+ * still its name stub qualifies, and mergeLivePerks writes no stub without a live target record.
+ */
+function withUnpublishedRemovals(
+  aliases: Aliases,
+  removed: AliasGroups['removed'],
+  live: Readonly<Record<string, unknown>>,
+  entries: Readonly<Record<string, LegacyExportEntry>>,
+  catalog: LegacyCatalog | undefined,
+): Aliases {
+  const view: Aliases = { ...aliases };
+  for (const [hash, { canonical }] of Object.entries(removed ?? {})) {
+    const row = live[hash];
+    if (!isRecord(row) || row.aliasKind !== 'name') continue;
+    if (Object.hasOwn(entries, hash) || Object.hasOwn(aliases, hash)) continue;
+    // Never block a publish over a retained stub: no manifest facts, or a pointer back to itself.
+    if ((catalog && !catalog[hash]) || resolveAlias(canonical, view) === Number(hash)) continue;
+    view[hash] = { to: canonical, kind: 'name' };
+  }
+  return view;
+}
+
+/**
  * The live perks after an export (root 2026-11-13): exported entries replace their keys, and every
  * key the sandbox picks file names (`picks`: picks, "no tooltip", and undone tombstones) is
  * RECOMPUTED from `aliases` (the generator's plus the picks, core mergeSandboxPointers): the pick's
@@ -94,8 +120,18 @@ export function mergeLivePerks(
   entries: Readonly<Record<string, LegacyExportEntry>>,
   picks?: { keys: Iterable<string>; aliases: Aliases; catalog?: LegacyCatalog },
   groups?: { aliases: Aliases; catalog: LegacyCatalog },
+  /** The alias group config's removed members (see withUnpublishedRemovals). */
+  removed?: AliasGroups['removed'],
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...live, ...entries };
+  if (removed) {
+    const keep = <T extends { aliases: Aliases; catalog?: LegacyCatalog }>(view: T): T => ({
+      ...view,
+      aliases: withUnpublishedRemovals(view.aliases, removed, live, entries, view.catalog),
+    });
+    picks &&= keep(picks);
+    groups &&= keep(groups);
+  }
   for (const key of picks?.keys ?? []) {
     if (Object.hasOwn(entries, key)) continue;
     const current = merged[key];

@@ -57,6 +57,7 @@ it('preserves the current capabilities and declares numberTokens in its PIN', ()
     'scheduledBatchStagingV1',
     'currentSaveStagingV1',
     'exoticTags',
+    'aliasGroupRemovals',
   ]);
 });
 

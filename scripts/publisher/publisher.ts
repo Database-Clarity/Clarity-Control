@@ -576,9 +576,11 @@ export class Publisher {
     hashes: Iterable<number>,
   ) {
     const aliases = this.aliasesAt(sourceTree);
-    const groups = sourceTree[aliasGroupsPath] ? { aliases, catalog: this.options.facts } : undefined;
+    const raw = this.read<unknown>(sourceTree, aliasGroupsPath);
+    const groups = raw === undefined ? undefined : { aliases, catalog: this.options.facts };
+    const removed = raw === undefined ? undefined : aliasGroupsSchema.parse(raw).removed;
     return applyInactiveLive(
-      mergeLivePerks(live, entries, this.pickRecomputeAt(sourceTree), groups),
+      mergeLivePerks(live, entries, this.pickRecomputeAt(sourceTree), groups, removed),
       this.movesAt(sourceTree),
       hashes,
       aliases,

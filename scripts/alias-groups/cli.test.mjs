@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { makePlan, git, main, digest } from './cli.mjs';
-import { sameDocumentMetadata, uniqueProposals } from './selection.mjs';
+import { removedMembers, sameDocumentMetadata, uniqueProposals } from './selection.mjs';
 
 test('edit history does not exclude identical text, while document facts still conflict', () => {
   const a = {
@@ -37,6 +37,12 @@ test('duplicate proposals produce one review row per membership, preferring supp
   ];
   assert.deepEqual(uniqueProposals(proposals), [proposals[0]]);
   assert.deepEqual(uniqueProposals([proposals[2], proposals[0]]), [proposals[0]]);
+});
+
+test('a proposal names the members a maintainer removed from a group', () => {
+  assert.deepEqual(removedMembers([42, 43, 44], { removed: { 43: {} } }), [43]);
+  assert.deepEqual(removedMembers([42, 44], { removed: { 43: {} } }), []);
+  assert.deepEqual(removedMembers([42, 43], {}), []);
 });
 
 const at = '2026-11-17T12:00:00.000Z';

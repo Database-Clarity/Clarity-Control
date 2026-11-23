@@ -3,6 +3,7 @@ import {
   hasSandboxTargets,
   composeAliases,
   type AliasGroupIssue,
+  type AliasGroupsResponse,
   type Aliases,
   type SandboxConflicts,
   type SandboxPointers,
@@ -11,7 +12,12 @@ import {
 import { loadGenerator, loadSandboxConflicts } from '../services/generator';
 import { loadBundle, type Bundle } from '../services/bundle';
 import { errorMessage } from '../services/http';
-import { applySavedOverlay, savedOverlayVersion } from './savedOverlay';
+import {
+  applySavedOverlay,
+  rememberSaved,
+  rememberSavedAliasGroups,
+  savedOverlayVersion,
+} from './savedOverlay';
 import { useMarksStore } from '../features/marks/store';
 
 export type Catalog = Awaited<ReturnType<typeof loadGenerator>>;
@@ -151,6 +157,32 @@ export const useDataStore = create<DataState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * A saved removal shows at once, with the document the server stored, and survives in-app data
+ * reloads (the saved overlay) until the published bundle has caught up.
+ */
+export function applyGroupRemoval(
+  { config, head, tooltip }: AliasGroupsResponse,
+  member: number,
+): void {
+  rememberSavedAliasGroups(config, head, member);
+  if (tooltip) rememberSaved([tooltip]);
+  useDataStore.setState((state) => {
+    if (!state.data) return {};
+    // Never through the overlay: the loaded data already holds it, so it would look caught up.
+    const { tooltips, pushed, ...loaded } = state.data.bundle;
+    const bundle = {
+      ...loaded,
+      aliasGroups: config,
+      tooltips: tooltip ? { ...tooltips, [member]: tooltip } : tooltips,
+      pushed: Object.fromEntries(
+        Object.entries(pushed).filter(([hash]) => hash !== String(member)),
+      ),
+    };
+    return { data: withSandboxPicks({ ...state.data, bundle }, bundle.sandboxPointers) };
+  });
+}
 
 /** A move changes listing and review state immediately; saved tooltip text is untouched. */
 export function applyInactiveMoves(moves: InactiveMoves): void {

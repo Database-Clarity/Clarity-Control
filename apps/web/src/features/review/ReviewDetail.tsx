@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { parseMarkup, type Lang, type MarkupLine, type Tooltip } from '@clarity/core';
+import { languages, parseMarkup, type Lang, type MarkupLine, type Tooltip } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { getHistory, type HistoryCommit } from '../../services/history';
 import { apiUrl } from '../../services/api';
@@ -25,9 +25,10 @@ import { revertDraft } from '../history/revert';
 import { CompendiumChanges, FieldChanges } from '../history/TooltipDiff';
 import { useRenderedDiff } from '../history/useRenderedDiff';
 import { itemFor } from '../navigation/catalog';
-import { exportedText, textLanguages, type Classification } from './kinds';
+import { globalUsers, unitName, type GlobalPart } from './globalRows';
+import { textLanguages, type Classification } from './kinds';
 import type { PendingTooltip } from './model';
-import type { Published } from './published';
+import { exportedText, type Published } from './published';
 import { useDelayed } from './useDelayed';
 import styles from './Review.module.scss';
 
@@ -62,6 +63,7 @@ function Sentence({
   const late = useDelayed(
     compares && (waiting || (published?.status === 'ready' && !classification)),
   );
+  const noun = entry.part ? entry.part.kind.slice(0, -1) : 'tooltip';
   if (entry.unpublishable)
     return (
       <p className={styles.sentence} data-tone="warn">
@@ -100,11 +102,29 @@ function Sentence({
             : ''}
         </p>
       );
+    case 'Output unchanged':
+      return (
+        <p className={styles.sentence}>
+          <b>Output unchanged.</b>{' '}
+          {Object.values(entry.part?.source.before ?? {}).some((text) =>
+            /^export hidden /.test(text),
+          )
+            ? 'The published version hides this export; its text is the same.'
+            : 'Only how it is written changed; its text is the same.'}
+        </p>
+      );
+    case 'Definition changed':
+      return (
+        <p className={styles.sentence}>
+          <b>Definition changed.</b> It uses other entries or tooltips, so its output may change
+          with them.
+        </p>
+      );
     case 'New': {
       const source = importedName(entry.tooltip, data);
       return (
         <p className={styles.sentence}>
-          <b>New tooltip.</b> Not published before.
+          <b>New {noun}.</b> Not published before.
           {source ? ` It shows the text of ${source}.` : ''}
         </p>
       );
@@ -118,8 +138,10 @@ function Sentence({
     case 'Removed':
       return (
         <p className={styles.sentence} data-tone="danger">
-          <b>Removes this tooltip.</b> It and its alias copies leave every output. The saved text
-          stays editable.
+          <b>Removes this {noun}.</b>{' '}
+          {entry.part
+            ? 'Tooltips can no longer use it.'
+            : 'It and its alias copies leave every output. The saved text stays editable.'}
         </p>
       );
     case 'Restored':
@@ -166,6 +188,21 @@ function Sentence({
         </SkeletonRegion>
       )}
     </div>
+  );
+}
+
+/** A globals entry: which tooltips its change reaches, and that its file publishes as one. */
+function GlobalNote({ entry, part }: { entry: PendingTooltip; part: GlobalPart }) {
+  const data = useDataStore((state) => state.data);
+  const users = useMemo(() => (data ? globalUsers(part, data) : 0), [data, part]);
+  return (
+    <p className={styles.note}>
+      {users
+        ? `Used by ${count.format(users)} ${users === 1 ? 'tooltip' : 'tooltips'}.`
+        : 'No tooltip uses it directly.'}
+      {part.names.length > 1 &&
+        ` ${unitName(entry)} are published as one file: including or removing one does the same for ${part.names.length === 2 ? 'both' : `all ${count.format(part.names.length)}`}, and they count as one change.`}
+    </p>
   );
 }
 
@@ -481,11 +518,23 @@ export const ReviewDetail = memo(function ReviewDetail({
       </div>
     );
   else if (kind === 'Removed') evidence = savedText(live ?? entry.tooltip);
+  else if (kind === 'Output unchanged' || kind === 'Definition changed')
+    evidence = savedText(entry.tooltip);
   else if (kind === 'New' || kind === 'Restored' || kind === 'On hold' || !kind) {
     // Unknown (loading, failed, signed out): the saved text renders plain so it can be judged.
     if (kind || published?.status !== 'loading') evidence = savedText(entry.tooltip);
   }
-  const rawLanguages = live ? textLanguages(live, entry.tooltip) : [];
+  // Raw markup of a globals entry is its whole declaration, not only the body that renders.
+  const part = entry.part;
+  const rawSource = (side: 'before' | 'after', lang: Lang) =>
+    part
+      ? (part.source[side][lang] ?? '')
+      : ((side === 'before' ? live : entry.tooltip)?.text[lang]?.text ?? '');
+  const rawLanguages = !live
+    ? []
+    : part
+      ? languages.filter((lang) => rawSource('before', lang) !== rawSource('after', lang))
+      : textLanguages(live, entry.tooltip);
   return (
     <section aria-label="Selected change" className={styles.detail}>
       <Sentence
@@ -494,6 +543,7 @@ export const ReviewDetail = memo(function ReviewDetail({
         classification={classification}
         onRetry={onRetry}
       />
+      {part && <GlobalNote entry={entry} part={part} />}
       {saverLine}
       {entry.inactiveAliases?.length ? (
         <p className={styles.note}>
@@ -507,10 +557,7 @@ export const ReviewDetail = memo(function ReviewDetail({
           {rawLanguages.map((lang) => (
             <div key={lang}>
               {(rawLanguages.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
-              <RawMarkup
-                before={live.text[lang]?.text ?? ''}
-                after={entry.tooltip.text[lang]?.text ?? ''}
-              />
+              <RawMarkup before={rawSource('before', lang)} after={rawSource('after', lang)} />
             </div>
           ))}
         </div>
@@ -529,11 +576,14 @@ export const ReviewDetail = memo(function ReviewDetail({
  */
 export function RestoreLive({
   entry,
+  name = entry.name,
   published,
   className,
   onDone,
 }: {
   entry: PendingTooltip;
+  /** What the draft replaces (every entry of a globals file). */
+  name?: string;
   published: Published | undefined;
   className?: string;
   onDone(message: string): void;
@@ -610,8 +660,8 @@ export function RestoreLive({
           }
         >
           <p>
-            This replaces {draft ? 'the existing local draft' : 'the editor content'} for{' '}
-            {entry.name} with the live text. It does not save or publish.
+            This replaces {draft ? 'the existing local draft' : 'the editor content'} for {name}{' '}
+            with the live text. It does not save or publish.
           </p>
           {user.role === 'translator' && (
             <p>Only your assigned translation languages will be loaded.</p>

@@ -5,6 +5,7 @@ import { useAuthStore } from '../../stores/auth';
 import { FinderSheetCloseContext, FinderSheetContext } from '../navigation/FinderSheetContext';
 import { useDraftStore } from '../../stores/drafts';
 import { SkeletonRows } from '../../ui/Skeleton';
+import { rowKey, unitCount, useReviewRows } from './globalRows';
 import { kindWords, useRowKinds, type Kind } from './kinds';
 import { canPush, publishableHashes, type PendingTooltip } from './model';
 import { activeHashes, usePublishState } from './publishDriver';
@@ -38,13 +39,13 @@ export function filterParams(
   else next.delete('query');
   if (kind) next.set('kind', kind);
   else next.delete('kind');
-  const hash = next.get('hash');
+  const open = next.get('hash');
   const matching = entries.filter(
     (entry) => !entry.markerOnly && matchesFilter(entry, query, kind, kinds),
   );
-  if (!matching.some(({ tooltip }) => String(tooltip.hash) === hash)) {
+  if (!matching.some((entry) => String(rowKey(entry)) === open)) {
     const first = matching[0];
-    if (first) next.set('hash', String(first.tooltip.hash));
+    if (first) next.set('hash', String(rowKey(first)));
     else next.delete('hash');
   }
   return next;
@@ -127,23 +128,27 @@ function SavedSidebar() {
   const pushing = useReviewSession((state) => state.pushing);
   const drafts = useDraftStore((state) => Object.keys(state.drafts).length);
   const inFlight = useInFlight();
-  const kinds = useRowKinds(entries);
+  const rows = useReviewRows(entries);
+  const kinds = useRowKinds(rows);
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get('query') ?? '';
   const kind = searchParams.get('kind') ?? '';
   const view = useMemo(
-    () => entries && queueView(entries, query, kind, collapsed, leftovers, kinds),
-    [entries, query, kind, collapsed, leftovers, kinds],
+    () => entries && queueView(rows, query, kind, collapsed, leftovers, kinds),
+    [entries, rows, query, kind, collapsed, leftovers, kinds],
   );
   // Each word present among the changes, with its count (leftovers are not changes).
   const present = useMemo(() => {
-    const counts = new Map<Kind, number>();
-    for (const entry of entries ?? []) {
-      const word = kinds.get(entry.tooltip.hash);
-      if (!entry.markerOnly && word) counts.set(word, (counts.get(word) ?? 0) + 1);
+    const files = new Map<Kind, Set<number>>();
+    for (const entry of rows) {
+      const word = kinds.get(rowKey(entry));
+      if (entry.markerOnly || !word) continue;
+      const hashes = files.get(word);
+      if (hashes) hashes.add(entry.tooltip.hash);
+      else files.set(word, new Set([entry.tooltip.hash]));
     }
-    return kindWords.filter((word) => counts.has(word)).map((word) => [word, counts.get(word)!]);
-  }, [entries, kinds]);
+    return kindWords.filter((word) => files.has(word)).map((word) => [word, files.get(word)!.size]);
+  }, [rows, kinds]);
   const changes = useMemo(() => entries?.filter((entry) => !entry.markerOnly) ?? [], [entries]);
   const leftoverCount = (entries?.length ?? 0) - changes.length;
   const filtered = !!(query || kind);
@@ -151,7 +156,7 @@ function SavedSidebar() {
   const shownChanges = useMemo(
     () =>
       view && filtered
-        ? view.ordered.filter((entry) => !entry.markerOnly && view.shown.has(entry.tooltip.hash))
+        ? view.ordered.filter((entry) => !entry.markerOnly && view.shown.has(rowKey(entry)))
         : [],
     [view, filtered],
   );
@@ -165,7 +170,7 @@ function SavedSidebar() {
   );
   const allIncluded = shownPublishable.every((hash) => selected.has(hash));
   const update = (nextQuery: string, nextKind: string) =>
-    setSearchParams(filterParams(searchParams, entries ?? [], kinds, nextQuery, nextKind), {
+    setSearchParams(filterParams(searchParams, rows, kinds, nextQuery, nextKind), {
       replace: true,
     });
   const skeleton = useDelayed(entries === null);
@@ -219,7 +224,7 @@ function SavedSidebar() {
           </div>
           {shownChanges.length > 0 && (
             <div className={styles.listBar}>
-              <span>{count.format(shownChanges.length)} shown</span>
+              <span>{count.format(unitCount(shownChanges))} shown</span>
               {shownPublishable.length > 0 && (
                 <button
                   type="button"

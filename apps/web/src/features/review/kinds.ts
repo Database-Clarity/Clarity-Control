@@ -1,10 +1,11 @@
-import { languages, usesEnglishFallback, type Lang, type Tooltip } from '@clarity/core';
+import { languages, type Lang, type Tooltip } from '@clarity/core';
 import { create } from 'zustand';
 import type { EditorData } from '../../stores/data';
 import { diffGlobals } from '../history/RenderedWordDiff';
 import { classifyRendered } from '../history/useRenderedDiff';
+import { publishedOf, rowKey, usesOthers, type RowKey } from './globalRows';
 import type { PendingTooltip } from './model';
-import { publishedFor, usePublished, type Published } from './published';
+import { exportedText, usePublished, type Published } from './published';
 import type { RowKinds } from './queueModel';
 
 type PublishedState = ReturnType<typeof usePublished.getState>;
@@ -16,6 +17,8 @@ type PublishedState = ReturnType<typeof usePublished.getState>;
 export const kindWords = [
   'Text changed',
   'No visible change',
+  'Output unchanged',
+  'Definition changed',
   'New',
   'Links changed',
   'Removed',
@@ -45,19 +48,11 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
   if (entry.inactiveChange === 'restore') return { kind: 'Restored' };
   if (entry.unpublishable) return { kind: 'On hold' };
   if (entry.markerOnly) return { kind: 'Leftover' };
+  if (entry.part?.change === 'removed') return { kind: 'Removed' };
+  if (entry.part?.change === 'same-text')
+    return { kind: usesOthers(entry.tooltip) ? 'Definition changed' : 'Output unchanged' };
   if (entry.isNew) return { kind: 'New' };
   return undefined;
-}
-
-/**
- * The text a language goes live with: a translation that falls back goes out in English (the
- * same rule as the publish digest), so a fallback flip is a change players see.
- */
-export function exportedText(tooltip: Tooltip | null, lang: Lang): string {
-  if (!tooltip) return '';
-  return usesEnglishFallback(tooltip, lang)
-    ? (tooltip.text.en?.text ?? '')
-    : (tooltip.text[lang]?.text ?? '');
 }
 
 /** Languages whose saved source or exported text differs. */
@@ -146,7 +141,7 @@ interface Classified {
   value: Classification | undefined;
 }
 interface KindsState {
-  byHash: Readonly<Record<number, Classified>>;
+  byHash: Readonly<Record<RowKey, Classified>>;
 }
 export const useKinds = create<KindsState>(() => ({ byHash: {} }));
 
@@ -160,7 +155,7 @@ export function kindOf(
   if (local) return local;
   if (published?.status !== 'ready') return undefined;
   if (!published.tooltip) return { kind: 'New' };
-  const done = byHash[entry.tooltip.hash];
+  const done = byHash[rowKey(entry)];
   // A reload (Refresh) brings equal saved text in new objects: the word stays while it is checked
   // again against the new imports, never blanking.
   return done && done.published === published.tooltip && sameSaved(done, entry.tooltip)
@@ -173,9 +168,9 @@ function sameSaved(done: Classified, saved: Tooltip) {
   return done.saved === saved || done.savedJson === JSON.stringify(saved);
 }
 
-/** The latest check asked for per hash; an older check's answer never replaces a newer one. */
+/** The latest check asked for per row; an older check's answer never replaces a newer one. */
 const running = new Map<
-  number,
+  RowKey,
   { saved: Tooltip; before: Tooltip; tooltips: EditorData['bundle']['tooltips'] }
 >();
 
@@ -192,7 +187,8 @@ export function classifyRows(
     if (localKind(entry) || published?.status !== 'ready' || !published.tooltip) continue;
     const saved = entry.tooltip,
       before = published.tooltip;
-    const done = byHash[saved.hash];
+    const key = rowKey(entry);
+    const done = byHash[key];
     if (
       done &&
       done.saved === saved &&
@@ -202,11 +198,11 @@ export function classifyRows(
       continue;
     // New objects (a reload) or new imports: check again; the old word shows meanwhile.
     const tooltips = data.bundle.tooltips;
-    const pending = running.get(saved.hash);
+    const pending = running.get(key);
     if (pending?.saved === saved && pending.before === before && pending.tooltips === tooltips)
       continue;
     const request = { saved, before, tooltips };
-    running.set(saved.hash, request);
+    running.set(key, request);
     const changed = textLanguages(before, saved);
     void Promise.all(
       changed.map((lang) =>
@@ -218,17 +214,24 @@ export function classifyRows(
       ),
     ).then((outputs) => {
       // A newer check for this row (new saved text, published text, or imports) owns the result.
-      if (running.get(saved.hash) !== request) return;
-      running.delete(saved.hash);
+      if (running.get(key) !== request) return;
+      running.delete(key);
+      const value = publishedKind(before, saved, outputs);
+      // Both sides rendered with the saved imports: for a globals entry that uses others, equal
+      // output is not proven.
+      const unproven =
+        entry.part &&
+        value?.kind === 'No visible change' &&
+        (usesOthers(before) || usesOthers(saved));
       useKinds.setState((state) => ({
         byHash: {
           ...state.byHash,
-          [saved.hash]: {
+          [key]: {
             saved,
             savedJson: JSON.stringify(saved),
             published: before,
             tooltips,
-            value: publishedKind(before, saved, outputs),
+            value: unproven ? { kind: 'Definition changed' as const } : value,
           },
         },
       }));
@@ -241,11 +244,11 @@ let rowMemo:
       entries: readonly PendingTooltip[];
       published: PublishedState['byHash'];
       kinds: KindsState['byHash'];
-      value: Map<number, Kind | undefined>;
+      value: Map<RowKey, Kind | undefined>;
     }
   | undefined;
 
-/** Every row's word by hash; one shared result per state, so the list and page agree. */
+/** Every row's word by its key; one shared result per state, so the list and page agree. */
 export function rowKinds(
   entries: readonly PendingTooltip[],
   published: PublishedState['byHash'],
@@ -253,12 +256,9 @@ export function rowKinds(
 ): RowKinds {
   if (rowMemo?.entries === entries && rowMemo.published === published && rowMemo.kinds === kinds)
     return rowMemo.value;
-  const value = new Map<number, Kind | undefined>();
+  const value = new Map<RowKey, Kind | undefined>();
   for (const entry of entries)
-    value.set(
-      entry.tooltip.hash,
-      kindOf(entry, publishedFor(published, entry.tooltip.hash, entry.pushed), kinds)?.kind,
-    );
+    value.set(rowKey(entry), kindOf(entry, publishedOf(entry, published), kinds)?.kind);
   rowMemo = { entries, published, kinds, value };
   return value;
 }
@@ -287,6 +287,8 @@ export function kindCounts(kinds: readonly (Kind | undefined)[]): string {
       const phrase: Record<Kind | 'unknown', string> = {
         'Text changed': `with changed text`,
         'No visible change': `with no visible change`,
+        'Output unchanged': `with unchanged output`,
+        'Definition changed': `with a changed definition`,
         New: `new`,
         'Links changed': `with changed links`,
         Removed: `removed`,
