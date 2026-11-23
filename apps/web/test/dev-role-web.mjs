@@ -36,9 +36,10 @@ const workerRequestHeaders = [
 ];
 
 export function rolePlugin({ origin, roles, issue, upstream, dispatch }) {
+  const { host: loopbackHost, hostname: loopbackIp } = new URL(origin);
   async function handle(req, res, next) {
     const url = new URL(req.url, origin);
-    if (req.headers.host !== new URL(origin).host || url.origin !== origin)
+    if (req.headers.host !== loopbackHost || url.origin !== origin)
       return send(res, 403, '{"error":"Use the loopback development URL"}');
 
     res.setHeader(
@@ -80,6 +81,7 @@ export function rolePlugin({ origin, roles, issue, upstream, dispatch }) {
         if (typeof value === 'string') headers.set(name, value);
       }
       headers.set('origin', origin);
+      headers.set('CF-Connecting-IP', loopbackIp);
       const body =
         req.method === 'GET' || req.method === 'HEAD' ? {} : { body: req, duplex: 'half' };
       result = await dispatch(target.href, { method: req.method, headers, ...body });

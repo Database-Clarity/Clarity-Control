@@ -2,9 +2,9 @@ import { test, expect } from 'vitest';
 import { createServer } from 'node:net';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { startRoleHarness } from './start.mjs';
-import { localPath } from '../../apps/web/test/dev-role-web.mjs';
+import { localPath, localChallenge } from '../../apps/web/test/dev-role-web.mjs';
 import { checkProduction } from './check-production.mjs';
 import worker from '../../apps/worker/src/index.ts';
 
@@ -50,6 +50,11 @@ test('loopback role sessions go through Worker auth and cannot sign in on the st
             });
           }
           if (pathname === '/demo/value') return new Response('local data');
+          if (pathname.endsWith('/report-items.worker.json'))
+            return Response.json({
+              sourceCommit: head,
+              items: { 123: { owner: 123, variant: 'base', langs: ['en'] } },
+            });
           return new Response('Unexpected fixture request', { status: 404 });
         },
         dataGitDir: directory,
@@ -89,6 +94,26 @@ test('loopback role sessions go through Worker auth and cannot sign in on the st
         r.text(),
       ),
     ).toBe('local data');
+
+    const report = await fetch(harnessUrl + '/api/reports', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        request_id: randomUUID(),
+        withdraw_secret: 's'.repeat(40),
+        viewed_hash: 123,
+        owner_hash: 123,
+        variant: 'base',
+        lang: 'en',
+        rev: 'a'.repeat(16),
+        data_commit: head,
+        category: 'wording',
+        notes: [{ category: 'wording', text: 'Local report proof', anchor: null }],
+        turnstile: localChallenge,
+      }),
+    });
+    expect(report.status, await report.clone().text()).toBe(201);
+    expect(await report.json()).toMatchObject({ status: 'open' });
 
     const env = {
       SITE_ORIGIN: 'https://production.example',
