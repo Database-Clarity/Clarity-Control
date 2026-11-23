@@ -78,9 +78,10 @@ export function GroupRemoveControl({
       const result = await removeGroupMember(loaded.head, canonical, hash);
       const current = useAuthStore.getState();
       if (current.user !== identity.user || current.token !== identity.token) return;
+      // The removal is saved from here on: nothing below may report it as failed.
+      setOpen(false);
       const source = useDataStore.getState().data?.bundle.tooltips[canonical];
       applyAliasGroups(result.config, source && { ...structuredClone(source), hash });
-      setOpen(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Cannot remove from group');
       // A conflict requires closing and reopening for a fresh head and confirmation.

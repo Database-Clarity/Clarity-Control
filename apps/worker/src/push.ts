@@ -18,6 +18,7 @@ import {
   tooltipSchema,
   resolveAlias,
   sandboxPointersPath,
+  type AliasGroups,
   type Aliases,
   type LegacyCatalog,
   type Permissions,
@@ -28,7 +29,12 @@ import { blobsPerQuery, RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { permissions, requireAccess } from './permissions.js';
 import { stampUploads } from './stamp.js';
-import { consumerAliasScope, pushSandboxPicks, storedSandboxPointers } from './sandboxPointers.js';
+import {
+  consumerAliasScope,
+  pushSandboxPicks,
+  storedAliasGroups,
+  storedSandboxPointers,
+} from './sandboxPointers.js';
 import { storedInactiveMoves } from './inactiveMoves.js';
 import type { Identity } from './types.js';
 
@@ -82,6 +88,8 @@ interface Loaded {
   aliases: Aliases;
   /** Every key the picks file names; the live merge recomputes their entries (mergeLivePerks). */
   pickKeys: string[];
+  /** Members a maintainer removed from a group; unpublished ones keep their live stub. */
+  removed: AliasGroups['removed'];
   config: Permissions;
   canonicalHashes: number[];
   tooltips: Tooltip[];
@@ -175,6 +183,7 @@ async function loadAtHead(
     facts,
     moves,
     pickKeys,
+    removed: storedAliasGroups(groups)?.removed,
     config,
     canonicalHashes,
     tooltips,
@@ -253,9 +262,13 @@ export async function pushLive(
           entry.aliasKind === 'name',
       )
       .map(([hash]) => hash);
-    // Every recomputed live key needs its effective alias, even outside the selected roots.
+    // Every recomputed live key needs its effective alias, even outside the selected roots, and
+    // a removed member's retained stub needs its former canonical's.
+    const { removed } = loaded;
+    const former = oldNames.flatMap((hash) => removed?.[hash]?.canonical ?? []);
     loaded.aliases =
-      loaded.scope?.extend([...loaded.pickKeys, ...oldNames].map(Number)) ?? loaded.aliases;
+      loaded.scope?.extend([...[...loaded.pickKeys, ...oldNames].map(Number), ...former]) ??
+      loaded.aliases;
     const now = Date.now();
     let entries: ReturnType<typeof exportWithInactiveMoves>;
     try {
@@ -284,6 +297,8 @@ export async function pushLive(
           aliasKeys.length
             ? { keys: aliasKeys, aliases: loaded.aliases, catalog: loaded.facts }
             : undefined,
+          undefined,
+          removed,
         ),
         loaded.moves,
         canonicalHashes,

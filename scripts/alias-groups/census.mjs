@@ -4,7 +4,12 @@
 import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validator, snapshot, git, frozen, digest } from './cli.mjs';
-import { membershipKey, sameDocumentMetadata, uniqueProposals } from './selection.mjs';
+import {
+  membershipKey,
+  removedMembers,
+  sameDocumentMetadata,
+  uniqueProposals,
+} from './selection.mjs';
 
 const [data, inputs, armourPath, out, actorId, actorLogin, generatorHead] = process.argv.slice(2);
 if (!/^[0-9a-f]{40}$/.test(generatorHead))
@@ -21,7 +26,9 @@ const facts = Object.fromEntries(
   ]),
 );
 const before = snapshot(data, head);
-const removed = JSON.parse(before['config/alias-groups.json'] ?? '{}').removed ?? {};
+const config = before['config/alias-groups.json']
+  ? JSON.parse(before['config/alias-groups.json'])
+  : engine.emptyAliasGroups();
 const tooltips = Object.fromEntries(
   Object.entries(before)
     .filter(([path]) => path.startsWith('tooltips/'))
@@ -80,9 +87,8 @@ for (const proposal of proposals) {
     seenArmour.add(pairKey(proposal.members));
   }
   if (proposal.kind !== 'S') reasons.push('Cross-category groups are disabled by S1');
-  // A maintainer took this item out of its group: only a manual accept may regroup it.
-  for (const h of proposal.members)
-    if (Object.hasOwn(removed, h)) reasons.push(`${h} was removed from its group by a maintainer`);
+  for (const h of removedMembers(proposal.members, config))
+    reasons.push(`${h} was removed from its group by a maintainer`);
   if (!approvedPair) {
     // Empty inventory descriptions alone cannot prove identical in-game text.
     for (const [lang, doc] of Object.entries(localized)) {
@@ -169,9 +175,6 @@ const maintainer = permissions.users[actorId];
 if (maintainer?.role !== 'maintainer' || maintainer.login !== actorLogin)
   throw new Error('Explicit planned actor must match a pinned maintainer');
 const at = new Date().toISOString();
-const config = before['config/alias-groups.json']
-  ? JSON.parse(before['config/alias-groups.json'])
-  : engine.emptyAliasGroups();
 const picks = before['config/sandbox-pointers.json']
   ? JSON.parse(before['config/sandbox-pointers.json'])
   : undefined;

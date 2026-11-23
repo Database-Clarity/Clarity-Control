@@ -59,6 +59,51 @@ test('name reconciliation retargets existing incoming sandbox stubs on unrelated
   expect(mergeLivePerks(live, {})).toEqual(live);
 });
 
+test('a removed member keeps its live stubs until its own publish', () => {
+  const facts = { name: 'Perk', type: 'Weapon Trait' };
+  const catalog = { 42: facts, 43: facts, 50: facts };
+  const generated = { 700: { to: 43, kind: 'sandbox' as const } };
+  const grouped = { ...generated, 43: { to: 42, kind: 'name' as const } };
+  const canonical = { ...tooltip(), hash: 42 };
+  const live = {
+    ...exportLegacy([canonical, { ...tooltip(), hash: 50 }], 0, catalog, grouped),
+  };
+  const removed = {
+    43: { canonical: 42, by: { id: '1', login: 'a' }, at: '2026-11-23T00:00:00Z' },
+  };
+  const groups = { aliases: generated, catalog };
+  // An unrelated publish, and the canonical's own, change nothing for the unpublished member.
+  const other = exportLegacy([{ ...tooltip(), hash: 50 }], 0, catalog, generated);
+  expect(mergeLivePerks(live, other, undefined, groups, removed)).toEqual(live);
+  const main = exportLegacy([canonical], 0, catalog, generated);
+  expect(main).not.toHaveProperty('43');
+  expect(mergeLivePerks(live, main, undefined, groups, removed)).toEqual(live);
+  // The Worker's rollback push names its keys through the picks argument instead.
+  expect(
+    mergeLivePerks(live, other, { keys: ['43', '700'], ...groups }, undefined, removed),
+  ).toEqual(live);
+  // A later recanonicalization of the remaining group still resolves to its live record.
+  const flipped = { aliases: { ...generated, 42: { to: 50, kind: 'name' as const } }, catalog };
+  const moved = mergeLivePerks(live, other, undefined, flipped, removed);
+  expect([moved[43], moved[700]]).toMatchObject([{ aliasOf: 50 }, { aliasOf: 50 }]);
+  // Its own publish ends the fallback for good.
+  const own = exportLegacy([{ ...canonical, hash: 43 }], 0, catalog, generated);
+  const published = mergeLivePerks(live, own, undefined, groups, removed);
+  expect(published[43]).toEqual(own[43]);
+  expect(published[43]).not.toHaveProperty('aliasOf');
+  expect(published[700]).toEqual({ hash: 700, aliasOf: 43, aliasKind: 'sandbox' });
+  expect(mergeLivePerks(published, other, undefined, groups, removed)).toEqual(published);
+  // Bounds: no former live record, no manifest facts, or never live keeps the existing rule.
+  const gone = { 43: live[43], 50: live[50] };
+  expect(mergeLivePerks(gone, other, undefined, groups, removed)).not.toHaveProperty('43');
+  const unnamed = { aliases: generated, catalog: { 42: facts, 50: facts } };
+  expect(mergeLivePerks(live, other, undefined, unnamed, removed)).not.toHaveProperty('43');
+  const never = { 42: live[42], 50: live[50] };
+  expect(mergeLivePerks(never, other, undefined, groups, removed)).toEqual(never);
+  // Ungroup (no removal record) still drops the stubs.
+  expect(mergeLivePerks(live, other, undefined, groups)).not.toHaveProperty('43');
+});
+
 test.each(['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic'])(
   'passes %s markup unchanged into both consumer editor fields',
   (icon) => {

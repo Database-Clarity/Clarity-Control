@@ -795,6 +795,38 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(f.live()[124]).not.toHaveProperty('aliasOf');
   });
 
+  it('alias groups: a removed member stays live through other publishes until its own', async () => {
+    const f = await aliasSetup();
+    f.options.aliases = { 700: { to: 124, kind: 'sandbox' } };
+    await f.request(A, [123], { 123: await publishableHash(f.tooltip, f.aliases()) });
+    await f.pub.run();
+    f.assertDone(A);
+    expect(f.live()).toMatchObject({ 124: { aliasOf: 123 }, 700: { aliasOf: 123 } });
+    const copy = { ...f.tooltip, hash: 124 };
+    f.change(D, {
+      'config/alias-groups.json': {
+        version: 1,
+        groups: {},
+        rejected: {},
+        removed: {
+          124: { canonical: 123, by: { id: '1', login: 'alice' }, at: '2026-11-23T00:00:00Z' },
+        },
+      },
+      'tooltips/124.json': copy,
+    });
+    const before = { 124: f.live()[124], 700: f.live()[700] };
+    await f.request(B, [123], { 123: await publishableHash(f.tooltip, f.aliases()) });
+    await f.pub.run();
+    f.assertDone(B);
+    expect({ 124: f.live()[124], 700: f.live()[700] }).toEqual(before);
+    const C = A.slice(0, -1) + '3';
+    await f.request(C, [124], { 124: await publishableHash(copy, f.aliases()) });
+    await f.pub.run();
+    f.assertDone(C);
+    expect(f.live()[124]).not.toHaveProperty('aliasOf');
+    expect(f.live()[700]).toMatchObject({ aliasOf: 124, aliasKind: 'sandbox' });
+  });
+
   it.each(['missing', 'revision', 'partial', 'shape', 'drift', 'config', 'json'] as const)(
     'alias groups: fail closed on %s facts/config without touching live',
     async (invalid) => {
