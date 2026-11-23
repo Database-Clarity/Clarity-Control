@@ -95,11 +95,11 @@ export class LocalRepository implements Repository {
         .split('\0')
         .filter(Boolean)
         .map((line) => {
-          const [meta, path] = line.split('\t');
-          const [mode, type, oid] = meta.split(' ');
+          const tab = line.indexOf('\t');
+          const [mode, type, oid] = line.slice(0, tab).split(' ');
           if (!this.preserveModes && (mode !== '100644' || type !== 'blob'))
             throw new Error('Only plain blob trees supported');
-          return [path, oid];
+          return [line.slice(tab + 1), oid];
         }),
     );
     this.trees.set(commit, tree);

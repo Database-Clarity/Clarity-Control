@@ -74,6 +74,15 @@ it('simulator and real file:// Git implement the same publication CAS contract',
   const remote = new RemoteRepository(bare(), { fileUrl: pathToFileURL(bare()).href });
   expect(run(remote)).toEqual(run(simulator));
 });
+it('preserves complete Git paths and their modes when reading a tree', () => {
+  const repo = new RemoteRepository(bare(), { fileUrl: pathToFileURL(bare()).href });
+  const oid = repo.writeBlob('test data');
+  const filename = 'sample\tfilename';
+  const tree = repo.git(['mktree', '-z'], `100755 blob ${oid}\t${filename}\0`).trim();
+  const commit = repo.git(['commit-tree', tree], 'Example tree').trim();
+  expect(repo.tree(commit)).toEqual({ [filename]: oid });
+  expect(repo.treeModes(commit)).toEqual({ [filename]: '100755' });
+});
 it('local Git reads return real-size output beyond the 1 MiB child-process default', () => {
   // Phase B run 1 hit "spawnSync git ENOBUFS" on the real data repo; fixtures were too small.
   const repo = new LocalRepository(bare());

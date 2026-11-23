@@ -609,19 +609,77 @@ describe('dependency-safe global release', () => {
       f.globals.release(f.current(), f.git.head(D)!, [40], f.git.head(L)!),
     ).rejects.toThrow('review required');
   });
-  it('fails closed on a source race at atomic publication with no partial live write', async () => {
-    const f = await fixture();
-    await f.globals.drain();
-    f.approve(40);
-    await f.globals.drain();
-    await f.request([40]);
-    const before = f.git.head(L);
-    f.git.beforeAtomic = () => f.change({ 'tooltips/40.json': tooltip(40, '#Alpha raced') });
-    await f.pub.operation(A);
-    expect(f.git.head(L)).toBe(before);
-    expect(f.read(paths(A).log).result.status).toBe('rejected');
-    expect(f.read('globals/live/converter-v2-test.json').store).toEqual(f.published);
-  });
+  it.each(['beforeCas', 'beforeAtomic'] as const)(
+    'publishes 28 rows when its own kick advances data at %s',
+    async (race) => {
+      const f = await fixture();
+      const hashes = [42, ...Array.from({ length: 27 }, (_, index) => 100 + index)];
+      const changed = Object.fromEntries(
+        hashes.map((hash) => {
+          f.options.facts[hash] = { name: String(hash), type: 'Weapon Perk' };
+          return [`tooltips/${hash}.json`, tooltip(hash, `Changed text ${hash}`)];
+        }),
+      );
+      f.change(changed);
+      await f.globals.drain();
+      await f.request(hashes);
+      const kick = `publish/kicks/${A}-12345.json`;
+      f.git[race] = () => f.change({ [kick]: { opId: A } });
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result).toMatchObject({ status: 'done' });
+      expect(f.read(kick)).toEqual({ opId: A });
+      const live = f.pub.read<{ perks: Record<number, unknown> }>(
+        f.git.tree(f.git.head(L)!),
+        'liveDescriptions.json',
+      );
+      for (const hash of hashes) {
+        expect(live?.perks[hash]).toMatchObject({
+          editor: { en: { main: `Changed text ${hash}` } },
+        });
+      }
+    },
+  );
+  it.each([
+    ['a tooltip edit', { 'tooltips/40.json': tooltip(40, '#Alpha raced') }],
+    ['an unrelated addition', { toString: { other: true } }],
+  ] as const)(
+    'fails closed when a kick races with %s, with no partial live write',
+    async (_label, changes) => {
+      const f = await fixture();
+      await f.globals.drain();
+      f.approve(40);
+      await f.globals.drain();
+      await f.request([40]);
+      const before = f.git.head(L);
+      f.git.beforeAtomic = () =>
+        f.change({ [`publish/kicks/${A}-12345.json`]: { opId: A }, ...changes });
+      await f.pub.operation(A);
+      expect(f.git.head(L)).toBe(before);
+      expect(f.read(paths(A).log).result.status).toBe('rejected');
+      expect(f.read('globals/live/converter-v2-test.json').store).toEqual(f.published);
+    },
+  );
+  it.each(['100755', undefined])(
+    'rejects a retry kick with mode %s from a mode-aware adapter',
+    async (mode) => {
+      const f = await fixture();
+      const git: Repository = f.git;
+      const kick = `publish/kicks/${A}-12345.json`;
+      git.treeModes = (head) => {
+        const modes = Object.fromEntries(Object.keys(git.tree(head)).map((path) => [path, '100644']));
+        if (mode) modes[kick] = mode;
+        else delete modes[kick];
+        return modes;
+      };
+      await f.globals.drain();
+      await f.request([42]);
+      const live = git.head(L);
+      f.git.beforeAtomic = () => f.change({ [kick]: { opId: A } });
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toBe('rejected');
+      expect(git.head(L)).toBe(live);
+    },
+  );
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();
     await f.globals.drain();

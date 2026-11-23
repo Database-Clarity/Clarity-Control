@@ -665,6 +665,24 @@ export class Publisher {
     };
     return this.git.commit(parent, tree, `Publish ${r.opId}`, this.credits(r.requestBlob, r.opId));
   }
+  private onlyAddedPublishKicks(source: string, head: string, tree: Tree, opId: string) {
+    if (!this.git.ancestor(source, head)) return false;
+    const reviewed = this.git.tree(source);
+    const reviewedModes = this.git.treeModes?.(source);
+    const currentModes = this.git.treeModes?.(head);
+    const kick = new RegExp(`^publish/kicks/${opId}-[0-9]+\\.json$`);
+    const added = Object.keys(tree).filter((path) => !Object.hasOwn(reviewed, path));
+    return (
+      added.length > 0 &&
+      added.every((path) => kick.test(path) && (!currentModes || currentModes[path] === '100644')) &&
+      Object.entries(reviewed).every(
+        ([path, oid]) =>
+          tree[path] === oid &&
+          (!currentModes ||
+            (Object.hasOwn(currentModes, path) && currentModes[path] === reviewedModes?.[path])),
+      )
+    );
+  }
   async record(
     opId: string,
     receipt: Receipt | undefined,
@@ -695,6 +713,14 @@ export class Publisher {
         if (!receipt || !this.git.casMany)
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
         const signed = await this.verifyRequest(receipt.requestBlob, opId, tree);
+        const source = receipt.sourceCommit;
+        // A manual retry kick only wakes the publisher. Keep validating the original
+        // head-bound release if those new files are the entire change to data.
+        if (
+          source !== h &&
+          (signed.kind === 'batch' || !this.onlyAddedPublishKicks(source, h, tree, opId))
+        )
+          throw new ConsumerOutputRejected('Global receipt identity mismatch');
         let documents: Tooltip[] | undefined;
         if (signed.kind === 'batch') {
           const plan = await this.batchPlan(
@@ -716,12 +742,11 @@ export class Publisher {
           documents = await new GlobalsPublisher(this).validate(
             receipt.globals,
             tree,
-            h,
+            source,
             atomicLive.parent,
           );
         if (
           !documents ||
-          receipt.sourceCommit !== h ||
           stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots) ||
           stableStringify(signed.requester) !== stableStringify(receipt.requester) ||
           receipt.publisherSha !== this.options.publisherSha ||
