@@ -668,15 +668,18 @@ export class Publisher {
   private onlyAddedPublishKicks(source: string, head: string, tree: Tree, opId: string) {
     if (!this.git.ancestor(source, head)) return false;
     const reviewed = this.git.tree(source);
-    const reviewedModes = this.git.treeModes?.(source) ?? {};
-    const currentModes = this.git.treeModes?.(head) ?? {};
+    const reviewedModes = this.git.treeModes?.(source);
+    const currentModes = this.git.treeModes?.(head);
     const kick = new RegExp(`^publish/kicks/${opId}-[0-9]+\\.json$`);
     const added = Object.keys(tree).filter((path) => !Object.hasOwn(reviewed, path));
     return (
       added.length > 0 &&
-      added.every((path) => kick.test(path) && (currentModes[path] ?? '100644') === '100644') &&
+      added.every((path) => kick.test(path) && (!currentModes || currentModes[path] === '100644')) &&
       Object.entries(reviewed).every(
-        ([path, oid]) => tree[path] === oid && currentModes[path] === reviewedModes[path],
+        ([path, oid]) =>
+          tree[path] === oid &&
+          (!currentModes ||
+            (Object.hasOwn(currentModes, path) && currentModes[path] === reviewedModes?.[path])),
       )
     );
   }

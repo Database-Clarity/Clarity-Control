@@ -659,6 +659,27 @@ describe('dependency-safe global release', () => {
       expect(f.read('globals/live/converter-v2-test.json').store).toEqual(f.published);
     },
   );
+  it.each(['100755', undefined])(
+    'rejects a retry kick with mode %s from a mode-aware adapter',
+    async (mode) => {
+      const f = await fixture();
+      const git: Repository = f.git;
+      const kick = `publish/kicks/${A}-12345.json`;
+      git.treeModes = (head) => {
+        const modes = Object.fromEntries(Object.keys(git.tree(head)).map((path) => [path, '100644']));
+        if (mode) modes[kick] = mode;
+        else delete modes[kick];
+        return modes;
+      };
+      await f.globals.drain();
+      await f.request([42]);
+      const live = git.head(L);
+      f.git.beforeAtomic = () => f.change({ [kick]: { opId: A } });
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toBe('rejected');
+      expect(git.head(L)).toBe(live);
+    },
+  );
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();
     await f.globals.drain();
