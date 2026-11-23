@@ -24066,11 +24066,11 @@ var LocalRepository = class {
     if (cached2) return { ...cached2 };
     const tree = Object.fromEntries(
       this.git(["ls-tree", "-rz", "--full-tree", commit2]).split("\0").filter(Boolean).map((line) => {
-        const [meta3, path] = line.split("	");
-        const [mode, type, oid4] = meta3.split(" ");
+        const tab = line.indexOf("	");
+        const [mode, type, oid4] = line.slice(0, tab).split(" ");
         if (!this.preserveModes && (mode !== "100644" || type !== "blob"))
           throw new Error("Only plain blob trees supported");
-        return [path, oid4];
+        return [line.slice(tab + 1), oid4];
       })
     );
     this.trees.set(commit2, tree);
@@ -33358,12 +33358,12 @@ var Publisher = class _Publisher {
   onlyAddedPublishKicks(source2, head, tree, opId) {
     if (!this.git.ancestor(source2, head)) return false;
     const reviewed = this.git.tree(source2);
-    const reviewedModes = this.git.treeModes?.(source2) ?? {};
-    const currentModes = this.git.treeModes?.(head) ?? {};
+    const reviewedModes = this.git.treeModes?.(source2);
+    const currentModes = this.git.treeModes?.(head);
     const kick = new RegExp(`^publish/kicks/${opId}-[0-9]+\\.json$`);
     const added = Object.keys(tree).filter((path) => !Object.hasOwn(reviewed, path));
-    return added.length > 0 && added.every((path) => kick.test(path) && (currentModes[path] ?? "100644") === "100644") && Object.entries(reviewed).every(
-      ([path, oid4]) => tree[path] === oid4 && currentModes[path] === reviewedModes[path]
+    return added.length > 0 && added.every((path) => kick.test(path) && (!currentModes || currentModes[path] === "100644")) && Object.entries(reviewed).every(
+      ([path, oid4]) => tree[path] === oid4 && (!currentModes || Object.hasOwn(currentModes, path) && currentModes[path] === reviewedModes?.[path])
     );
   }
   async record(opId, receipt, candidate, result, requestBlob, landing, atomicLive) {
