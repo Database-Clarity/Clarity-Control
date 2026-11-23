@@ -82,6 +82,7 @@ beforeEach(async () => {
     GENERATOR_BRANCH: 'v2',
   } as GitHub['env']);
   vi.spyOn(repo, 'head').mockImplementation(async () => head);
+  vi.spyOn(repo, 'generatorRevision').mockResolvedValue(sha(100));
   vi.spyOn(repo, 'file').mockImplementation(async (path) => read(path));
   vi.spyOn(repo, 'files').mockImplementation(async (paths) => paths.map(read));
   vi.spyOn(repo, 'publishSnapshot').mockImplementation(async () => ({
@@ -689,5 +690,43 @@ it('refuses removal for a shared sandbox perk, the main entry, an old publisher,
     run([{ op: 'removeMember', canonical: 42, member: 45 } as AliasGroupOperation]),
   ).rejects.toMatchObject({ status: 422 });
   await expect(run([op], { id: 2, login: 'other' })).rejects.toMatchObject({ status: 403 });
+  // One removal per request: it runs on the scoped path, outside the batch.
+  generated = {};
+  await expect(run([op, await intent('reject', [44, 45])])).rejects.toMatchObject({ status: 422 });
+  await expect(run([op], actor, sha(1))).rejects.toMatchObject({ status: 409 });
   expect(writes).toHaveBeenCalledTimes(1);
+});
+
+it('refuses removing a base member that would disable an accepted enhanced group', async () => {
+  await put('.publisher/PIN', { capabilities: ['aliasGroups', 'aliasGroupRemovals'] });
+  for (const [hash, baseHash] of [
+    [52, 42],
+    [53, 43],
+  ] as const)
+    items[hash] = {
+      ...item(hash),
+      name: 'Enhanced name',
+      categoryId: 'weapon-trait-enhanced',
+      isEnhanced: true,
+      baseHash,
+    };
+  await run([await intent()]);
+  await run([await intent('accept', [52, 53])]);
+  const op = { op: 'removeMember', canonical: 42, member: 43 } as const;
+  await expect(run([op])).rejects.toMatchObject({
+    status: 409,
+    details: [expect.stringContaining('no longer shares the canonical base group')],
+  });
+  expect(writes).toHaveBeenCalledTimes(2);
+  await run([{ op: 'removeMember', canonical: 52, member: 53 }]);
+  expect((await run([op])).config.groups).toEqual({});
+});
+
+it('answers the confirm with the CAS head alone, for maintainers only', async () => {
+  const request = new Request('https://api.example/alias-groups?head=1');
+  expect(await (await aliasGroupsRoute(request, repo, actor)).json()).toEqual({ head });
+  expect(generatorUrls).toEqual([]);
+  await expect(aliasGroupsRoute(request, repo, { id: 2, login: 'o' })).rejects.toMatchObject({
+    status: 403,
+  });
 });

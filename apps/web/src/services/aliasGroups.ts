@@ -1,8 +1,11 @@
 import { aliasGroupsResponseSchema, type AliasGroupsResponse } from '@clarity/core';
+import { z } from 'zod';
 import { apiRequest } from './api';
 
-async function checked(response: Response): Promise<AliasGroupsResponse> {
-  if (response.ok) return aliasGroupsResponseSchema.parse(await response.json());
+const headSchema = z.object({ head: aliasGroupsResponseSchema.shape.head });
+
+async function checked<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
+  if (response.ok) return schema.parse(await response.json());
   let detail = `HTTP ${response.status}`;
   try {
     const value = (await response.json()) as { error?: string };
@@ -13,13 +16,18 @@ async function checked(response: Response): Promise<AliasGroupsResponse> {
   throw new Error(detail);
 }
 
-/** The maintainer snapshot of accepted groups; its head is the CAS for the next change. */
-export async function getAliasGroups(signal?: AbortSignal) {
-  return checked(await apiRequest('/alias-groups', { signal }));
+/** The data head a removal's confirm was opened at: its CAS (the Worker refuses a moved head). */
+export async function getAliasGroupsHead(signal?: AbortSignal): Promise<string> {
+  const response = await apiRequest('/alias-groups?head=1', { signal });
+  return (await checked(response, headSchema)).head;
 }
 
 /** Take one non-canonical member out of its group (it starts as a copy of the group's text). */
-export async function removeGroupMember(expectedHead: string, canonical: number, member: number) {
+export async function removeGroupMember(
+  expectedHead: string,
+  canonical: number,
+  member: number,
+): Promise<AliasGroupsResponse> {
   return checked(
     await apiRequest('/alias-groups', {
       method: 'POST',
@@ -29,5 +37,6 @@ export async function removeGroupMember(expectedHead: string, canonical: number,
         ops: [{ op: 'removeMember', canonical, member }],
       }),
     }),
+    aliasGroupsResponseSchema,
   );
 }

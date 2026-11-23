@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { sharedSandboxPerks, type AliasGroupsResponse } from '@clarity/core';
+import { sharedSandboxPerks } from '@clarity/core';
 import { apiUrl } from '../../services/api';
-import { getAliasGroups, removeGroupMember } from '../../services/aliasGroups';
+import { getAliasGroupsHead, removeGroupMember } from '../../services/aliasGroups';
 import { useAuthStore } from '../../stores/auth';
 import { applyAliasGroups, useDataStore } from '../../stores/data';
 import { Popover } from '../../ui/Popover';
@@ -25,7 +25,7 @@ export function GroupRemoveControl({
   const token = useAuthStore((state) => state.token);
   const data = useDataStore((state) => state.data);
   const [open, setOpen] = useState(false);
-  const [loaded, setLoaded] = useState<AliasGroupsResponse | null>(null);
+  const [head, setHead] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const savingRef = useRef(false);
@@ -37,13 +37,13 @@ export function GroupRemoveControl({
     !!group?.members.includes(hash) &&
     hash !== canonical;
   useEffect(() => {
-    setLoaded(null);
+    setHead(null);
     setError(null);
     if (!open || !allowed) return;
     const abort = new AbortController();
-    void getAliasGroups(abort.signal).then(
+    void getAliasGroupsHead(abort.signal).then(
       (value) => {
-        if (!abort.signal.aborted) setLoaded(value);
+        if (!abort.signal.aborted) setHead(value);
       },
       (reason: unknown) => {
         if (!abort.signal.aborted)
@@ -69,13 +69,13 @@ export function GroupRemoveControl({
       </span>
     );
   const save = async () => {
-    if (!loaded || savingRef.current) return;
+    if (!head || savingRef.current) return;
     const identity = useAuthStore.getState();
     savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
-      const result = await removeGroupMember(loaded.head, canonical, hash);
+      const result = await removeGroupMember(head, canonical, hash);
       const current = useAuthStore.getState();
       if (current.user !== identity.user || current.token !== identity.token) return;
       // The removal is saved from here on: nothing below may report it as failed.
@@ -85,7 +85,7 @@ export function GroupRemoveControl({
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Cannot remove from group');
       // A conflict requires closing and reopening for a fresh head and confirmation.
-      setLoaded(null);
+      setHead(null);
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -116,12 +116,12 @@ export function GroupRemoveControl({
               {error.replace(/[.!?]?$/, '.')} Close and reopen to reload, then try again.
             </p>
           )}
-          {!loaded && !error && <p role="status">Loading current groups…</p>}
+          {!head && !error && <p role="status">Checking the saved groups…</p>}
           <div className={styles.actions}>
             <button type="button" data-autofocus onClick={() => close()}>
               Cancel
             </button>
-            <button type="button" disabled={!loaded || saving} onClick={() => void save()}>
+            <button type="button" disabled={!head || saving} onClick={() => void save()}>
               {saving ? 'Removing…' : 'Remove'}
             </button>
           </div>

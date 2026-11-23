@@ -5,12 +5,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { emptyAliasGroups, type AliasGroups, type Tooltip } from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
-import { getAliasGroups, removeGroupMember } from '../../services/aliasGroups';
+import { getAliasGroupsHead, removeGroupMember } from '../../services/aliasGroups';
 import { GroupRemoveControl } from './GroupRemoveControl';
 
 vi.mock('../../services/api', () => ({ apiUrl: 'https://api.test' }));
 vi.mock('../../services/aliasGroups', () => ({
-  getAliasGroups: vi.fn(),
+  getAliasGroupsHead: vi.fn(),
   removeGroupMember: vi.fn(),
 }));
 vi.mock('../../ui/interaction', () => ({ useWorkspaceShortcutOwner: vi.fn() }));
@@ -80,12 +80,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false }));
   useAuthStore.setState({ user: { id: 1, login: 'alice', role: 'maintainer' }, token: 'token' });
   seed();
-  vi.mocked(getAliasGroups).mockResolvedValue({
-    head,
-    config: groups,
-    issues: [],
-    affectedCanonicals: [],
-  });
+  vi.mocked(getAliasGroupsHead).mockResolvedValue(head);
   vi.mocked(removeGroupMember).mockResolvedValue({
     head: 'b'.repeat(40),
     config: {
@@ -131,7 +126,7 @@ it('offers nothing for the main entry, editors, or translators', async () => {
     await render();
     expect(host.textContent).toBe('');
   }
-  expect(getAliasGroups).not.toHaveBeenCalled();
+  expect(getAliasGroupsHead).not.toHaveBeenCalled();
 });
 
 it('shows the refusal instead of the action for a shared sandbox perk', async () => {
