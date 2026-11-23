@@ -417,7 +417,7 @@ export function createGlobalsFixture(
           ...header(),
           entry: structuredClone(changed),
           ...(mutation.operation === 'rename'
-            ? { renameCompleted: false as const, intentId: `intent-${revision}` }
+            ? { renameCompleted: false as const, intentId: `cause-${revision - 1}` }
             : {}),
         },
       };

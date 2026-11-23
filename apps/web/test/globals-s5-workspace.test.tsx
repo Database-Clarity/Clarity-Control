@@ -175,12 +175,18 @@ it('renders the definition while only the opened entry reviews wait, fail, and r
   expect(host.textContent).toContain('Loading reviews…');
   expect(host.textContent).not.toContain('No affected consumers.');
   expect(readEntry).toHaveBeenCalledExactlyOnceWith('g_title00001');
+  await act(async () => button('Actions').click());
+  expect(document.querySelector('[role="dialog"][aria-label="Global actions"]')).not.toBeNull();
+  expect(button('Rename').disabled).toBe(true);
+  await act(async () => button('Actions').click());
   await act(async () => finish({ kind: 'retry', message: 'Review request failed' }));
   expect(host.textContent).toContain('Review request failed');
   readEntry.mockResolvedValueOnce({ kind: 'ok', value: globalFixtureSnapshot });
   await act(async () => button('Retry reviews').click());
   expect(host.textContent).not.toContain('Loading reviews…');
   expect(readEntry).toHaveBeenCalledTimes(2);
+  await act(async () => button('Actions').click());
+  expect(button('Rename').disabled).toBe(false);
 });
 
 it('recovers reviews after the head moved past the catalogue: Retry reads a fresh snapshot', async () => {

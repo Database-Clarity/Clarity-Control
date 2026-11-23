@@ -92,7 +92,6 @@ export function globalsSession() {
       useAuthStore.getState().token === token &&
       useAuthStore.getState().user?.role === role;
     const service = createGlobalsService(transport, {
-      destinations: ['live'],
       catalog: bundleCatalog,
       onCatalog(entries) {
         if (current()) rememberGlobalIdentities(entries);
@@ -120,7 +119,6 @@ export function globalsSession() {
       token,
       role,
       transport,
-      // One configured publication destination (S4 contract v1); its sync header is the repository's.
       service: {
         ...service,
         read: () => catalogueResult(service.read(), ++catalogueRequest),

@@ -146,7 +146,9 @@ try {
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('DamageNew');
   await page.getByRole('textbox', { name: 'Name', exact: true }).press('Enter');
   await page.getByRole('heading', { name: 'Damage', exact: true }).waitFor();
-  await page.getByText('Rename queued; not complete.', { exact: true }).waitFor();
+  await page
+    .getByText('Rename queued. Refresh to check whether it applied.', { exact: false })
+    .waitFor();
   await page.screenshot({ path: resolve(output, 'rename-queued-1280.png'), fullPage: true });
   await completeSync();
   await page.getByRole('heading', { name: 'DamageNew', exact: true }).waitFor();

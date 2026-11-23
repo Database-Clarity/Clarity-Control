@@ -126,9 +126,8 @@ export interface GlobalSnapshot {
   causeEntries?: Record<string, string>;
 }
 /**
- * A queued rename. `name` is the requested name; once sync is current an intent whose entry does
- * not carry that name was refused (stale intent, S4 R2) and reads `not-applied` until the next
- * current refresh.
+ * A queued rename. When its cause clears, the Worker entry confirms the new name or the UI
+ * shows `not-applied` until the rename is requested again.
  */
 export interface GlobalRenameIntent {
   intentId: string;
@@ -209,6 +208,7 @@ export interface GlobalHttpState extends GlobalSyncState {
   version: 1;
   sources?: GlobalSourcePins;
   causeEntries?: Record<string, string>;
+  destinationSync?: GlobalSnapshot['destinationSync'];
 }
 /** The whole catalogue at one head: the editor-data bundle's globals at its sourceCommit. */
 export interface GlobalCatalog extends GlobalHttpState {
@@ -247,7 +247,7 @@ export interface GlobalsTransport {
 export function createGlobalsService(
   transport: GlobalsTransport,
   options: {
-    destinations: readonly string[];
+    destinations?: readonly string[];
     catalog(): Promise<GlobalResult<GlobalCatalog>>;
     initialSnapshot?: GlobalSnapshot;
     onCatalog?(entries: readonly GlobalEntry[]): void;
@@ -289,6 +289,7 @@ export function createGlobalsService(
     a.status === b.status &&
     a.lastFailure === b.lastFailure &&
     JSON.stringify(a.causeIds) === JSON.stringify(b.causeIds) &&
+    JSON.stringify(a.destinationSync) === JSON.stringify(b.destinationSync) &&
     sourceKey(a.sources) === sourceKey(b.sources);
   /**
    * `intents`: the one entry whose queued rename this header may settle, from that entry's
@@ -301,22 +302,17 @@ export function createGlobalsService(
     next.causeEntries =
       header.status === 'current' ? {} : { ...next.causeEntries, ...header.causeEntries };
     next.sync = Object.fromEntries(next.entries.map((entry) => [entry.id, state(header)]));
-    next.destinationSync = Object.fromEntries(
-      options.destinations.map((destination) => [destination, state(header)]),
-    );
-    if (header.status === 'current' && intents !== 'none')
+    next.destinationSync =
+      header.destinationSync ??
+      Object.fromEntries(
+        (options.destinations ?? []).map((destination) => [destination, state(header)]),
+      );
+    if (intents !== 'none')
       next.renameIntents = Object.fromEntries(
         Object.entries(next.renameIntents ?? {}).flatMap(([id, intent]) => {
-          if (id !== intents) return [[id, intent]];
+          if (id !== intents || header.causeIds.includes(intent.intentId)) return [[id, intent]];
           const entry = next.entries.find((item) => item.id === id);
-          // Reported once already, or applied (or no requested name to compare): cleared.
-          if (
-            intent.status === 'not-applied' ||
-            !intent.name ||
-            !entry ||
-            entry.name === intent.name
-          )
-            return [];
+          if (!intent.name || !entry || entry.name === intent.name) return [];
           return [[id, { ...intent, status: 'not-applied' as const }]];
         }),
       );
@@ -501,8 +497,7 @@ export function createGlobalsService(
       // A newer head than the catalogue's: reviews read at the older head are no longer current.
       if (entry.value.head !== cached.head) next.impacts = {};
       mergeEntry(next, entry.value.entry);
-      // The Worker's current state settles this entry's queued rename (one step per read, so
-      // a "not applied" report shows until the next Refresh).
+      // Only the Worker's entry and pending causes can settle this entry's queued rename.
       applyState(next, entry.value, id);
       if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
         const rows = await readReviews(id, entry.value, token, firstReviews);
