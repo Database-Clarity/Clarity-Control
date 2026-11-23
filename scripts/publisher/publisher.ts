@@ -737,7 +737,7 @@ export class Publisher {
         );
     }
   }
-  private async verifyReceiptDigests(receipt: Receipt) {
+  private async verifyReceiptDigests(receipt: Receipt, atomic = false) {
     const frozen = this.git.tree(receipt.sourceCommit);
     const signed = await this.verifyRequest(receipt.requestBlob, receipt.opId, frozen);
     const options =
@@ -745,8 +745,17 @@ export class Publisher {
         ? this.options
         : this.read<Options>(frozen, '.publisher/config.json');
     if (options?.generatorSha !== receipt.generatorSha)
-      throw new ConsumerOutputRejected('Missing pinned generator facts for the publication receipt');
+      throw new ConsumerOutputRejected(
+        'Missing pinned generator facts for the publication receipt',
+      );
     const aliases = this.aliasesAt(frozen, options);
+    const moves = this.movesAt(frozen);
+    const pushed = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
+    if (
+      signed.intentDigest !== receipt.intentDigest ||
+      stableStringify(signed.requester) !== stableStringify(receipt.requester)
+    )
+      throw new ConsumerOutputRejected('Receipt does not match the signed publication intent');
     if (
       !receipt.globals &&
       receipt.entries.length !==
@@ -768,8 +777,6 @@ export class Publisher {
         (await approvedDigest(members)) !== signed.approvedDigest
       )
         throw new ConsumerOutputRejected('Batch receipt differs from the signed request');
-      const pushed = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
-      const moves = this.movesAt(frozen);
       const expected = new Map<number, string>();
       const entries = new Map(receipt.entries.map((entry) => [entry.hash, entry]));
       for (const member of members) {
@@ -800,6 +807,52 @@ export class Publisher {
         aliases,
       );
     }
+    // Atomic RECORD checks these bytes against the approved composition at the current head.
+    if (atomic) return;
+    // Recovery verifies the frozen bytes independently of the receipt's claimed markers.
+    try {
+      const documents: Tooltip[] = [];
+      for (const entry of receipt.entries) {
+        const document = tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob)));
+        if (
+          document.hash !== entry.hash ||
+          (await inactivePublishableHash(document, aliases, moves)) !== entry.digest
+        )
+          throw new Error(`Tooltip ${entry.hash} does not match its receipt marker`);
+        if (signed.kind === 'push' && !receipt.globals) {
+          const source =
+            this.read<unknown>(frozen, `tooltips/${entry.hash}.json`) ??
+            (isMovedInactive(entry.hash, moves)
+              ? { hash: entry.hash, text: {}, associated: [] }
+              : undefined);
+          if (stableStringify(document) !== stableStringify(tooltipSchema.parse(source)))
+            throw new Error(`Tooltip ${entry.hash} does not match the frozen source snapshot`);
+        }
+        documents.push(document);
+      }
+      const exported = exportWithInactiveMoves(
+        documents,
+        receipt.now,
+        options.facts,
+        aliases,
+        selectedInactiveMoves(
+          moves,
+          documents.map(({ hash }) => hash),
+          aliases,
+        ),
+      );
+      if (
+        stableStringify(exported) !== stableStringify(receipt.exported) ||
+        stableStringify(
+          receipt.entries
+            .filter(({ hash, digest }) => pushed[hash] !== digest)
+            .map(({ hash }) => hash),
+        ) !== stableStringify(receipt.changed)
+      )
+        throw new Error('Publication receipt export or upload markers differ from its snapshots');
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
   }
   async record(
     opId: string,
@@ -811,7 +864,7 @@ export class Publisher {
     atomicLive?: { parent: string; candidate: string },
   ) {
     const p = paths(opId);
-    if (receipt) await this.verifyReceiptDigests(receipt);
+    if (receipt) await this.verifyReceiptDigests(receipt, atomicLive !== undefined);
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch),
         tree = this.git.tree(h);

@@ -515,6 +515,43 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     });
   });
 
+  it.each([
+    ['snapshot', false],
+    ['metadata', false],
+    ['export', false],
+    ['export', true],
+  ] as const)(
+    'rejects a receipt with a valid signed marker and a mismatched %s (landed=%s)',
+    async (part, landed) => {
+      const f = await setup();
+      await f.request(A);
+      const create = f.pub.createCandidate.bind(f.pub);
+      f.pub.createCandidate = (opId, blob, live, receipt) => {
+        const changed = structuredClone(f.tooltip);
+        if (part === 'metadata') changed.text.en!.updatedBy = 'someone-else';
+        else changed.text.en!.text = 'different text';
+        if (part !== 'export') receipt.entries[0].tooltipBlob = f.git.writeBlob(encode(changed));
+        if (part !== 'snapshot')
+          receipt.exported = exportLegacy([changed], receipt.now, f.options.facts);
+        const candidate = create(opId, blob, live, receipt);
+        if (landed) f.git.cas(L, live, candidate.c);
+        return candidate;
+      };
+      const live = f.git.head(L);
+      await f.pub.operation(A);
+      expect(f.git.head(L) === live).toBe(!landed);
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+        result: {
+          status: 'rejected',
+          error: expect.stringMatching(
+            /receipt marker|frozen source snapshot|export or upload markers/,
+          ),
+        },
+      });
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), 'live/pushed.json')).toEqual({});
+    },
+  );
+
   it.each([true, false])(
     'inactive: an unrelated publish cannot restore an absent pick stub (inactive=%s)',
     async (inactive) => {
