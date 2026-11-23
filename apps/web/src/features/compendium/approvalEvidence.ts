@@ -1,5 +1,6 @@
 import {
   compendiumCellSchema,
+  normaliseCompendiumName,
   resolveCompendiumLink,
   type CompendiumCell,
   type CompendiumData,
@@ -53,8 +54,14 @@ export function approvalEvidence(
   return approvalCell(reference.link.snapshot);
 }
 
-type Proof = { name: string; cellEvidence: string };
-const proofs: Record<string, { gid: string; name: string; categoryId: string; rows: Proof[] }> = {
+interface Proof {
+  gid: string;
+  name: string;
+  categoryId: string;
+  mode?: string;
+  rows: { name: string; cellEvidence: string }[];
+}
+const proofs: Record<string, Proof> = {
   ...reviewed.verified,
   ...Object.fromEntries(
     Object.entries(reviewed.reapproved).map(([hash, record]) => [
@@ -63,6 +70,20 @@ const proofs: Record<string, { gid: string; name: string; categoryId: string; ro
     ]),
   ),
 };
+
+/** Whether the approved rows are still the source, as reviewedOwnerDecision reads them. */
+function proofHolds({ gid, mode, rows: approved }: Proof, source: CompendiumData) {
+  const key = (name: string, evidence: string) => JSON.stringify([name, evidence]);
+  const name = normaliseCompendiumName(approved[0].name);
+  const now = (source.tabs.find((tab) => tab.gid === gid)?.rows ?? [])
+    .filter((row) => row.nameNorm === name)
+    .map((row) => key(row.name, sourceFingerprint(row.cell)));
+  const then = approved.map((row) => key(row.name, row.cellEvidence));
+  // A verified source is all of its rows; a re-approved row or armour card is the one named.
+  return mode === 'multi' || mode === 'single'
+    ? now.length === then.length && now.sort().join() === then.sort().join()
+    : now.includes(then[0]);
+}
 
 /** The link the owner approved for this entry, as it was then. */
 export function approvedLink({
@@ -83,15 +104,9 @@ export function approvedSourceChanged(
   entry: { hash: number; name: string; category: string },
   source: CompendiumData,
 ): boolean {
-  const { hash, name, category } = entry;
-  const proof = proofs[hash];
-  if (proof?.name === name && proof.categoryId === `catalog:${category}`) {
-    const rows = source.tabs.find((tab) => tab.gid === proof.gid)?.rows ?? [];
-    return proof.rows.some(
-      ({ name, cellEvidence }) =>
-        !rows.some((row) => row.name === name && sourceFingerprint(row.cell) === cellEvidence),
-    );
-  }
+  const proof = proofs[entry.hash];
+  if (proof?.name === entry.name && proof.categoryId === `catalog:${entry.category}`)
+    return !proofHolds(proof, source);
   const link = approvedLink(entry);
   return !!link && sourceNeedsUpdate(resolveCompendiumLink(link, source));
 }

@@ -146,7 +146,7 @@ export function CompendiumTab() {
       )}
       {error && <InlineAlert onRetry={() => void load(true)}>{plainError(error)}</InlineAlert>}
       {display.error && <InlineAlert>{plainError(display.error)}</InlineAlert>}
-      {linked && editor && data && <CompendiumPage />}
+      {linked && editor && <CompendiumPage />}
       {editor && data && (ready || early) && !showSkeleton ? (
         <Workspace
           key={storageKey}

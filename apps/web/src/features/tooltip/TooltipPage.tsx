@@ -968,10 +968,12 @@ function TooltipWorkspace({
         header={header}
         initialPanel={readOnly ? 'preview' : undefined}
         openCompendium={
-          (routeState as { pane?: unknown } | null)?.pane === 'compendium' ||
-          (work?.mode === 'active' && work.queue.source === 'parity')
-            ? routeState
-            : undefined
+          // A parity run opens it once: stepping keeps the view the user is in.
+          work?.mode === 'active' && work.queue.source === 'parity'
+            ? work.queue.id
+            : (routeState as { pane?: unknown } | null)?.pane === 'compendium'
+              ? routeState
+              : undefined
         }
         source={
           lang === 'en' || (batchEditing && !batchAllowed) ? undefined : batchEditing ? (

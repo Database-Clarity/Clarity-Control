@@ -122,7 +122,26 @@ export function useReviewProgress(storageKey: string) {
     // Authored review decisions retain their existing immediate durability guarantee.
     removePending(storageKey);
     try {
-      const serialized = JSON.stringify(next);
+      // Another tab may have decided other entries since: write only what changed here.
+      const raw = localStorage.getItem(storageKey);
+      let stored = previous.decisions;
+      try {
+        stored = readProgress({ getItem: () => raw }, storageKey).decisions;
+      } catch {
+        // An unreadable record (already reported) is replaced, as before.
+      }
+      const merged = { ...next, decisions: { ...stored } };
+      for (const hash of new Set([
+        ...Object.keys(previous.decisions),
+        ...Object.keys(next.decisions),
+      ])) {
+        if (next.decisions[hash] === previous.decisions[hash]) continue;
+        if (next.decisions[hash]) merged.decisions[hash] = next.decisions[hash];
+        else delete merged.decisions[hash];
+      }
+      current.current = merged;
+      setProgress(merged);
+      const serialized = JSON.stringify(merged);
       if (localStorage.getItem(storageKey) !== serialized) {
         localStorage.setItem(storageKey, serialized);
         notifyCompendiumInputs(storageKey);

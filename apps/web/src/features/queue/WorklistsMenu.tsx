@@ -441,8 +441,8 @@ export function ParityWorklistView({
         <span>{items ? items.length : failed ? 'Unavailable' : 'Loading…'}</span>
       </button>
       <p>
-        Linked Compendium text changed since the last English save or review. Save English or mark
-        the source as reviewed to finish an entry.
+        Linked Compendium text or styling changed since the last English save or review. Save
+        English or mark the source as reviewed to finish an entry.
       </p>
     </>
   );

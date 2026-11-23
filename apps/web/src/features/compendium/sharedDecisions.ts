@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { resolveAlias, type Aliases } from '@clarity/core';
 import type { MarkAction, Marks } from '@clarity/core/marks';
-import { apiUrl } from '../../services/api';
+import { apiUrl, type User } from '../../services/api';
 import { errorMessage } from '../../services/http';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
@@ -22,7 +22,7 @@ export interface SharedDecision {
 export type SharedDecisions = ReadonlyMap<number, SharedDecision>;
 type Saved = Record<string, Required<SharedDecision>>;
 const savedIn = (marks: Marks) => (marks as Marks & { compendium?: Saved }).compendium;
-/** Entries per request; larger sets are split. */
+/** Hashes per request; larger sets are split. */
 const batchSize = 200;
 
 /** An entry grouped after its decision was made shows it on its main entry. */
@@ -34,28 +34,29 @@ function mainEntry(hash: number, aliases: Aliases | undefined) {
   }
 }
 
+type Pending = ReadonlyMap<number, SharedKind | null>;
+const none: Pending = new Map();
 interface SavesState {
-  /** Not yet acknowledged, by stored hash: the decision, or null for a cleared one. */
-  pending: ReadonlyMap<number, SharedKind | null>;
+  /** The account that made the pending decisions: no other one sees or writes them. */
+  owner?: User['id'];
+  /** Not yet acknowledged, by main entry: the decision, or null for a cleared one. */
+  pending: Pending;
   error: string | null;
   set(hashes: readonly number[], kind: SharedKind | null): void;
   retry(): void;
   /** Gives up on decisions that could not be saved. */
   discard(): void;
 }
+const account = () => useAuthStore.getState().user?.id;
 
 export const useSharedSaves = create<SavesState>((set, get) => ({
-  pending: new Map(),
+  pending: none,
   error: null,
   set(hashes, kind) {
-    const pending = new Map(get().pending);
+    const owner = account();
+    const pending = new Map(get().owner === owner ? get().pending : none);
     for (const hash of hashes) pending.set(hash, kind);
-    if (!kind) {
-      const aliases = useDataStore.getState().data?.aliases;
-      for (const key of Object.keys(savedIn(useMarksStore.getState().marks) ?? {}))
-        if (hashes.includes(mainEntry(Number(key), aliases))) pending.set(Number(key), null);
-    }
-    set({ pending, error: null });
+    set({ owner, pending, error: null });
     window.addEventListener('beforeunload', keepPage);
     void drain();
   },
@@ -64,9 +65,18 @@ export const useSharedSaves = create<SavesState>((set, get) => ({
     void drain();
   },
   discard() {
-    set({ pending: new Map(), error: null });
+    set({ pending: none, error: null });
   },
 }));
+
+/** This account's decisions the server has not acknowledged, and why not. */
+export function useUnsaved() {
+  const user = useAuthStore((state) => state.user?.id);
+  const mine = useSharedSaves((state) => state.owner === user);
+  const pending = useSharedSaves((state) => state.pending);
+  const error = useSharedSaves((state) => state.error);
+  return mine ? { pending, error } : { pending: none, error: null };
+}
 
 /** Leaving the page would lose decisions the server has not acknowledged: the browser asks first. */
 function keepPage(event: BeforeUnloadEvent) {
@@ -74,87 +84,116 @@ function keepPage(event: BeforeUnloadEvent) {
   else window.removeEventListener('beforeunload', keepPage);
 }
 
+/**
+ * The next request: the first pending decision's kind, for every entry that has it. Read again for
+ * each attempt, so a decision undone meanwhile is never written.
+ */
+function nextBatch(pending: Pending) {
+  const kind: SharedKind | null = [...pending.values()][0];
+  const entries = [...pending].flatMap(([hash, value]) => (value === kind ? [hash] : []));
+  if (kind) {
+    const hashes = entries.slice(0, batchSize);
+    return { entries: hashes, change: { action: 'compendium-set', kind, hashes } };
+  }
+  // A clear removes every stored decision that shows on the entry, as stored right now.
+  const aliases = useDataStore.getState().data?.aliases;
+  const stored = new Map<number, number[]>();
+  for (const key of Object.keys(savedIn(useMarksStore.getState().marks) ?? {}).map(Number)) {
+    const main = mainEntry(key, aliases);
+    stored.set(main, [...(stored.get(main) ?? []), key]);
+  }
+  const cleared: number[] = [];
+  const hashes: number[] = [];
+  for (const entry of entries) {
+    const keys = stored.get(entry) ?? [];
+    if (hashes.length && hashes.length + keys.length > batchSize) break;
+    cleared.push(entry);
+    hashes.push(...keys);
+  }
+  return { entries: cleared, change: { action: 'compendium-clear', hashes } };
+}
+
 let draining = false;
 /** One request at a time; decisions made meanwhile join a later one. */
 async function drain() {
   if (draining) return;
   draining = true;
-  const { user } = useAuthStore.getState();
-  // Another account's session must neither write nor show what this one decided.
-  const left = () => useAuthStore.getState().user?.id !== user?.id;
+  const { owner } = useSharedSaves.getState();
+  const current = () => useSharedSaves.getState().owner === owner && account() === owner;
   try {
-    for (;;) {
-      const { pending } = useSharedSaves.getState();
-      if (!pending.size) return;
-      const kind: SharedKind | null = [...pending.values()][0];
-      const hashes = [...pending]
-        .flatMap(([hash, value]) => (value === kind ? [hash] : []))
-        .slice(0, batchSize);
-      await write(
-        (kind
-          ? { action: 'compendium-set', kind, hashes }
-          : { action: 'compendium-clear', hashes }) as unknown as MarkAction,
-        left,
-      );
-      if (left()) return useSharedSaves.getState().discard();
-      const rest = new Map(useSharedSaves.getState().pending);
-      for (const hash of hashes) if (rest.get(hash) === kind) rest.delete(hash);
-      useSharedSaves.setState({ pending: rest });
+    for (let attempt = 1; current() && useSharedSaves.getState().pending.size;) {
+      try {
+        await marksReady();
+        if (!current() || !useSharedSaves.getState().pending.size) return;
+        const { pending } = useSharedSaves.getState();
+        const { entries, change } = nextBatch(pending);
+        if (change.hashes.length)
+          await useMarksStore.getState().save(change as unknown as MarkAction);
+        if (!current()) return;
+        const rest = new Map(useSharedSaves.getState().pending);
+        for (const hash of entries) if (rest.get(hash) === pending.get(hash)) rest.delete(hash);
+        useSharedSaves.setState({ pending: rest });
+        attempt = 1;
+      } catch (error) {
+        // The actions are idempotent: after a lost race the marks are read and written again.
+        if (attempt++ < 3) await new Promise((resolve) => setTimeout(resolve, 400));
+        else {
+          if (current()) useSharedSaves.setState({ error: errorMessage(error) });
+          return;
+        }
+      }
     }
-  } catch (error) {
-    if (left()) useSharedSaves.getState().discard();
-    else useSharedSaves.setState({ error: errorMessage(error) });
   } finally {
     draining = false;
+    // Another account decided something while this one's request was on its way.
+    if (useSharedSaves.getState().owner !== owner) void drain();
   }
 }
 
-/** The actions are idempotent, so a lost race reloads the marks and writes again. */
-async function write(change: MarkAction, left: () => boolean) {
-  for (let attempt = 1; !left(); attempt++) {
-    try {
-      if (!useMarksStore.getState().writable) await useMarksStore.getState().reload();
-      return await useMarksStore.getState().save(change);
-    } catch (error) {
-      if (attempt === 3) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 400));
-    }
-  }
+/** The marks as they are now, once no other save (the entry's marks popover) is on its way. */
+async function marksReady() {
+  if (useMarksStore.getState().saving)
+    await new Promise<void>((resolve) => {
+      const stop = useMarksStore.subscribe(({ saving }) => {
+        if (saving) return;
+        stop();
+        resolve();
+      });
+    });
+  if (useMarksStore.getState().writable) return;
+  await useMarksStore.getState().reload();
+  const { writable, error } = useMarksStore.getState();
+  if (!writable) throw new Error(error ?? 'Marks unavailable; read-only.');
 }
 
-let merged: {
-  saved?: Saved;
-  pending?: SavesState['pending'];
-  aliases?: Aliases;
-  value: SharedDecisions;
-} = { value: new Map() };
-/** The decisions as shown: the saved ones with the unacknowledged ones applied, by main entry. */
+let merged: { saved?: Saved; pending?: Pending; aliases?: Aliases; value: SharedDecisions } = {
+  value: new Map(),
+};
+/** The decisions as shown, by main entry: the saved ones with the unacknowledged ones applied. */
 function mergeShared(
   saved: Saved | undefined,
-  pending: SavesState['pending'],
+  pending: Pending,
   aliases: Aliases | undefined,
 ): SharedDecisions {
   if (merged.saved === saved && merged.pending === pending && merged.aliases === aliases)
     return merged.value;
-  const stored = new Map<number, SharedDecision>(
-    Object.entries(saved ?? {}).map(([hash, decision]) => [Number(hash), decision]),
-  );
-  for (const [hash, kind] of pending)
-    if (kind) stored.set(hash, { kind });
-    else stored.delete(hash);
   const value = new Map<number, SharedDecision>();
-  for (const [hash, decision] of stored) {
+  for (const [key, decision] of Object.entries(saved ?? {})) {
+    const hash = Number(key);
     const main = mainEntry(hash, aliases);
     // The main entry's own decision outranks a grouped one's.
-    if (main === hash || !stored.has(main)) value.set(main, decision);
+    if (main === hash || !saved![main]) value.set(main, decision);
   }
+  for (const [hash, kind] of pending)
+    if (kind) value.set(hash, { kind });
+    else value.delete(hash);
   merged = { saved, pending, aliases, value };
   return value;
 }
 
 export function useSharedDecisions(): SharedDecisions {
   const saved = useMarksStore((state) => savedIn(state.marks));
-  const pending = useSharedSaves((state) => state.pending);
+  const { pending } = useUnsaved();
   const aliases = useDataStore((state) => state.data?.aliases);
   return mergeShared(saved, pending, aliases);
 }

@@ -91,7 +91,6 @@ it('shows decisions at once and writes those made meanwhile in one later request
   expect(leave()).toBe(false);
   expect(changes()).toEqual([
     { action: 'compendium-set', kind: 'not-needed', hashes: [1] },
-    { action: 'compendium-clear', hashes: [1] },
     { action: 'compendium-set', kind: 'no-match', hashes: [2, 3] },
   ]);
   expect(shown().size).toBe(0);
@@ -142,17 +141,103 @@ it(
   },
 );
 
-it('never writes one account’s decisions as another', async () => {
+it(
+  'keeps one account’s decisions from another, and hands them back on its return',
+  { timeout: 20_000 },
+  async () => {
+    let release!: () => void;
+    api.mockImplementationOnce(async () => {
+      await new Promise<void>((done) => (release = done));
+      return Response.json({ error: 'offline' }, { status: 502 });
+    });
+    useSharedSaves.getState().set([1], 'not-needed');
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+    const one = useAuthStore.getState().user;
+    useAuthStore.setState({ user: { id: 2, login: 'other', role: 'maintainer' }, token: 'u' });
+    expect(shown().size).toBe(0);
+    useSharedSaves.getState().retry();
+    release();
+    await vi.waitFor(() => expect(useMarksStore.getState().saving).toBe(false), {
+      timeout: 10_000,
+    });
+    await new Promise((done) => setTimeout(done, 600));
+    expect(changes()).toHaveLength(1);
+    useAuthStore.setState({ user: one, token: 't' });
+    expect(shown().get(1)).toEqual({ kind: 'not-needed' });
+    // A decision of the other account replaces them, and is written even while the first's is out.
+    api.mockImplementationOnce(async () => {
+      await new Promise<void>((done) => (release = done));
+      return Response.json({ marks: reply(), revision });
+    });
+    useMarksStore.setState({ writable: true });
+    useSharedSaves.getState().retry();
+    await vi.waitFor(() => expect(changes()).toHaveLength(2), { timeout: 10_000 });
+    useAuthStore.setState({ user: { id: 2, login: 'other', role: 'maintainer' }, token: 'u' });
+    useSharedSaves.getState().set([2], 'no-match');
+    release();
+    await settled();
+    expect(changes().at(-1)).toEqual({ action: 'compendium-set', kind: 'no-match', hashes: [2] });
+    expect(shown().size).toBe(0);
+  },
+);
+
+it('never retries a decision undone while its request failed', { timeout: 20_000 }, async () => {
+  let release!: () => void;
   api.mockImplementationOnce(async () => {
-    useAuthStore.setState({ user: { id: 2, login: 'other', role: 'maintainer' } });
-    return Response.json({ marks: reply(), revision });
+    await new Promise<void>((done) => (release = done));
+    return Response.json({ error: 'offline' }, { status: 502 });
   });
   useSharedSaves.getState().set([1], 'not-needed');
-  useSharedSaves.getState().set([2], 'no-match');
+  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+  useSharedSaves.getState().set([1], null);
+  release();
   await settled();
+  // Nothing is stored, so there is nothing to clear.
   expect(changes()).toHaveLength(1);
   expect(useSharedSaves.getState().pending.size).toBe(0);
 });
+
+it(
+  'clears what is stored after a lost race, not what was stored before it',
+  { timeout: 20_000 },
+  async () => {
+    useDataStore.setState({ data: { aliases: { 11: { to: 10, kind: 'name' } } } as never });
+    accept({ 10: { kind: 'no-match', by: 1, at } });
+    api.mockImplementationOnce(async () =>
+      Response.json({ error: 'Marks changed' }, { status: 409 }),
+    );
+    const reload = useMarksStore.getState().reload;
+    useMarksStore.setState({
+      reload: async () => accept({ 11: { kind: 'not-needed', by: 2, at } }),
+    });
+    useSharedSaves.getState().set([10], null);
+    await settled();
+    useMarksStore.setState({ reload });
+    expect(changes()).toEqual([
+      { action: 'compendium-clear', hashes: [10] },
+      { action: 'compendium-clear', hashes: [11] },
+    ]);
+  },
+);
+
+it(
+  'waits for another save of the marks, and says why they cannot be read',
+  { timeout: 20_000 },
+  async () => {
+    useMarksStore.setState({ saving: true, writable: false });
+    useSharedSaves.getState().set([1], 'no-match');
+    await new Promise((done) => setTimeout(done, 1500));
+    expect(api).not.toHaveBeenCalled();
+    useMarksStore.setState({ saving: false, writable: true });
+    await settled();
+    expect(changes()).toHaveLength(1);
+    useMarksStore.setState({ writable: false });
+    api.mockImplementation(async () => Response.json({ marks: {}, revision }));
+    useSharedSaves.getState().set([2], 'no-match');
+    await settled();
+    expect(useSharedSaves.getState().error).toContain('Invalid config/marks.json');
+  },
+);
 
 it('shows a grouped entry’s decision on its main entry, and clearing removes the stored one', async () => {
   useDataStore.setState({ data: { aliases: { 11: { to: 10, kind: 'name' } } } as never });

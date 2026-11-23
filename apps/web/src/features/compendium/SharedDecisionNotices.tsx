@@ -3,13 +3,13 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { plainError } from '../../services/httpError';
 import { InlineAlert } from '../../ui/InlineAlert';
 import type { QueueRow } from './queueRows';
-import { useSharedSaves } from './sharedDecisions';
+import { useSharedSaves, useUnsaved } from './sharedDecisions';
 import styles from './CompendiumTab.module.scss';
 
 /** Decisions for everyone that could not be saved; they stay shown as made until given up. */
 export function SharedSaveError() {
-  const error = useSharedSaves((state) => state.error);
-  const count = useSharedSaves((state) => state.pending.size);
+  const { pending, error } = useUnsaved();
+  const count = pending.size;
   const { retry, discard } = useSharedSaves.getState();
   if (!error || !count) return null;
   return (

@@ -52,7 +52,7 @@ interface VariantWorkspaceProps {
   reports?: { pane: ReactNode; count: number | null };
   /** Panel shown first on a phone, or in the swapped slot; defaults to the editor. */
   initialPanel?: Panel;
-  /** Set by a visit that is about the Compendium: each new one opens the Compendium view. */
+  /** Names a visit (or a run of visits) that is about the Compendium: a new one opens its view. */
   openCompendium?: unknown;
   /** Keep pane measurement/tab state stable while a navigation burst hides the workspace. */
   suspended?: boolean;
@@ -107,16 +107,22 @@ export function VariantWorkspace({
   const setReportsOpen = useReportsTab((state) => state.setOpen);
   const rememberedPane = useSettingsStore((state) => state.device.remembered.translatePane);
   const remember = useSettingsStore((state) => state.remember);
-  const sideTab: Panel = paired && rememberedPane === 'compendium' ? 'compendium' : 'source';
+  // A visit about the Compendium shows it until another view is picked; the pick remembered for
+  // translating stays as it is.
+  const [visiting, setVisiting] = useState(false);
+  const sideTab: Panel =
+    paired && (visiting || rememberedPane === 'compendium') ? 'compendium' : 'source';
   /** Opening English or the Compendium, in any mode, is the pick the split pane remembers. */
   const open = (id: Panel) => {
     setActive(id);
+    setVisiting(false);
     if (hasReports) setReportsOpen(id === 'reports');
     if (paired && (id === 'source' || id === 'compendium'))
       remember({ translatePane: id === 'source' ? 'english' : 'compendium' });
   };
   const side = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
+    setVisiting(!!openCompendium);
     if (!openCompendium) return;
     setActive('compendium');
     setReportsOpen(false);
@@ -169,6 +175,7 @@ export function VariantWorkspace({
             onSelect(id) {
               // The other pane's header replaces this one: its tab takes the focus over.
               focusTab.current = true;
+              setVisiting(false);
               setReportsOpen(id === 'reports');
               if (paired && id !== 'reports')
                 remember({ translatePane: id === 'source' ? 'english' : 'compendium' });

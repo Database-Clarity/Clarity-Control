@@ -2,6 +2,8 @@ import { expect, it } from 'vitest';
 import { approvalEvidence, approvedLink, approvedSourceChanged } from './approvalEvidence';
 import { candidateBlocks } from './candidateBlocks';
 import shipped from './approved-guidance.v1.json';
+import reviewed from './owner-reviewed.json';
+import { sourceFingerprint } from './reviewProgress';
 import {
   normaliseCompendiumName,
   type CompendiumCell,
@@ -76,4 +78,43 @@ it('says an approved link changed only while its own source differs, not for oth
   });
   expect(block).toMatchObject({ origin: 'proposal', match: { row: { name: rowKey } } });
   expect(block.link?.snapshot.plain).toBe(edited.plain);
+});
+
+it('reads a verified source as all of its rows, repeated ones included', () => {
+  const [hash, record] = Object.entries(reviewed.verified).find(
+    ([, record]) => record.mode === 'multi' && record.rows.length > 1,
+  )!;
+  const entry = { hash: Number(hash), name: record.name, category: record.categoryId.slice(8) };
+  const cell = (text: string): CompendiumCell => ({ plain: text, runs: [{ text }] });
+  // The stored proofs digest their cells: stand in for them with rows of the same names.
+  const proof = record.rows.map((row) => row.cellEvidence);
+  const rows = (texts: string[]) =>
+    texts.map((text, index) => ({
+      name: record.rows[0].name,
+      nameNorm: normaliseCompendiumName(record.rows[0].name),
+      rowIndex: index,
+      cell: cell(text),
+    }));
+  const source = (texts: string[]): CompendiumData => ({
+    fetchedAt: '2026-11-23T00:00:00Z',
+    tabs: [{ gid: record.gid, name: 'Weapon Perks', rows: rows(texts) }],
+  });
+  const names = record.rows.map((row) => row.name);
+  try {
+    record.rows.forEach((row, index) => {
+      row.name = record.rows[0].name;
+      row.cellEvidence = sourceFingerprint(cell(index ? 'b' : 'a'));
+    });
+    const approved = record.rows.map((_, index) => (index ? 'b' : 'a'));
+    expect(approvedSourceChanged(entry, source(approved))).toBe(false);
+    expect(approvedSourceChanged(entry, source([...approved].reverse()))).toBe(false);
+    expect(approvedSourceChanged(entry, source([...approved, 'added']))).toBe(true);
+    expect(approvedSourceChanged(entry, source([...approved, 'b']))).toBe(true);
+    expect(approvedSourceChanged(entry, source(approved.slice(1)))).toBe(true);
+  } finally {
+    record.rows.forEach((row, index) => {
+      row.name = names[index];
+      row.cellEvidence = proof[index];
+    });
+  }
 });

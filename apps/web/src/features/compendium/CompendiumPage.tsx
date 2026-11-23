@@ -45,7 +45,7 @@ export function CompendiumPage() {
         </button>
       </div>
       <SkeletonBoundary
-        pending={loading}
+        pending={loading || (!rows && !error)}
         error={!!error}
         label="Loading Compendium..."
         shape="rows"

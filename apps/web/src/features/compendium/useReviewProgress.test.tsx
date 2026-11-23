@@ -194,3 +194,30 @@ it('flushes on hidden visibility and uses a deferred fallback without idle callb
   act(() => document.dispatchEvent(new Event('visibilitychange')));
   expect(readProgress(localStorage, 'review-navigation').selected).toBe(4);
 });
+
+it('keeps another tab’s decisions when it records its own, and drops only what it undoes', () => {
+  mount('two-tabs');
+  const decision = (kind: 'skipped' | 'open') => ({ kind, fingerprint: 'entry:1:1' });
+  const decide = (hash: number, kind: 'skipped' | 'open') =>
+    act(() =>
+      state.update((progress) => ({
+        ...progress,
+        decisions: { ...progress.decisions, [hash]: decision(kind) },
+      })),
+    );
+  decide(1, 'skipped');
+  const before = state.progress;
+  // The other tab, on an earlier version.
+  const stored = JSON.parse(values.get('two-tabs')!);
+  stored.decisions[2] = { kind: 'no-equivalent', fingerprint: '12:34' };
+  values.set('two-tabs', JSON.stringify(stored));
+  decide(3, 'skipped');
+  const read = () => Object.keys(JSON.parse(values.get('two-tabs')!).decisions);
+  expect(read()).toEqual(['1', '2', '3']);
+  expect(state.progress.decisions[2].kind).toBe('no-equivalent');
+  // Undo restores what this tab had; the other tab's choice is not its to undo.
+  act(() =>
+    state.update(() => ({ ...before, decisions: { ...state.progress.decisions, 3: undefined! } })),
+  );
+  expect(read()).toEqual(['1', '2']);
+});

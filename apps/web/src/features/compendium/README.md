@@ -6,7 +6,6 @@ unresolved investigation. Regenerate its decision tables with
 `node scripts/compendium-guidance/matching-rules.mjs`; tests enforce rule coverage
 and decision-data/document synchronization.
 
-
 `#/compendium` is the review queue. Rows are derived once per (entries, display, proposals,
 scope, shared decisions) in `queueRows.ts` / `reviewViewCache.ts`: proposal, candidates, none,
 changed (open), drafted, skipped (decided), no match yet and not needed (set aside in their own
@@ -14,7 +13,7 @@ collapsed groups), and matched (confident, display-only until cut-over). **Chang
 thing: a saved, drafted, or owner-approved link whose linked source changed. Filters (`show`, `q`,
 `group`) and the entry (`hash`) live in the URL. The switch at the top of the left column (on the
 page itself on phones) opens **Source changes** (`#/compendium?tab=linked`): every saved link whose
-source is not as it was saved. Those whose text changed or that need relinking are also the built-in
+source is not as it was saved. Those whose text or styling changed or that need relinking are also the built-in
 **Compendium parity** worklist (`features/queue`), which an entry leaves when an English save or the
 explicit review renews its snapshot. The Editor's Compendium pane links here (`hash`, `show=all`).
 Sheet locations (`sourceLocation.ts`) are text plus `edit#gid=&range=` links.
