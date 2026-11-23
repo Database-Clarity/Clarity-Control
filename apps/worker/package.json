@@ -7,7 +7,8 @@
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "node ../../scripts/reports/catalogSnapshot.mjs && wrangler deploy --dry-run"
+    "build": "node ../../scripts/reports/catalogSnapshot.mjs && wrangler deploy --dry-run --outdir dist",
+    "postbuild": "node ../../scripts/dev-roles/check-production.mjs dist"
   },
   "dependencies": {
     "@clarity/core": "0.1.0",

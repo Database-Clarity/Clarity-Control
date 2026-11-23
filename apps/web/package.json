@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --configLoader runner",
     "build": "tsc --noEmit && vite build --configLoader runner",
+    "postbuild": "node ../../scripts/dev-roles/check-production.mjs dist",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview"
   },
