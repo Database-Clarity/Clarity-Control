@@ -1,0 +1,1 @@
+import{c as s}from"./api-kBTUD7PY.js";const c=s(e=>({open:!1,focusToken:0,focusPending:!1,setOpen(o){e(n=>n.open===o?n:{open:o})},openAndFocus(){e(o=>({open:!0,focusToken:o.focusToken+1,focusPending:!0}))},focusDone(){e(o=>o.focusPending?{focusPending:!1}:o)}}));export{c as u};
