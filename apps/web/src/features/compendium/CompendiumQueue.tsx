@@ -29,6 +29,7 @@ import styles from './CompendiumQueue.module.scss';
 import { plainError } from '../../services/httpError';
 import { InlineAlert } from '../../ui/InlineAlert';
 
+const number = new Intl.NumberFormat('en');
 const headerRem = 1.5;
 const itemKey = (item: QueueItem) => item.key;
 export const queueRowId = (hash: number) => `cq-row-${hash}`;
@@ -174,7 +175,7 @@ function LinkedFilters() {
                 }}
               >
                 <span className={styles.groupName}>{label}</span>
-                <span className={styles.count}>{count.toLocaleString('en')}</span>
+                <span className={styles.count}>{number.format(count)}</span>
               </button>
             </li>
           ))}

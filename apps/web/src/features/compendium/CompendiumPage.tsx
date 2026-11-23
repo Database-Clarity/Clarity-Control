@@ -9,6 +9,7 @@ import { CompendiumFreshness } from './CompendiumFreshness';
 import { useLinkedSources } from './linkedSources';
 import styles from './CompendiumTab.module.scss';
 
+const number = new Intl.NumberFormat('en');
 /** Opens the editor with the Compendium pane showing (a phone has it behind a tab). */
 export const compendiumPaneState = { pane: 'compendium' };
 
@@ -30,7 +31,7 @@ export function CompendiumPage() {
           {label ? ` · ${label}` : ''}
         </h1>
         <span className={styles.counts}>
-          {rows && `${shown.length.toLocaleString('en')} shown`}
+          {rows && `${number.format(shown.length)} shown`}
         </span>
       </header>
       <p className={styles.muted}>
