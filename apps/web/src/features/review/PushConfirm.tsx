@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Dialog } from '../../ui/Dialog';
-import { kindCounts } from './kinds';
+import { rowKey, unitName } from './globalRows';
+import { kindCounts, kindWords } from './kinds';
 import type { PendingTooltip } from './model';
 import type { RowKinds } from './queueModel';
 import styles from './Review.module.scss';
@@ -13,12 +14,15 @@ import styles from './Review.module.scss';
  */
 export function PushConfirm({
   entries,
+  rows,
   kinds,
   background = false,
   onConfirm,
   onCancel,
 }: {
   entries: PendingTooltip[];
+  /** The list's rows of these changes (a globals file has one per changed entry). */
+  rows: PendingTooltip[];
   /** Each row's word, for the by-kind line and the list. */
   kinds: RowKinds;
   /** Publisher flow: the run happens in the background after confirming (wording only). */
@@ -32,6 +36,13 @@ export function PushConfirm({
   // showModal would otherwise leave it on the header's Close button.
   useEffect(() => confirm.current?.focus(), []);
   const count = entries.length;
+  const rowsOf = ({ tooltip }: PendingTooltip) =>
+    rows.filter((row) => row.tooltip.hash === tooltip.hash);
+  // A globals file is one change: the first word of the list that any of its rows shows.
+  const kindOf = (entry: PendingTooltip) => {
+    const words = rowsOf(entry).map((row) => kinds.get(rowKey(row)));
+    return words.includes(undefined) ? undefined : kindWords.find((word) => words.includes(word));
+  };
   const label = background ? `Publish ${count}` : `Push ${count} live`;
   return (
     <Dialog
@@ -64,8 +75,8 @@ export function PushConfirm({
     >
       <p className={styles.confirmSummary}>
         {/* "19 new tooltips and 6 with no visible change go live …" */}
-        {kindCounts(entries.map(({ tooltip }) => kinds.get(tooltip.hash)))}{' '}
-        {count === 1 ? 'goes' : 'go'} live for everyone using Clarity.
+        {kindCounts(entries.map(kindOf))} {count === 1 ? 'goes' : 'go'} live for everyone using
+        Clarity.
       </p>
       {background && (
         <p className={styles.confirmSummary}>
@@ -74,13 +85,13 @@ export function PushConfirm({
         </p>
       )}
       <ul className={styles.confirmList} aria-label="Tooltips going live" tabIndex={0}>
-        {entries.map(({ tooltip, name, category }) => (
-          <li key={tooltip.hash}>
-            <span className={styles.confirmName}>{name}</span>
+        {entries.map((entry) => (
+          <li key={entry.tooltip.hash}>
+            <span className={styles.confirmName}>{unitName(rowsOf(entry)[0] ?? entry)}</span>
             <small>
-              {category} · {tooltip.hash}
+              {entry.category} · {entry.tooltip.hash}
             </small>
-            <small className={styles.confirmKind}>{kinds.get(tooltip.hash) ?? ''}</small>
+            <small className={styles.confirmKind}>{kindOf(entry) ?? ''}</small>
           </li>
         ))}
       </ul>

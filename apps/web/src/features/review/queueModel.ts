@@ -1,19 +1,22 @@
 import { previousCategoryLabel } from '../../services/categoryLabels';
+import { rowKey, unitCount, type RowKey } from './globalRows';
 import type { Kind } from './kinds';
 import type { PendingTooltip } from './model';
 
 /** The one group that holds every migration leftover (marker-only); never a category id. */
 export const markerGroup = '~marker-only';
 
-/** Each row's word, by hash (undefined while not known). */
-export type RowKinds = ReadonlyMap<number, Kind | undefined>;
+/** Each row's word, by its key (undefined while not known). */
+export type RowKinds = ReadonlyMap<RowKey, Kind | undefined>;
 
 export interface QueueGroup {
   kind: 'group';
   id: string;
   label: string;
-  /** Rows in the group after filters. */
+  /** Changes in the group after filters; the rows of one globals file are one change. */
   count: number;
+  /** Says which rows are ticked together. */
+  note?: string;
   /** Publishable hashes in the group, what its select-all checkbox picks (never leftovers). */
   publishable: number[];
   collapsed: boolean;
@@ -30,24 +33,36 @@ export interface QueueView {
   items: QueueItem[];
   /** Every row that passes the filters, content first, then shown leftovers (collapsed or not). */
   ordered: PendingTooltip[];
-  /** Hashes of `ordered` rows that are shown, i.e. not inside a collapsed group. */
-  shown: Set<number>;
+  /** Keys of `ordered` rows that are shown, i.e. not inside a collapsed group. */
+  shown: Set<RowKey>;
+  /** Content rows; `unitCount` gives the changes they stand for. */
   contentCount: number;
   markerCount: number;
 }
 
 /** Find matches name, category (current or previous label), and hash; the kind select its word. */
 export function matchesFilter(
-  { name, category, categoryId, tooltip }: PendingTooltip,
+  entry: PendingTooltip,
   query: string,
   kind: string,
   kinds?: RowKinds,
 ): boolean {
-  if (kind && kinds?.get(tooltip.hash) !== kind) return false;
+  if (kind && kinds?.get(rowKey(entry)) !== kind) return false;
   if (!query) return true;
+  const { name, category, categoryId, tooltip } = entry;
   return `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
     .toLowerCase()
     .includes(query.toLowerCase());
+}
+
+/** "3 exports, ticked together": the rows of one globals file share a tick. */
+function togetherNote(rows: readonly PendingTooltip[]): string | undefined {
+  const files = new Map<number, string>();
+  for (const { tooltip, part } of rows)
+    if (part && part.names.length > 1) files.set(tooltip.hash, `${part.names.length} ${part.kind}`);
+  if (!files.size) return undefined;
+  const all = [...files.values()].join(', ');
+  return files.size > 1 ? `${all}, each kind ticked together` : `${all}, ticked together`;
 }
 
 /** Leftovers: hidden (the list's "Show" line), or shown as one group, collapsed or open. */
@@ -88,7 +103,7 @@ export function queueView(
     } else if (matchesFilter(entry, query, kind, kinds)) content.push(entry);
   }
   const items: QueueItem[] = [];
-  const shown = new Set<number>();
+  const shown = new Set<RowKey>();
   for (let start = 0; start < content.length;) {
     const id = content[start]!.categoryId;
     let end = start;
@@ -99,16 +114,19 @@ export function queueView(
       kind: 'group',
       id,
       label: rows[0]!.category,
-      count: rows.length,
-      publishable: rows
-        .filter(({ unpublishable }) => !unpublishable)
-        .map(({ tooltip }) => tooltip.hash),
+      count: unitCount(rows),
+      note: togetherNote(rows),
+      publishable: [
+        ...new Set(
+          rows.filter(({ unpublishable }) => !unpublishable).map(({ tooltip }) => tooltip.hash),
+        ),
+      ],
       collapsed: isCollapsed,
     });
     if (!isCollapsed)
       for (const entry of rows) {
         items.push({ kind: 'row', entry, group: id });
-        shown.add(entry.tooltip.hash);
+        shown.add(rowKey(entry));
       }
     start = end;
   }
@@ -126,7 +144,7 @@ export function queueView(
     if (!isCollapsed)
       for (const entry of markers) {
         items.push({ kind: 'row', entry, group: markerGroup });
-        shown.add(entry.tooltip.hash);
+        shown.add(rowKey(entry));
       }
   }
   const view = {
@@ -157,7 +175,7 @@ export function stepRow(view: QueueView, current: number, delta: number): number
   while (remaining > 0) {
     index += direction;
     if (index < 0 || index >= ordered.length) break;
-    if (!shown.has(ordered[index]!.tooltip.hash)) continue;
+    if (!shown.has(rowKey(ordered[index]!))) continue;
     found = index;
     remaining--;
   }

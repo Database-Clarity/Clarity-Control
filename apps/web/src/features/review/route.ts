@@ -1,10 +1,11 @@
 import { redirect, type LoaderFunctionArgs } from 'react-router-dom';
 import { useDataStore } from '../../stores/data';
+import { reviewRows, routedRow, rowKey } from './globalRows';
 import { preparedPending, type PendingTooltip } from './model';
 import { acknowledgedMarkers } from './session';
 import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
-import { loadPublished, publishedRows } from './published';
+import { loadPublished, publishedRows, usePublished } from './published';
 
 export function initialReviewParams(
   params: URLSearchParams,
@@ -24,12 +25,15 @@ export function initialReviewParams(
   const requested =
     requestedHash === null
       ? undefined
-      : (visible.find((entry) => String(entry.tooltip.hash) === requestedHash) ??
-        entries.find((entry) => entry.markerOnly && String(entry.tooltip.hash) === requestedHash));
+      : (routedRow(visible, requestedHash) ??
+        routedRow(
+          entries.filter(({ markerOnly }) => markerOnly),
+          requestedHash,
+        ));
   // A kind filter is applied by the page once the words are known; keep a named change meanwhile.
   const selected = requested ?? (params.get('kind') && requestedHash ? undefined : visible[0]);
   const next = new URLSearchParams(params);
-  if (selected) next.set('hash', String(selected.tooltip.hash));
+  if (selected) next.set('hash', String(rowKey(selected)));
   else if (!params.get('kind')) next.delete('hash');
   return next;
 }
@@ -45,7 +49,7 @@ export function reviewRoute({ request }: LoaderFunctionArgs) {
   if (!data) return null;
   const entries = preparedPending(data, acknowledgedMarkers(data));
   if (!entries) return null;
-  const next = initialReviewParams(params, entries);
+  const next = initialReviewParams(params, reviewRows(entries, usePublished.getState().byHash));
   // Finish canonical routing before mounting: a post-mount history replacement
   // flushes the newly inserted workspace layout and renders its parent again.
   if (next.toString() !== params.toString())

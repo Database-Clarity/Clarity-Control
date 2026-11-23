@@ -11,6 +11,13 @@ one quiet "Show" line outside the counts and the list; shown, they are one colla
 never takes part in a group tick. Find matches name, category, and hash; the kind select filters
 by word, and "Include all N" ticks the publishable rows a filter shows.
 
+The global exports, variables, and titles are each published as one file but edited as entries, so
+the list shows one row per entry that changed (`globalRows.ts`), compared definition by definition.
+The file stays the change: its rows share one tick, every count (waiting, included, groups, kinds,
+positions, Publish N) counts the file once, and the confirmation lists it once with its entries'
+names. "Output unchanged" is an entry whose text is the same and only its declaration differs (an
+export that was hidden). Until the published file is known, every saved entry is listed without a word.
+
 Row words (`kinds.ts`): New, Removed, Restored, On hold, and Leftover are known locally. Text
 changed, No visible change, and Links changed come from the published text (`published.ts`): it is
 loaded once in the background for every published change (a few `GET /history/:hash?live=1` at a

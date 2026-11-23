@@ -20,6 +20,16 @@ import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useAdvanceSetting } from '../compendium/advanceSetting';
 import { useRawDiff } from '../history/diffPreference';
 import { useLeftQueue } from '../queue/useQueue';
+import {
+  editorPath,
+  publishedOf,
+  routedRow,
+  rowKey,
+  unitCount,
+  unitName,
+  useReviewRows,
+  type RowKey,
+} from './globalRows';
 import { classifyRows, kindOf, useKinds, useRowKinds } from './kinds';
 import {
   canPush,
@@ -92,6 +102,8 @@ function More({ children }: { children: ReactNode }) {
 
 interface Decision {
   hash: number;
+  /** The row it was made on. */
+  key: RowKey;
   /** The tick before the decision. */
   was: boolean;
 }
@@ -207,6 +219,8 @@ export function ReviewPage() {
     };
   }, [data, acknowledgments, prepared, clearSelection]);
   const list = entries ?? noEntries;
+  // What the list shows; what is ticked and published is always an entry of `list`.
+  const rows = useReviewRows(entries ?? null);
   // The published text of every waiting change, once, in the background; then the row words.
   const published = usePublished((state) => state.byHash);
   const classified = useKinds((state) => state.byHash);
@@ -217,35 +231,30 @@ export function ReviewPage() {
   useEffect(() => {
     if (!entries || !data) return;
     classifyRows(
-      entries.map((entry) => ({
-        entry,
-        published: publishedFor(published, entry.tooltip.hash, entry.pushed),
-      })),
+      rows.map((entry) => ({ entry, published: publishedOf(entry, published) })),
       data,
     );
-  }, [entries, published, data]);
-  const kinds = useRowKinds(entries ?? null);
+  }, [entries, rows, published, data]);
+  const kinds = useRowKinds(rows);
   const view = useMemo(
-    () => queueView(list, query, kindFilter, collapsed, leftovers, kinds),
-    [list, query, kindFilter, collapsed, leftovers, kinds],
+    () => queueView(rows, query, kindFilter, collapsed, leftovers, kinds),
+    [rows, query, kindFilter, collapsed, leftovers, kinds],
   );
   const { ordered } = view;
   const changeCount = useMemo(() => list.filter(({ markerOnly }) => !markerOnly).length, [list]);
   const routedHash = searchParams.get('hash');
-  const routedIndex =
-    routedHash === null
-      ? -1
-      : ordered.findIndex(({ tooltip }) => String(tooltip.hash) === routedHash);
+  const routed = routedHash === null ? undefined : routedRow(ordered, routedHash);
+  const routedIndex = routed ? ordered.indexOf(routed) : -1;
   // Without a route, open the first change; leftovers open only when named or picked.
   const index = routedIndex >= 0 ? routedIndex : view.contentCount ? 0 : -1;
   const current = index < 0 ? undefined : ordered[index];
-  const selectHash = useCallback(
-    (hash: number | undefined) => {
-      if (hash === undefined) return;
+  const selectRow = useCallback(
+    (key: RowKey | undefined) => {
+      if (key === undefined) return;
       const intent = selectionIntent.current;
       const params = new URLSearchParams(intent?.params ?? searchParams);
-      if (params.get('hash') === String(hash)) return;
-      params.set('hash', String(hash));
+      if (params.get('hash') === String(key)) return;
+      params.set('hash', String(key));
       const targets = intent?.targets ?? new Set<string>();
       targets.add(params.toString());
       selectionIntent.current = { params, targets };
@@ -258,11 +267,12 @@ export function ReviewPage() {
       if (!ordered.length) return;
       const intent = selectionIntent.current;
       const pendingIndex = intent
-        ? ordered.findIndex(({ tooltip }) => String(tooltip.hash) === intent.params.get('hash'))
+        ? ordered.findIndex((row) => String(rowKey(row)) === intent.params.get('hash'))
         : -1;
-      selectHash(ordered[step(pendingIndex < 0 ? index : pendingIndex)]?.tooltip.hash);
+      const row = ordered[step(pendingIndex < 0 ? index : pendingIndex)];
+      selectRow(row && rowKey(row));
     },
-    [index, ordered, selectHash],
+    [index, ordered, selectRow],
   );
   useEffect(() => {
     if (entries) publishSidebar(entries);
@@ -276,8 +286,8 @@ export function ReviewPage() {
       setSearchParams(params, { replace: true });
       return;
     }
-    if (searchParams.get('hash') === String(current.tooltip.hash)) return;
-    params.set('hash', String(current.tooltip.hash));
+    if (searchParams.get('hash') === String(rowKey(current))) return;
+    params.set('hash', String(rowKey(current)));
     setSearchParams(params, { replace: true });
   }, [current, entries, searchParams, setSearchParams, subview]);
   useEffect(() => {
@@ -330,30 +340,35 @@ export function ReviewPage() {
     setPause(undefined);
   }, []);
   useEffect(() => stopPause, [stopPause]);
-  const nextEntry = () => {
+  // A decision covers every row of its change, so it moves past all of them.
+  const nextEntry = (decided = false) => {
     if (!current) return undefined;
-    const next = stepRow(view, index, 1);
-    return next === index ? undefined : ordered[next];
+    for (let at = index; ;) {
+      const next = stepRow(view, at, 1);
+      if (next === at) return undefined;
+      if (!decided || ordered[next]!.tooltip.hash !== current.tooltip.hash) return ordered[next];
+      at = next;
+    }
   };
   const advance = (verb: string) => {
-    const next = nextEntry();
+    const next = nextEntry(true);
     if (!next) return;
-    if (advanceMs === 0) return selectHash(next.tooltip.hash);
+    if (advanceMs === 0) return selectRow(rowKey(next));
     stopPause();
     setPause({ next, token: Date.now(), verb });
     pauseTimer.current = window.setTimeout(() => {
       pauseTimer.current = undefined;
       setPause(undefined);
-      selectHash(next.tooltip.hash);
+      selectRow(rowKey(next));
     }, advanceMs);
   };
   const decide = () => {
     if (!current || locked || pause) return;
     const hash = current.tooltip.hash;
-    setDecisions((stack) => [...stack.slice(-49), { hash, was: included }]);
+    setDecisions((stack) => [...stack.slice(-49), { hash, key: rowKey(current), was: included }]);
     setIncluded(hash, !included);
     setMessage({
-      text: `${current.name}: ${included ? 'removed from' : 'included in'} the publish.`,
+      text: `${unitName(current)}: ${included ? 'removed from' : 'included in'} the publish.`,
       hash,
       included: !included,
     });
@@ -362,7 +377,7 @@ export function ReviewPage() {
   const skip = () => {
     if (!current || pause) return;
     const next = nextEntry();
-    if (next) selectHash(next.tooltip.hash);
+    if (next) selectRow(rowKey(next));
   };
   const undo = () => {
     const last = decisions.at(-1);
@@ -370,21 +385,21 @@ export function ReviewPage() {
     stopPause();
     setDecisions((stack) => stack.slice(0, -1));
     setIncluded(last.hash, last.was);
-    const entry = list.find(({ tooltip }) => tooltip.hash === last.hash);
+    const entry = rows.find(({ tooltip }) => tooltip.hash === last.hash);
     setMessage({
-      text: entry ? `${entry.name}: undone.` : 'Last decision undone.',
+      text: entry ? `${unitName(entry)}: undone.` : 'Last decision undone.',
       hash: last.hash,
     });
-    if (ordered.some(({ tooltip }) => tooltip.hash === last.hash)) selectHash(last.hash);
+    if (ordered.some((row) => rowKey(row) === last.key)) selectRow(last.key);
   };
   // Another open change (a row click, the URL, Back) or new filters end a pause without moving
   // again. The pause's own move clears it before it navigates, so it never cancels itself.
-  const currentHash = current?.tooltip.hash;
+  const currentKey = current && rowKey(current);
   const pauseRef = useRef(pause);
   pauseRef.current = pause;
   useEffect(() => {
     if (pauseRef.current) stopPause();
-  }, [currentHash, query, kindFilter, stopPause]);
+  }, [currentKey, query, kindFilter, stopPause]);
 
   function askToPublish() {
     // Only a role that can publish, and never while a reload may replace the reviewed snapshot.
@@ -447,7 +462,7 @@ export function ReviewPage() {
         event.preventDefault();
         const next = run.pause.next;
         stopPause();
-        if (next) selectHash(next.tooltip.hash);
+        if (next) selectRow(rowKey(next));
         return;
       }
       if (lower === 'u') {
@@ -485,7 +500,7 @@ export function ReviewPage() {
     }
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [pushing, selectHash, stopPause]);
+  }, [pushing, selectRow, stopPause]);
 
   async function publish({
     entries: picked,
@@ -506,16 +521,17 @@ export function ReviewPage() {
   }
 
   const leftoverView = !!current?.markerOnly;
-  const position = current
-    ? leftoverView
-      ? `${count.format(index - view.contentCount + 1)} / ${count.format(view.markerCount)}`
-      : `${count.format(index + 1)} / ${count.format(view.contentCount)}`
-    : '';
+  // Positions count changes, like every other number: the rows of one globals file share one.
+  const position = useMemo(() => {
+    if (index < 0) return '';
+    const from = index < view.contentCount ? 0 : view.contentCount;
+    const all = ordered.slice(from, from ? undefined : view.contentCount);
+    const at = unitCount(all.slice(0, index - from + 1));
+    return `${count.format(at)} / ${count.format(unitCount(all))}`;
+  }, [index, ordered, view.contentCount]);
   const previous = current ? stepRow(view, index, -1) : -1;
   const next = current ? stepRow(view, index, 1) : -1;
-  const currentPublished = current
-    ? publishedFor(published, current.tooltip.hash, current.pushed)
-    : undefined;
+  const currentPublished = current && publishedOf(current, published);
   const classification = current ? kindOf(current, currentPublished, classified) : undefined;
   const retry = useCallback(() => {
     if (current) void loadPublished([{ hash: current.tooltip.hash, marker: current.pushed }], true);
@@ -546,8 +562,9 @@ export function ReviewPage() {
 
   const restore = current && (
     <RestoreLive
-      entry={current}
-      published={currentPublished}
+      entry={current.part?.unit ?? current}
+      name={unitName(current)}
+      published={publishedFor(published, current.tooltip.hash, current.pushed)}
       onDone={(text) => setMessage({ text, hash: current.tooltip.hash })}
     />
   );
@@ -601,6 +618,7 @@ export function ReviewPage() {
       {confirming && (
         <PushConfirm
           entries={confirming.entries}
+          rows={rows}
           kinds={kinds}
           background={publisher}
           onConfirm={() => void publish(confirming)}
@@ -640,7 +658,7 @@ export function ReviewPage() {
             type="button"
             data-perf-navigation="true"
             onClick={() =>
-              setSearchParams(filterParams(searchParams, list, kinds, '', ''), { replace: true })
+              setSearchParams(filterParams(searchParams, rows, kinds, '', ''), { replace: true })
             }
           >
             Clear filters
@@ -674,7 +692,7 @@ export function ReviewPage() {
               <span className={styles.muted}>
                 {leftoverView ? `${position} leftovers` : position}
               </span>
-              <Link to={`/t/${current.tooltip.hash}`}>Open in editor ↗</Link>
+              <Link to={editorPath(current)}>Open in editor ↗</Link>
             </span>
             {phone && (
               <button
@@ -691,7 +709,7 @@ export function ReviewPage() {
           </div>
           <div className={styles.detailHead}>
             <ReviewDetail
-              key={current.tooltip.hash}
+              key={rowKey(current)}
               entry={current}
               published={currentPublished}
               classification={classification}
