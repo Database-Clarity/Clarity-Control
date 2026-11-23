@@ -121,6 +121,8 @@ export interface GlobalReleaseReceipt {
   batchSource?: string;
 }
 
+export class GlobalReleaseRejected extends Error {}
+
 function globalTreeEntries(tree: Tree, prefix: string, modes: Record<string, string> = {}) {
   const entries = Object.entries(tree).filter(([path]) => path.startsWith(`${prefix}/`));
   const files = new Map<string, string>(),
@@ -284,7 +286,14 @@ export class GlobalsPublisher {
           throw new Error('Global identity mismatch');
         return entry;
       });
-    return reconcileGlobalStore(layout.aggregates, entries);
+    const published = entries.some((entry) => entry.tombstone)
+      ? this.read(tree, globalsReleasePaths.published(this.options.liveBranch))
+      : undefined;
+    return reconcileGlobalStore(
+      layout.aggregates,
+      entries,
+      published === undefined ? undefined : globalPublishedSchema.parse(published).store,
+    );
   }
   documents(tree: Tree, prefix: string): Record<string, Tooltip> {
     return Object.fromEntries(
@@ -616,11 +625,15 @@ export class GlobalsPublisher {
             )),
       )
     )
-      throw new Error('Sync pending: global dependency review required');
+      throw new GlobalReleaseRejected('Sync pending: global dependency review required');
+    const partialAggregates =
+      aggregate && ready.length !== relevant.length
+        ? activeSelection.filter((hash) => aggregateHashes.includes(hash))
+        : [];
     const ids = ready.flatMap((component) => component.ids);
     const entryRelease = composeGlobalRelease(captured.published, captured.saved, ids);
     const layout = entryRelease.aggregates.map((previous) =>
-      activeSelection.includes(previous.document.hash)
+      !partialAggregates.length && activeSelection.includes(previous.document.hash)
         ? (captured.saved.aggregates.find(
             ({ document }) => document.hash === previous.document.hash,
           ) ?? previous)
@@ -646,7 +659,9 @@ export class GlobalsPublisher {
             moves,
           )
         )
-          throw new Error('Publish inactive move decisions before releasing global dependencies');
+          throw new GlobalReleaseRejected(
+            'Publish inactive move decisions before releasing global dependencies',
+          );
       }
     }
     const globals = projectGlobals(store);
@@ -671,7 +686,7 @@ export class GlobalsPublisher {
         // Entry approvals cover the entry-only candidate. The selected layout
         // may accompany it only if it preserves the resolver result.
         if (sync.status !== 'current')
-          throw new Error('Sync pending: global dependency review required');
+          throw new GlobalReleaseRejected('Sync pending: global dependency review required');
         const before = this.publicationSnapshot(
           tree,
           revision,
@@ -696,7 +711,9 @@ export class GlobalsPublisher {
           !comparison.complete ||
           comparison.rows.some((row) => stableStringify(row.before) !== stableStringify(row.after))
         )
-          throw new Error('The saved global layout changes or cannot prove consumer output');
+          throw new GlobalReleaseRejected(
+            'The saved global layout changes or cannot prove consumer output',
+          );
 
         // Compare a layout-only library against its actual LIVE input,
         // including the historical secondary text the converter can read.
@@ -718,7 +735,7 @@ export class GlobalsPublisher {
               ),
           )
         )
-          throw new Error('The saved global layout changes legacy consumer output');
+          throw new GlobalReleaseRejected('The saved global layout changes legacy consumer output');
       }
     }
     const published = globalPublishedSchema.parse({
@@ -849,7 +866,7 @@ export class GlobalsPublisher {
       published,
       ...(batch ? { batchSource: batch.source } : {}),
     };
-    return { documents, receipt };
+    return { documents, receipt, partialAggregates };
   }
   async validate(
     receipt: GlobalReleaseReceipt | undefined,
@@ -866,7 +883,7 @@ export class GlobalsPublisher {
       stableStringify(checked.receipt.published) !== stableStringify(receipt.published)
     )
       throw new Error('Global release changed since review');
-    return checked.documents;
+    return checked;
   }
   /** Current permission check also applies to old acknowledgements at drain/recovery. */
   approved(tree: Tree, row: GlobalReleaseComponent['rows'][number]): boolean {
@@ -1311,6 +1328,9 @@ export class GlobalsPublisher {
     ))
       delete tree[path];
     const moves = this.publisher.movesAt(tree);
+    const entryAggregates = new Map(
+      captured.saved.entries.map(({ id, kind }) => [id, globalAggregateHash(kind)]),
+    );
     const hashes = new Set(Object.keys(captured.authored.tooltips).map(Number));
     for (const key of Object.keys(moves)) {
       const hash = Number(key);
@@ -1331,7 +1351,7 @@ export class GlobalsPublisher {
           ? []
           : components.filter(
               (component) =>
-                aggregate ||
+                (aggregate && component.ids.some((id) => entryAggregates.get(id) === hash)) ||
                 component.rows.some(
                   (row) => row.view.consumer.hash === hash && row.view.consumer.lang === lang,
                 ),

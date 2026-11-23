@@ -85,6 +85,7 @@ import { setTimeout } from 'node:timers/promises';
 import {
   bundleGlobals,
   GlobalsPublisher,
+  GlobalReleaseRejected,
   hasGlobals,
   type GlobalReleaseReceipt,
 } from './globals.js';
@@ -762,14 +763,15 @@ export class Publisher {
         new Set(signed.hashes.map((hash) => resolveAlias(hash, aliases))).size
     )
       throw new ConsumerOutputRejected('Receipt does not match the requested rows');
-    if (signed.kind === 'push')
-      this.assertRequestedDigests(
-        receipt.entries,
-        signed.hashes,
-        (hash) => signed.expected[hash],
-        aliases,
-      );
-    else {
+    if (signed.kind === 'push') {
+      if (!atomic)
+        this.assertRequestedDigests(
+          receipt.entries,
+          signed.hashes,
+          (hash) => signed.expected[hash],
+          aliases,
+        );
+    } else {
       const members = batchMembers(this, frozen, signed.batchId);
       if (
         signed.batchId !== receipt.batchId ||
@@ -893,6 +895,7 @@ export class Publisher {
         )
           throw new ConsumerOutputRejected('Global receipt identity mismatch');
         let documents: Tooltip[] | undefined;
+        let partialAggregates: number[] = [];
         if (signed.kind === 'batch') {
           const plan = await this.batchPlan(
             tree,
@@ -909,13 +912,16 @@ export class Publisher {
           documents = plan.entries.map((entry) =>
             tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob))),
           );
-        } else
-          documents = await new GlobalsPublisher(this).validate(
+        } else {
+          const release = await new GlobalsPublisher(this).validate(
             receipt.globals,
             tree,
             source,
             atomicLive.parent,
           );
+          documents = release?.documents;
+          partialAggregates = release?.partialAggregates ?? [];
+        }
         if (
           !documents ||
           stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots) ||
@@ -924,12 +930,21 @@ export class Publisher {
           receipt.generatorSha !== this.options.generatorSha
         )
           throw new ConsumerOutputRejected('Global receipt identity mismatch');
-        const aliases = this.aliasesAt(tree),
-          moves = selectedInactiveMoves(
-            this.movesAt(tree),
-            documents.map((document) => document.hash),
+        const aliases = this.aliasesAt(tree);
+        if (signed.kind === 'push')
+          this.assertRequestedDigests(
+            receipt.entries,
+            signed.hashes.filter(
+              (hash) => !partialAggregates.includes(resolveAlias(hash, aliases)),
+            ),
+            (hash) => signed.expected[hash],
             aliases,
           );
+        const moves = selectedInactiveMoves(
+          this.movesAt(tree),
+          documents.map((document) => document.hash),
+          aliases,
+        );
         const exported = exportWithInactiveMoves(
           documents,
           receipt.now,
@@ -1114,6 +1129,12 @@ export class Publisher {
       await this.publishOperation(opId, s, tree);
     } catch (error) {
       if (!(error instanceof ConsumerOutputRejected)) throw error;
+      const live = this.head(this.options.liveBranch);
+      const pending = this.git.head(p.candidate);
+      if (this.receipt(live, opId) || (pending && this.git.ancestor(pending, live)))
+        throw new Error('Publication already landed. Operator required to finish RECORD.', {
+          cause: error,
+        });
       // A content refusal is terminal: only the rejection Record changes data. Never
       // leave it at the queue head, where it would block every later user's publish.
       await this.record(
@@ -1240,11 +1261,13 @@ export class Publisher {
           return;
         }
         let globals: GlobalReleaseReceipt | undefined;
+        let partialAggregates: number[] = [];
         if (hasGlobals(tree)) {
           try {
             const release = await new GlobalsPublisher(this).release(tree, s, payload.hashes, live);
             if (!release) throw new Error('Missing global release');
             globals = release.receipt;
+            partialAggregates = release.partialAggregates;
             tooltips.splice(0, tooltips.length, ...release.documents);
             entries.splice(
               0,
@@ -1259,13 +1282,15 @@ export class Publisher {
             );
           } catch (error) {
             throw new ConsumerOutputRejected(
-              error instanceof Error ? error.message : String(error),
+              error instanceof GlobalReleaseRejected
+                ? error.message
+                : 'Sync pending: global dependency review required',
             );
           }
         }
         this.assertRequestedDigests(
           entries,
-          payload.hashes,
+          payload.hashes.filter((hash) => !partialAggregates.includes(resolveAlias(hash, aliases))),
           (hash) => payload.expected[hash],
           aliases,
         );

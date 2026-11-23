@@ -310,25 +310,27 @@ async function mutationPort(f: Awaited<ReturnType<typeof fixture>>) {
     repository: f.options.repo,
     destinations: [f.options.liveBranch],
   });
-  const edit = (id: string, body: string, lang = 'en') =>
+  const post = (path: string, mutation: object) =>
     globalsHandler(
-      new Request(`https://api.invalid/globals/${id}/body`, {
+      new Request(`https://api.invalid/globals${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           expectedHead: f.git.head(D),
-          mutation: {
-            operation: 'edit',
-            id,
-            revision: f.read(`globals/entries/${id}.json`).revision,
-            lang,
-            body,
-          },
+          mutation,
         }),
       }),
       load,
     );
-  return { load, edit };
+  const edit = (id: string, body: string, lang = 'en') =>
+    post(`/${id}/body`, {
+      operation: 'edit',
+      id,
+      revision: f.read(`globals/entries/${id}.json`).revision,
+      lang,
+      body,
+    });
+  return { load, edit, post };
 }
 
 describe('dependency-safe global release', () => {
@@ -707,6 +709,8 @@ describe('dependency-safe global release', () => {
       'globals/layout.json': { version: 1, aggregates: layout },
     });
     await f.globals.drain();
+    expect(f.read('globals/proofs/publication/converter-v2-test/1-en.json').approved).toBe(true);
+    expect(f.current()['globals/proofs/publication/converter-v2-test/2-en.json']).toBeUndefined();
     f.approve(41);
     await f.globals.drain();
     await f.request([1]);
@@ -716,6 +720,55 @@ describe('dependency-safe global release', () => {
       outcomes: [{ hash: 1, status: 'published' }],
     });
     expect(f.read('live/tooltips/2.json')).toEqual(projectGlobals(f.published)[2]);
+  });
+  it('can publish after creating and removing an unused variable in a translated library', async () => {
+    const f = await fixture('', false, true);
+    f.change({
+      ...Object.fromEntries(
+        f.published.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+      ),
+      'globals/catalog.json': { version: 1, lastPage: 0 },
+      'globals/pages/p0.json': {
+        version: 1,
+        ids: f.published.entries.map(({ id }) => id),
+        nextCursor: null,
+      },
+    });
+    const port = await mutationPort(f);
+    await f.globals.drain();
+    const before = f.read('tooltips/2.json');
+    const create = () =>
+      port.post('', {
+        operation: 'create',
+        kind: 'variables',
+        name: 'Gamma',
+        lang: 'en',
+        body: '30',
+      });
+    let response = await create();
+    if (response.status === 202) {
+      await f.globals.drain();
+      response = await create();
+    }
+    expect(response.status, await response.clone().text()).toBe(200);
+    const {
+      value: {
+        entry: { id, revision },
+      },
+    } = await response.json();
+    await f.globals.drain();
+    expect(f.read('tooltips/2.json').text.en.updatedAt).not.toBe(before.text.en.updatedAt);
+    response = await port.post(`/${id}/remove`, { operation: 'remove', id, revision });
+    expect(response.status, await response.text()).toBe(200);
+    await f.globals.drain();
+    const saved = f.read('tooltips/2.json');
+    expect(saved.text.en.updatedAt).toBe(before.text.en.updatedAt);
+    expect(saved.text.de).toEqual(before.text.de);
+    expect(f.read('globals/proofs/publication/converter-v2-test/2-de.json').approved).toBe(true);
+    await f.request([2]);
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    expect(f.read('live/pushed.json')[2]).toBe(await inactivePublishableHash(saved, {}));
   });
   it('drains once, preserves audits on metadata-only retries, and produces bounded name/publication proofs', async () => {
     const f = await fixture();
@@ -762,35 +815,59 @@ describe('dependency-safe global release', () => {
     await f.globals.drain();
     expect(f.read(row).review.acknowledgement).toEqual(before);
   });
-  it('rejects a signed full aggregate when only one entry can release', async () => {
+  it('releases the cleared subset first and the exact layout after the held entry is reviewed', async () => {
     const f = await fixture();
+    const layout = structuredClone(f.published.aggregates);
+    layout[0].languages.en!.segments[0] = { literal: '// saved layout\n' };
+    f.change({ 'globals/layout.json': { version: 1, aggregates: layout } });
     await f.globals.drain();
     f.approve(40);
     await f.globals.drain();
-    const base = f.git.head(L)!;
+    const digest = await inactivePublishableHash(f.read('tooltips/2.json'), {});
     await f.request([2]);
     await f.pub.operation(A);
-    expect(f.git.head(L)).toBe(base);
-    expect(f.read(paths(A).log).result).toMatchObject({
-      status: 'rejected',
-      error: expect.stringContaining('Tooltip 2 would publish a different revision'),
-    });
-    expect(f.read('live/pushed.json')).toEqual({});
-
-    const B = '01K95H00000000000000000002';
-    await f.request([40], B);
-    await f.pub.operation(B);
     const live = JSON.parse(f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']));
-    expect(live.perks[2].editor.en.main).toContain('var Alpha = 100');
-    expect(live.perks[2].editor.en.main).toContain('var Beta = 20\n');
-    expect(live.perks[2].editor.en.main).not.toContain('var Beta = 200');
-    expect(f.read(paths(B).log).result.status).toMatch(/done|unchanged/);
-    expect(
-      f
-        .read('globals/live/converter-v2-test.json')
-        .store.entries.find((entry: { name: string }) => entry.name === 'Beta').definitions.en.body,
-    ).toBe('20');
+    expect(live.perks[2].editor.en.main).toBe('// ordered\nvar Alpha = 100\n\nvar Beta = 20\n');
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    expect(f.read('live/pushed.json')[2]).not.toBe(digest);
+
+    f.approve(41);
+    await f.globals.drain();
+    const B = '01K95H00000000000000000002';
+    await f.request([2], B);
+    await f.pub.operation(B);
+    expect(f.read(paths(B).log).result.status).toBe('done');
+    expect(f.read('live/tooltips/2.json')).toEqual(f.read('tooltips/2.json'));
+    expect(f.read('live/pushed.json')[2]).toBe(digest);
   });
+  it.each([false, true])(
+    'refuses a full aggregate with inconsistent saved inputs (malformed=%s)',
+    async (malformed) => {
+      const f = await fixture();
+      f.change(
+        Object.fromEntries(
+          f.published.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+        ),
+      );
+      await f.globals.drain();
+      const document = f.read('tooltips/2.json');
+      document.text.en.text = '// only the saved snapshot changed\n' + document.text.en.text;
+      f.change({
+        'tooltips/2.json': document,
+        ...(malformed ? { 'globals/layout.json': {} } : {}),
+      });
+      const live = f.git.head(L);
+      await f.request([2]);
+      await f.pub.operation(A);
+      expect(f.git.head(L)).toBe(live);
+      expect(f.read(paths(A).log).result).toMatchObject({
+        status: 'rejected',
+        error: malformed
+          ? 'ConsumerOutputRejected: Sync pending: global dependency review required'
+          : expect.stringContaining('would publish a different revision than requested'),
+      });
+    },
+  );
   it('publishes approved entry edits with layout only for the explicitly requested aggregate', async () => {
     const f = await fixture('title Info (\nBefore\n)', true);
     const layout = structuredClone(f.saved.aggregates);

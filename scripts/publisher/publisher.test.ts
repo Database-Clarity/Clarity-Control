@@ -521,7 +521,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     ['export', false],
     ['export', true],
   ] as const)(
-    'rejects a receipt with a valid signed marker and a mismatched %s (landed=%s)',
+    'fails closed for a receipt with a valid signed marker and a mismatched %s (landed=%s)',
     async (part, landed) => {
       const f = await setup();
       await f.request(A);
@@ -538,16 +538,24 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         return candidate;
       };
       const live = f.git.head(L);
-      await f.pub.operation(A);
+      if (landed) {
+        await expect(f.pub.operation(A)).rejects.toThrow(
+          'Publication already landed. Operator required',
+        );
+        expect(f.git.tree(f.git.head(D)!)[paths(A).log]).toBeUndefined();
+        expect(f.git.tree(f.git.head(D)!)[paths(A).request]).toBeDefined();
+      } else {
+        await f.pub.operation(A);
+        expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+          result: {
+            status: 'rejected',
+            error: expect.stringMatching(
+              /receipt marker|frozen source snapshot|export or upload markers/,
+            ),
+          },
+        });
+      }
       expect(f.git.head(L) === live).toBe(!landed);
-      expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
-        result: {
-          status: 'rejected',
-          error: expect.stringMatching(
-            /receipt marker|frozen source snapshot|export or upload markers/,
-          ),
-        },
-      });
       expect(f.pub.read(f.git.tree(f.git.head(D)!), 'live/pushed.json')).toEqual({});
     },
   );

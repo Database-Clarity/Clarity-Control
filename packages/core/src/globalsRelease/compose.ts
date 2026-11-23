@@ -24,10 +24,17 @@ function definitionMetadata(definition: GlobalDefinition) {
 export function reconcileGlobalStore(
   layout: GlobalStore['aggregates'],
   entries: GlobalRecord[],
+  published?: GlobalStore,
 ): GlobalStore {
   const aggregates = structuredClone(layout);
+  const liveEntries = new Set(
+    published?.entries.filter((entry) => !entry.tombstone).map(({ id }) => id),
+  );
   for (const aggregate of aggregates) {
     const kind = globalAggregateKind(aggregate.document.hash);
+    const liveLayout = published?.aggregates.find(
+      ({ document }) => document.hash === aggregate.document.hash,
+    );
     for (const lang of languages) {
       const definitions = entries.filter(
         (entry) => !entry.tombstone && entry.kind === kind && entry.definitions[lang],
@@ -37,6 +44,24 @@ export function reconcileGlobalStore(
         .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
         .at(-1);
       let cell = aggregate.languages[lang];
+      const liveStamp = liveLayout?.languages[lang]?.metadata;
+      if (
+        cell &&
+        liveStamp &&
+        entries.some((entry) => {
+          const definition = entry.definitions[lang];
+          return (
+            entry.kind === kind &&
+            entry.tombstone &&
+            !liveEntries.has(entry.id) &&
+            definition &&
+            stableStringify(definitionMetadata(definition)) === stableStringify(cell!.metadata)
+          );
+        })
+      ) {
+        // Creating and removing an unpublished declaration must not age other translations.
+        cell.metadata = structuredClone(liveStamp);
+      }
       if (latest && !cell) {
         cell = aggregate.languages[lang] = {
           metadata: definitionMetadata(latest),
