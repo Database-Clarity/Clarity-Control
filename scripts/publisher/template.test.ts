@@ -122,8 +122,8 @@ it('initializes bundled report schemas without reading globals or performing I/O
 vi.setConfig({ testTimeout: 300_000 });
 
 /** The `run:` script of the named template pipeline step, dedented the way YAML does it. */
-function stepScript(name: string) {
-  const lines = readFileSync('scripts/publisher/template/.github/workflows/pipeline.yml', 'utf8')
+function stepScript(name: string, workflow = 'pipeline.yml') {
+  const lines = readFileSync(`scripts/publisher/template/.github/workflows/${workflow}`, 'utf8')
     .replace(/\r\n/g, '\n')
     .split('\n');
   const start = lines.findIndex((l) => l.trim() === `- name: ${name}`);
@@ -381,6 +381,11 @@ it('report-items jobs rebuild both catalogs for the published bundle, leased and
 });
 
 it('the pipeline step publishes for real only when the installed config says publishWritesEnabled: true', () => {
+  const step = stepScript('Bundle live data and publish (or simulate)', 'publisher-run.yml');
+  // The former inline preview step, before extracting it into a reusable workflow.
+  expect(createHash('sha256').update(step).digest('hex')).toBe(
+    'bf431a7d75f50ce32e9ee29686015b0f6cfaadd06e1de3b2aa30e7da8e316385',
+  );
   const cases: [unknown, string][] = [
     [true, '--pipeline-publish'],
     [false, '--pipeline-dry-run'],
@@ -400,15 +405,11 @@ it('the pipeline step publishes for real only when the installed config says pub
       join(ws, '.publisher/publisher.mjs'),
       "console.log('ARGS ' + process.argv.slice(2).join(' '));\n",
     );
-    const result = spawnSync(
-      'bash',
-      ['-c', stepScript('Bundle live data and publish (or simulate)')],
-      {
-        cwd: ws,
-        encoding: 'utf8',
-        env: { ...process.env, ARTIFACT_DIR: 'out' },
-      },
-    );
+    const result = spawnSync('bash', ['-c', step], {
+      cwd: ws,
+      encoding: 'utf8',
+      env: { ...process.env, ARTIFACT_DIR: 'out' },
+    });
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain(`ARGS ${mode} . .publisher/config.json out\n`);
   }
@@ -551,13 +552,21 @@ describe('install.mjs', () => {
       expect(JSON.parse(patched.toString()).liveBranch).toBe(live);
       const applied = install('.', true, '--apply-local', undefined, `--target=${plan}`, live);
       expect(applied.status, applied.stderr).toBe(0);
-      const workflow = readFileSync(join(applied.target, '.github/workflows/pipeline.yml'), 'utf8');
+      const workflow = readFileSync(
+        join(applied.target, '.github/workflows/publisher-run.yml'),
+        'utf8',
+      );
+      const caller = readFileSync(join(applied.target, '.github/workflows/pipeline.yml'), 'utf8');
       const call =
         'uses: Database-Clarity/Live-Clarity-Database/.github/workflows/build-outputs.yml@converter';
-      if (plan === 'test') expect(workflow).not.toContain(call);
-      else {
+      expect(caller).toContain('uses: ./.github/workflows/publisher-run.yml');
+      if (plan === 'test') {
+        expect(workflow).not.toContain(call);
+        expect(caller).not.toContain('secrets: inherit');
+      } else {
         expect(workflow).toContain(call);
         expect(workflow).toContain('\n  outputs:\n    needs: pipeline\n');
+        expect(caller).toContain('secrets: inherit');
       }
       for (const file of [
         '.publisher/config.json',
@@ -565,13 +574,53 @@ describe('install.mjs', () => {
         '.publisher/PIN',
         '.publisher/publisher.mjs',
         '.github/workflows/pipeline.yml',
+        '.github/workflows/publisher-run.yml',
       ])
         expect(readFileSync(join(result.target, file))).toEqual(
           readFileSync(join(applied.target, file)),
         );
       expect(existsSync(join(result.target, '.github/workflows/bundle.yml'))).toBe(false);
+      const git = (...args: string[]) =>
+        execFileSync('git', [...identity, '-C', result.target, ...args], {
+          encoding: 'utf8',
+        }).trim();
+      const before = git('rev-parse', 'HEAD^{tree}');
+      git('add', '--all');
+      git('commit', '-q', '-m', 'Install publisher workflows');
+      const verify = spawnSync(
+        process.execPath,
+        [
+          resolve('scripts/publisher/install.mjs'),
+          result.target,
+          result.configPath,
+          '--verify',
+          `--target=${plan}`,
+        ],
+        { encoding: 'utf8' },
+      );
+      expect(verify.status, verify.stderr).toBe(0);
+      git('revert', '--no-edit', 'HEAD');
+      expect(git('rev-parse', 'HEAD^{tree}')).toBe(before);
     },
   );
+  it.each(['pipeline.yml', 'publisher-run.yml'])('refuses a committed pair missing %s', (file) => {
+    const result = install('.', true, '--apply-local');
+    expect(result.status, result.stderr).toBe(0);
+    rmSync(join(result.target, '.github/workflows', file));
+    const git = (...args: string[]) =>
+      execFileSync('git', [...identity, '-C', result.target, ...args]);
+    git('add', '--all');
+    git('commit', '-q', '-m', 'Install only half of the workflow pair');
+    for (const mode of ['--plan', '--apply-local', '--verify']) {
+      const failed = spawnSync(
+        process.execPath,
+        [resolve('scripts/publisher/install.mjs'), result.target, result.configPath, mode],
+        { encoding: 'utf8' },
+      );
+      expect(failed.status).not.toBe(0);
+      expect(failed.stderr).toContain('Incomplete publisher workflow pair at HEAD');
+    }
+  });
   it('refuses unknown plans, config disagreements, and implicit target rollback', () => {
     for (const [flag, live] of [
       [undefined, 'converter'],

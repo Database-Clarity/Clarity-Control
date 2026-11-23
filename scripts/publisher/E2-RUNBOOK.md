@@ -68,10 +68,10 @@ Its bundle pushes carry the report catalogs forward; the pipeline's report-items
    This also writes `.publisher/installed.json` (version, configOid, and generatorSha).
    Commit it with the exact `.publisher/config.json` bytes from that same installer run;
    missing or stale metadata makes globals reads refuse until the installation is complete.
-   This only changes local files: retire bundle.yml, add pipeline.yml and .publisher together.
-   Inspect `git -C <checkout> diff`, run actionlint on the installed workflow and inspect PIN.
-   The operator then commits and normally pushes ONLY editor-data after review. Neither script
-   commits nor pushes. No workflow files are installed on production branches or this editor repo.
+   Inspect the diff and lint both workflows. In one editor-data commit retire bundle.yml and
+   install `.github/workflows/pipeline.yml`, `.github/workflows/publisher-run.yml`, and the pinned
+   `.publisher/` files with their public config and installed.json. Run the installer with
+   `--verify` and the same config and target on that clean HEAD before the operator pushes.
 5. Observe pipeline artifact result.json: dryRun:true, publishWritesEnabled:false, no errors.
    Check the run's report-items and report-items-push jobs are green and editor-data-bundle
    still holds report-items.json and report-items.worker.json, both with the bundle's
@@ -81,10 +81,10 @@ Its bundle pushes carry the report catalogs forward; the pipeline's report-items
    Confirm data/live/candidate refs have no simulated commits; requests remain pending by design.
    Request/kick/save starts catch-up; no unattended cron in P1. Resume saves.
 
-Rollback installation: drain/cancel pipeline runs, revert the installation commit on editor-data
-with a normal forward push (never reset/force-push), then restore bundle.yml service. Do not run
-both workflows concurrently. Keep requests/receipts/logs intact. Bundle sourceCommit can reference
-installation history safely. Record resulting heads and retain dry-run artifacts.
+Rollback installation by draining publisher, output, and report jobs, then reverting the one
+installation commit on editor-data via a normal forward push. The revert restores the prior
+workflow files, runtime, PIN, and public config together. Retain requests, receipts, logs, and dry-run
+artifacts.
 Rollback future switch release: first stop/drain any future write-capable publisher, confirm no
 unrecorded candidate/receipt, restore enabled:false and rebuild/release BOTH Worker and web from
 one commit before allowing legacy writes. Never overlap two writers. No rollback is executed here.
@@ -114,8 +114,9 @@ holds closed until the independently reviewed S1-compatible release candidate is
    Ordinary non-publisher descendants need no publisher handoff. Test publication never calls it.
    Site configs are read from current editor-data under the data-site deployment slot; the
    immutable RECORD proof is checked out separately. Retry retains newer config saves.
-   Test installs contain no production reusable-workflow call; the explicit production plan
-   alone appends production-job.yml after the G5 workflow input upgrade is installed.
+   Test installs call the local publisher workflow without downstream outputs. The explicit
+   production plan appends production-job.yml to publisher-run.yml after the G5 workflow input
+   upgrade is installed. The calling pipeline job holds the publish slot through both outputs.
    The exact reusable patch intentionally converts the baseline workflow's CRLF bytes to LF;
    retain the original blob alongside the semantic review diff so this conversion is explicit.
 3. G4/G5 operator gate, not execution here: pause intake, drain running pipeline jobs, and

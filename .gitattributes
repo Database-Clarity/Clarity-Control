@@ -1,3 +1,4 @@
 scripts/publisher/template/.publisher/publisher.mjs text eol=lf
 scripts/publisher/template/.publisher/PIN text eol=lf
 scripts/publisher/template/.github/workflows/pipeline.yml text eol=lf
+scripts/publisher/template/.github/workflows/publisher-run.yml text eol=lf
