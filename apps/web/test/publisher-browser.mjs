@@ -65,16 +65,17 @@ try {
         const clipped = [];
         for (const chip of section.querySelectorAll('li > span:first-child'))
           if (chip.scrollWidth > chip.clientWidth + 1) clipped.push(chip.textContent);
-        const lines = (element) => {
+        const wraps = (element) => {
           const range = document.createRange();
           range.selectNodeContents(element);
-          return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+          const rects = [...range.getClientRects()].filter(({ width, height }) => width && height);
+          return rects.some((a) => rects.some((b) => a.bottom <= b.top));
         };
         // Controls (toolbar, dialog-free page buttons, activity actions) stay on one line; the long
         // wrapped row-name buttons inside the pending list are existing, intentionally wrapping text.
         const wrapped = [...document.querySelectorAll('article button')]
           .filter((b) => !b.closest('ul') || b.closest('[aria-label="Publish activity"]'))
-          .filter((b) => lines(b) > 1)
+          .filter(wraps)
           .map((b) => b.textContent);
         const toolbarButtons = [];
         return {
