@@ -24004,6 +24004,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 var RefRace = class extends Error {
 };
+var emptyTreeOid = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 var appCredits = {
   author: {
     name: "clarity-editor-backend[bot]",
@@ -24078,9 +24079,10 @@ var LocalRepository = class {
   }
   treeModes(commit2) {
     return Object.fromEntries(
-      this.git(["ls-tree", "-rz", "--full-tree", commit2]).split("\0").filter(Boolean).map((line) => {
+      this.git(["ls-tree", "-rtz", "--full-tree", commit2]).split("\0").filter(Boolean).flatMap((line) => {
         const tab = line.indexOf("	");
-        return [line.slice(tab + 1), line.slice(0, 6)];
+        const [mode, type, oid4] = line.slice(0, tab).split(" ");
+        return type === "tree" && oid4 !== emptyTreeOid ? [] : [[line.slice(tab + 1), mode]];
       })
     );
   }
@@ -33360,6 +33362,8 @@ var Publisher = class _Publisher {
     const reviewed = this.git.tree(source2);
     const reviewedModes = this.git.treeModes?.(source2);
     const currentModes = this.git.treeModes?.(head);
+    if (Object.keys(reviewedModes ?? {}).some((path) => !Object.hasOwn(reviewed, path)) || Object.keys(currentModes ?? {}).some((path) => !Object.hasOwn(tree, path)))
+      return false;
     const regular = (modes, path) => !modes || modes[path] === "100644";
     const nameProofRequest = (snapshot, path) => {
       const id = /^globals\/retries\/([0-9a-f-]{36})\.json$/.exec(path)?.[1];
