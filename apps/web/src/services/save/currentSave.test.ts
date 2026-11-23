@@ -61,7 +61,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it.each([422, 409, 'network'] as const)(
+it.each([422, 409, 502, 'network'] as const)(
   'keeps the finalization receipt only when refusal %s can be ambiguous',
   async (status) => {
     const request = vi

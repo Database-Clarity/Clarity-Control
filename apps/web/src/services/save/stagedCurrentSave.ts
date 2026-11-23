@@ -68,8 +68,8 @@ export async function resumeCurrentSave(requestId: string, finalization: SaveFin
 async function post(value: unknown, onRefusal?: () => Promise<void>) {
   const response = await postRequest(value);
   if (!response.ok) {
-    // A concurrent finalizer can return 409 after it has already queued this upload.
-    if (response.status !== 409) await onRefusal?.();
+    // A concurrent finalizer or a failed response can leave this upload queued.
+    if (response.status < 500 && response.status !== 409) await onRefusal?.();
     const error = z.object({ error: z.string() }).safeParse(
       await response
         .clone()
