@@ -26,8 +26,14 @@ import { revertDraft } from '../history/revert';
 import { CompendiumChanges, FieldChanges } from '../history/TooltipDiff';
 import { useRenderedDiff } from '../history/useRenderedDiff';
 import { itemFor, listName } from '../navigation/catalog';
-import { publishedCell, type PendingGlobal } from './globalsPending';
-import { reviewGlobals, textLanguages, type Classification } from './kinds';
+import { globalKey, publishedCell, type PendingGlobal } from './globalsPending';
+import {
+  classifyTooltip,
+  localKind,
+  reviewGlobals,
+  textLanguages,
+  type Classification,
+} from './kinds';
 import type { PendingTooltip } from './model';
 import type { Published } from './published';
 import { useReviewQueue } from './queueStore';
@@ -523,7 +529,7 @@ function RawMarkup({ before, after }: { before: string; after: string }) {
 export const ReviewDetail = memo(function ReviewDetail({
   entry,
   published,
-  classification,
+  classification: listedClassification,
   raw,
   onRetry,
 }: {
@@ -558,6 +564,38 @@ export const ReviewDetail = memo(function ReviewDetail({
     return () => controller.abort();
   }, [entry.tooltip.hash, pending, user]);
   const live = published?.status === 'ready' ? published.tooltip : undefined;
+  const comparison = useMemo(
+    () =>
+      data &&
+      live &&
+      selected &&
+      !entry.part &&
+      !localKind(entry) &&
+      data.bundle.globalsPending?.some(({ id, refusal }) => !refusal && selected.has(globalKey(id)))
+        ? { data, live, tooltip: entry.tooltip, selected }
+        : undefined,
+    [data, live, selected, entry],
+  );
+  const [mixed, setMixed] = useState<{
+    comparison: NonNullable<typeof comparison>;
+    classification: Classification | undefined;
+  }>();
+  useEffect(() => {
+    if (!comparison) return;
+    let active = true;
+    const { data, live, tooltip, selected } = comparison;
+    void classifyTooltip(data, live, tooltip, selected).then((classification) => {
+      if (active) setMixed({ comparison, classification });
+    });
+    return () => {
+      active = false;
+    };
+  }, [comparison]);
+  const classification = comparison
+    ? mixed?.comparison === comparison
+      ? mixed.classification
+      : undefined
+    : listedClassification;
   const kind = classification?.kind;
   const saverLine =
     user?.role && !pending ? (

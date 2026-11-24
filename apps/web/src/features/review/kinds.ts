@@ -113,19 +113,21 @@ export function linksChanged(before: Tooltip, current: Tooltip): boolean {
 type Output = { base: boolean; enhanced: boolean; variantsDiffer: boolean };
 
 /**
- * The word for a published row from its rendered comparison per changed language (`outputs`,
- * same order as `textLanguages`). A failed check leaves the row without a word (never a guess).
+ * The word for a published row from its rendered outputs in the order of the compared languages.
+ * A failed check leaves the row without a word.
  * `Text changed` wins over everything else on the row.
  */
 export function publishedKind(
   before: Tooltip | null,
   current: Tooltip,
   outputs: readonly (Output | undefined)[],
+  comparedLanguages = textLanguages(before, current),
 ): Classification | undefined {
   if (!before) return { kind: 'New' };
-  const changed = textLanguages(before, current);
   if (outputs.some((output) => !output)) return undefined;
-  const visible = changed.filter((_, index) => outputs[index]!.base || outputs[index]!.enhanced);
+  const visible = comparedLanguages.filter(
+    (_, index) => outputs[index]!.base || outputs[index]!.enhanced,
+  );
   if (visible.length) {
     const shown = outputs.filter((output) => output!.base || output!.enhanced) as Output[];
     const variants = outputs.some((output) => output!.variantsDiffer);
@@ -144,12 +146,39 @@ export function publishedKind(
   if (linksChanged(before, current)) return { kind: 'Links changed' };
   return {
     kind: 'No visible change',
-    markupLines: changed.reduce(
+    markupLines: comparedLanguages.reduce(
       (sum, lang) =>
         sum + changedLines(before.text[lang]?.text ?? '', current.text[lang]?.text ?? ''),
       0,
     ),
   };
+}
+
+export async function classifyTooltip(
+  data: EditorData,
+  before: Tooltip,
+  saved: Tooltip,
+  selected?: ReadonlySet<number>,
+): Promise<Classification | undefined> {
+  // A selected shared translation can change a cell even when its authored source is identical.
+  const comparedLanguages = selected
+    ? languages.filter((lang) => before.text[lang] || saved.text[lang])
+    : textLanguages(before, saved);
+  const outputs = await Promise.all(
+    comparedLanguages.map((lang) => {
+      const previous = publishedCell(data, before, lang, 'live');
+      const current = publishedCell(data, saved, lang, 'next', selected);
+      return classifyRendered(
+        previous.text,
+        current.text,
+        reviewGlobals(data, current.language, saved.hash, 'next', selected),
+        data.bundle.globalsPending && saved.hash >= 0
+          ? reviewGlobals(data, previous.language, saved.hash, 'live')
+          : undefined,
+      );
+    }),
+  );
+  return publishedKind(before, saved, outputs, comparedLanguages);
 }
 
 // ---- background classification ----
@@ -241,25 +270,10 @@ export function classifyRows(
       continue;
     const request = { saved, before, tooltips, aliases };
     running.set(key, request);
-    const changed = textLanguages(before, saved);
-    void Promise.all(
-      changed.map((lang) => {
-        const previous = publishedCell(data, before, lang, 'live');
-        const current = publishedCell(data, saved, lang, 'next');
-        return classifyRendered(
-          previous.text,
-          current.text,
-          reviewGlobals(data, current.language, saved.hash),
-          data.bundle.globalsPending && saved.hash >= 0
-            ? reviewGlobals(data, previous.language, saved.hash, 'live')
-            : undefined,
-        );
-      }),
-    ).then((outputs) => {
+    void classifyTooltip(data, before, saved).then((value) => {
       // A newer check for this row (new saved text, published text, or imports) owns the result.
       if (running.get(key) !== request) return;
       running.delete(key);
-      const value = publishedKind(before, saved, outputs);
       // Both sides rendered with the saved imports: for a globals entry that uses others, equal
       // output is not proven.
       const unproven =

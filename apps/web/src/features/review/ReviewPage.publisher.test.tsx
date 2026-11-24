@@ -15,6 +15,9 @@ import { loadBundle, type Bundle } from '../../services/bundle';
 import { useReviewSession } from './session';
 import { publishDriver } from './publisher';
 import { publishTiming } from './publishDriver';
+import { ReviewDetail } from './ReviewDetail';
+import { globalKey } from './globalsPending';
+import { useReviewQueue } from './queueStore';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
 vi.mock('../../services/bundle', async (importOriginal) => ({
@@ -223,6 +226,88 @@ afterEach(async () => {
 });
 
 const posts = () => calls.filter((c) => c.path === '/publish');
+
+it('updates the open tooltip summary and comparison when a German global translation is included', async () => {
+  const id = 'g_refill-0001';
+  const en = { ...tooltip.text.en!, text: 'English <title Details [G_refill] />' };
+  const live = {
+    ...tooltip,
+    text: { en, de: { ...en, text: 'Alt <title Details [G_refill] />' } },
+  };
+  const edited = { ...live, text: { en, de: { ...en, text: 'Neu <title Details [G_refill] />' } } };
+  const english = {
+    body: 'English note',
+    revision: 'r1',
+    updatedAt: en.updatedAt,
+    updatedBy: en.updatedBy,
+  };
+  bundle.globals = {
+    entries: [
+      {
+        version: 1,
+        id,
+        kind: 'titles',
+        name: 'G_refill',
+        revision: 'r2',
+        nameHistory: [],
+        definitions: {
+          en: english,
+          de: { ...english, body: 'Deutsche Notiz', sourceRevision: 'r1' },
+        },
+      },
+    ],
+    sync: { status: 'current', causeIds: [], lastFailure: null, causeEntries: {} },
+  };
+  bundle.globalsPending = [
+    {
+      id,
+      kind: 'titles',
+      name: 'G_refill',
+      change: 'changed',
+      digest: 'a'.repeat(64),
+      affected: [10],
+      languages: { de: { before: null, after: 'Deutsche Notiz' } },
+    },
+  ];
+  const queue = useReviewQueue.getState();
+  useReviewQueue.setState({ selected: new Set([10]) });
+  useDataStore.setState({
+    data: { items: {}, categories: [], aliases: {}, bundle },
+    status: 'ready',
+  });
+  await act(async () =>
+    root.render(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(ReviewDetail, {
+          entry: {
+            tooltip: edited,
+            name: 'Tooltip 10',
+            category: 'Other',
+            categoryId: 'other',
+            categoryOrder: 1,
+            markerOnly: false,
+            isNew: false,
+          },
+          published: { status: 'ready', tooltip: live },
+          classification: { kind: 'No visible change' },
+          raw: false,
+          onRetry: () => {},
+        }),
+      ),
+    ),
+  );
+  expect(host.textContent).toContain('No visible change');
+  await act(async () => queue.toggle(globalKey(id)));
+  await waitFor(() => {
+    expect(host.textContent).toContain('Text changed in German');
+    expect(host.querySelector('section[lang="de"]')?.textContent).toContain('Neu');
+  });
+  await act(async () => queue.clearSelection());
+  expect(host.textContent).toContain('No visible change');
+  expect(host.querySelector('section[lang="de"]')).toBeNull();
+});
 
 it('loads a manually included migration leftover before confirming a removal selection', async () => {
   bundle.pushed[10] = await publishableHash(tooltip);

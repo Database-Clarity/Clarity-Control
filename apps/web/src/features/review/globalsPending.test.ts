@@ -13,7 +13,7 @@ import {
   publishedCell,
   rowIdentity,
 } from './globalsPending';
-import { localKind } from './kinds';
+import { classifyTooltip, localKind } from './kinds';
 import { pendingTooltips, publishableHashes, publishSelection } from './model';
 import { planReviewedPublish, queuePublish, withNeededGlobals } from './publishAction';
 import { publishedRows } from './published';
@@ -84,7 +84,14 @@ it('uses the English import language when a nested tooltip lacks a shared transl
 
 it('previews a translated tooltip with the shared translation selected for the same publish', async () => {
   const translation = {
-    ...row(ids.refill, 'titles', 'G_refill', 'changed', 'New note with #Fresh', 'New note with #Fresh'),
+    ...row(
+      ids.refill,
+      'titles',
+      'G_refill',
+      'changed',
+      'New note with #Fresh',
+      'New note with #Fresh',
+    ),
     languages: { de: { before: null, after: 'Deutsche Notiz' } },
   };
   const data = await state([translation]);
@@ -93,6 +100,8 @@ it('previews a translated tooltip with the shared translation selected for the s
   note.definitions.de = { ...note.definitions.en!, body: 'Deutsche Notiz' };
   const tooltip = make(12, 'English <title Details [G_refill] />');
   tooltip.text.de = { ...tooltip.text.en!, text: 'Deutsch <title Details [G_refill] />' };
+  const previous = structuredClone(tooltip);
+  previous.text.de!.text = 'Alt <title Details [G_refill] />';
   const selected = new Set([tooltip.hash, globalKey(ids.refill)]);
 
   expect(publishedCell(data, tooltip, 'de', 'live', selected).language).toBe('en');
@@ -100,6 +109,17 @@ it('previews a translated tooltip with the shared translation selected for the s
   expect(publishedCell(data, tooltip, 'de', 'next', selected)).toMatchObject({
     text: expect.stringContaining('Deutsche Notiz'),
     language: 'de',
+  });
+  expect(await classifyTooltip(data, previous, tooltip)).toMatchObject({
+    kind: 'No visible change',
+  });
+  expect(await classifyTooltip(data, previous, tooltip, selected)).toMatchObject({
+    kind: 'Text changed',
+    languages: ['de'],
+  });
+  expect(await classifyTooltip(data, tooltip, tooltip, selected)).toMatchObject({
+    kind: 'Text changed',
+    languages: ['de'],
   });
 });
 const row = (
