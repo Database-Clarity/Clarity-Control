@@ -150,7 +150,7 @@ export async function dryRunGlobalsMigration(
     legacyLive,
   );
   const before = liveGlobalsInput(pub, legacyLive);
-  const definitions = (perks: LegacyInput['perks']) =>
+  const definitions = (perks: LegacyInput['perks'] | ReturnType<typeof exportLegacy>) =>
     legacyGlobalsInPlaceDefinitions(perks as Parameters<typeof legacyGlobalsInPlaceDefinitions>[0]);
   const projected = exportLegacy(Object.values(projectGlobals(published)), 0, pub.options.facts);
   if (!isDeepStrictEqual(definitions(before.perks), definitions(projected)))
