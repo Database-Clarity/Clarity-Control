@@ -51,8 +51,10 @@ An ordinary human/engine descendant needs no publication handoff and is also a g
 After a site failure, use Actions **Re-run failed jobs** to retain the original successful
 pipeline outputs and immutable handoff; do not substitute a latest-head build.
 Queue capacity is 100 pending runs per group. G8's complete-window check-queue.mjs audit
-fails visibly for cancelled runs (including overflow); operators reconcile and retry their
-exact pinned inputs. No custom queue or catch-up dispatcher is installed.
+flags cancelled runs, including overflow. If the `pipeline` job succeeded and only
+`report-items` and `report-items-push` were cancelled or skipped, a newer report build
+superseded them and the publish needs no retry. For other cancellations, reconcile and
+retry the exact pinned input.
 
 Production plans parse YAML and enforce the supported queue policy before producing a diff.
 actionlint 1.7.12 rejects the new queue key; it cannot certify this workflow. The G5 runbook

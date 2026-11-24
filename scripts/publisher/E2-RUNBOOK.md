@@ -153,9 +153,10 @@ G8 queue audit, after each controlled publish batch and whenever cancellation is
 fetch every page of Actions runs for the complete reviewed time window (GitHub API
 `actions/runs?created=...&per_page=100`, `gh api --paginate --slurp`), save the JSON, and run
 `node .publisher/check-queue.mjs <runs.json>`. Incomplete capture or any cancelled run exits
-nonzero with a G8 signal. The 101st pending job can be cancelled: reconcile its original event
-SHA/publication artifact and current output pin, then manually retry that exact input when the
-queue has space. Do not silently rely on another push, and never substitute the current head.
+nonzero with a G8 signal. Check the cancelled run's jobs. When the `pipeline` job succeeded
+and only `report-items` and `report-items-push` were cancelled or skipped, a newer report build
+superseded them and the publish needs no retry. For any other cancellation, reconcile the
+original event SHA, publication artifact, and current output pin before retrying the exact input.
 
 Stop/recover (G8): stop intake and drain/reconcile before restoring approved artifacts.
 Keep receipts, request credits, and append-only export pins. Forward-revert data and workflow
