@@ -627,10 +627,12 @@ export class Publisher {
     const entries = structuredClone(r.exported);
     stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
     let perks: Record<string, unknown>;
+    let hasMoves: boolean;
     try {
       const sourceTree = this.git.tree(r.sourceCommit);
       if (sourceTree[aliasGroupsPath] && r.generatorSha !== this.options.generatorSha)
         throw new Error('Generator revision differs from frozen alias-group receipt');
+      hasMoves = Object.keys(this.movesAt(sourceTree)).length > 0;
       perks = this.mergePublicationPerks(
         sourceTree,
         live.perks,
@@ -644,22 +646,21 @@ export class Publisher {
     const bytes = json(merged);
     const { publisherSha, publisherDigest } = this.options;
     const pin = JSON.stringify([publisherSha, publisherDigest]);
+    const presets = hasMoves
+      ? [...deployedLegacyPresets, 'clarityV2' as const]
+      : deployedLegacyPresets;
     const checkKey = createHash('sha256')
-      .update(JSON.stringify([parent, r.sourceCommit, pin]))
+      .update(JSON.stringify([parent, pin, presets]))
       .update(bytes)
       .digest('hex');
     // Compare actual converter results for both snapshots. Only a previous result for this
     // exact parent and preset can stand in for the before conversion.
     if (this.checkedOutput?.key !== checkKey) {
-      const hasMoves = Object.keys(this.movesAt(this.git.tree(r.sourceCommit))).length > 0;
       const candidate = this.candidateOutput;
       const before =
         candidate?.commit === parent && candidate.pin === pin ? candidate.after : undefined;
       const after = new Map<LegacyPreset, Set<string>>();
-      for (const preset of [
-        ...deployedLegacyPresets,
-        ...(hasMoves ? ['clarityV2' as const] : []),
-      ]) {
+      for (const preset of presets) {
         const emptyRows = (input: unknown) => {
           try {
             const rows = JSON.parse(
@@ -1030,7 +1031,8 @@ export class Publisher {
             tree,
             source,
             atomicLive.parent,
-            reviewed?.key === this.releaseKey(receipt.requestBlob, h, atomicLive.parent)
+            source === h &&
+              reviewed?.key === this.releaseKey(receipt.requestBlob, h, atomicLive.parent)
               ? reviewed.release
               : undefined,
           );
