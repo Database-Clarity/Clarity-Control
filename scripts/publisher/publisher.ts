@@ -246,7 +246,7 @@ class NamedPartRefusal extends ConsumerOutputRejected {
     message: string,
     readonly outcomes?: unknown,
   ) {
-    super(`${message} Nothing in this part went live. Review and publish the part again.`);
+    super(message);
   }
 }
 const derivedGlobalPath = (path: string) => /^globals\/(?:proofs|review-pages)\//.test(path);
@@ -1074,7 +1074,7 @@ export class Publisher {
             )
           )
             throw new NamedPartRefusal(
-              `Could not verify the global proofs for ${this.partNames(previous, rebuilding.hashes)}.`,
+              `Could not verify the global proofs for ${this.partNames(previous, rebuilding.hashes)}. Nothing in this part went live. Review before publishing again.`,
             );
           s = this.head(this.options.dataBranch);
           tree = this.git.tree(s);
@@ -1255,8 +1255,11 @@ export class Publisher {
             const hashes = outcomes
               .filter(({ status }) => status !== 'accepted')
               .map(({ hash }) => hash);
+            const guidance = outcomes.some(({ status }) => status === 'accepted')
+              ? 'The other rows in this part also stayed unpublished. You can publish them again.'
+              : 'Nothing in this part went live. Review the changed text before publishing again.';
             throw new NamedPartRefusal(
-              `Saved text changed after review for ${this.partNames(previous, hashes, tooltips)}.`,
+              `Saved text changed after review for ${this.partNames(previous, hashes, tooltips)}. ${guidance}`,
               outcomes,
             );
           }

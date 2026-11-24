@@ -802,6 +802,7 @@ describe('dependency-safe global release', () => {
       expect(result.code).toBe('selected-rows-changed');
       expect(result.error).toContain('Changed entry');
       expect(result.error).not.toContain('Still ready');
+      expect(result.error).toContain('You can publish them again.');
       expect(result.outcomes).toContainEqual({ hash: 42, status: 'accepted' });
       expect(f.git.head(L)).toBe(before);
       expect(f.pub.read(f.current(), 'tooltips/40.json')).toEqual(changed);
