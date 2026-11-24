@@ -152,6 +152,36 @@ function publishedDefinitions(bundle: Bundle): { live: Definitions; next: Defini
   return store;
 }
 
+function reviewDefinitions(bundle: Bundle, side: 'live' | 'next', selected?: ReadonlySet<number>) {
+  const published = publishedDefinitions(bundle);
+  if (side === 'live' || !selected) return published[side];
+  const choices = bundle.globalsPending?.filter(
+    (entry) => !entry.refusal && !unpublishedName(entry) && selected.has(globalKey(entry.id)),
+  );
+  if (!choices?.length) return published.next;
+
+  const next = {
+    variables: { ...published.next.variables },
+    titles: { ...published.next.titles },
+    exports: { ...published.next.exports },
+  };
+  for (const { kind, name, change, languages: cells } of choices) {
+    if (change === 'removed') {
+      delete next[kind][name];
+      continue;
+    }
+    const definition = { ...next[kind][name] };
+    for (const lang of languages) {
+      const cell = cells[lang];
+      if (!cell) continue;
+      if (cell.after === null || cell.afterAvailable === false) delete definition[lang];
+      else definition[lang] = { body: cell.after };
+    }
+    next[kind][name] = definition;
+  }
+  return next;
+}
+
 /**
  * New (and renamed) globals that the chosen rows use and that are not chosen: nothing published
  * holds those names yet, so they publish together. Another pending change is never needed.
@@ -259,7 +289,7 @@ function reviewImportOptions(
   selected?: ReadonlySet<number>,
 ) {
   return withImportedGlobalsFallback(
-    { definitions: publishedDefinitions(data.bundle)[side] },
+    { definitions: reviewDefinitions(data.bundle, side, selected) },
     (hash) => {
       const document = reviewImport(data, hash, side, selected);
       if (document) return { document };

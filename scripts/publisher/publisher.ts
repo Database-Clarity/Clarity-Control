@@ -109,6 +109,7 @@ import {
   authoredInPlaceOptions,
   bundleInPlaceReview,
   globalsFence,
+  inPlacePublishError,
   liveGlobalsInput,
   neutralRenameHashes,
   provePublication,
@@ -1940,7 +1941,11 @@ export class Publisher {
         );
       }
     } catch (error) {
-      if (inPlace) return { error: String(error), proposalRejected: true };
+      if (inPlace)
+        return {
+          error: inPlacePublishError(error, this, tree, inPlace.baseline, inPlace),
+          proposalRejected: true,
+        };
       throw new ConsumerOutputRejected(String(error));
     }
     // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`, and
@@ -1981,6 +1986,7 @@ export class Publisher {
       );
       return {
         ...plan,
+        baseline: input,
         live: { ...input, perks: { ...input.perks, ...plan.refills } as LegacyInput['perks'] },
       };
     } catch (error) {

@@ -32,6 +32,7 @@ import {
   resolveAlias,
   resolveGlobalsInPlace,
   stableStringify,
+  UnpublishedGlobal,
   type Aliases,
   type GlobalRecord,
   type GlobalsInPlaceFence,
@@ -746,12 +747,55 @@ function selectedRelease(
       for (const cell of Object.values(tooltip.text))
         if (conflicts(cell.text))
           throw new Error(`Tooltip ${tooltip.custom?.name || tooltip.hash} ${reason}`);
-    for (const row of Object.values(live.perks))
-      if (
-        'editor' in row &&
-        Object.values(row.editor).some((cell) => conflicts(cell.main) || conflicts(cell.secondary))
-      )
+    // A neutral note rename does not rewrite LIVE. A former name can therefore still be a
+    // generated local title in LIVE, even after every authored reference has been rewritten.
+    const formerTitle =
+      old?.kind === 'titles' &&
+      old.nameHistory.some(({ name }) => name === to) &&
+      !published.store.entries.some(
+        (other) => other.kind === 'titles' && other.name === to && !other.tombstone,
+      );
+    const priorRename: Rename[] = [{ kind: 'titles', from: old?.name ?? '', to }];
+    let priorOptions: GlobalsInPlaceOptions | undefined;
+    const priorDocument = (hash: number) => {
+      const row = live.perks[hash];
+      const doc = liveDocs.find((doc) => doc.hash === (row && 'aliasOf' in row ? row.aliasOf : hash));
+      if (doc) return rewriteTooltip(doc, priorRename);
+    };
+    for (const row of Object.values(live.perks)) {
+      if (!('editor' in row)) continue;
+      for (const lang of languages) {
+        const cell = row.editor[lang];
+        if (!cell || (!conflicts(cell.main) && !conflicts(cell.secondary))) continue;
+        const doc = formerTitle && priorDocument(row.hash);
+        if (doc && (!independentSecondary(cell) || !conflicts(cell.secondary))) {
+          priorOptions ??= withImportedGlobalsFallback(
+            {
+              definitions: globalsInPlaceDefinitions(
+                rewriteEntries(published.store.entries, priorRename),
+              ),
+            },
+            (hash) => {
+              const document = priorDocument(hash);
+              if (document) return { document };
+            },
+          );
+          try {
+            const filled = exportLegacy([doc], 0, undefined, {}, { globalsInPlace: priorOptions })[
+              doc.hash
+            ];
+            if (!isLegacyAliasStub(filled) && filled.editor[lang]?.main === cell.main) continue;
+          } catch {
+            // A source that cannot be reproduced cannot establish where the LIVE title came from.
+          }
+        }
+        if (formerTitle)
+          throw new Error(
+            `Tooltip ${row.name || row.hash} (${lang}) uses or declares ${to} in LIVE text that could not be reproduced from the published note. Republish the tooltip before renaming.`,
+          );
         throw new Error(`Tooltip ${row.name || row.hash} ${reason}`);
+      }
+    }
     for (const publishedEntry of published.store.entries)
       if (
         !publishedEntry.tombstone &&
@@ -1025,6 +1069,32 @@ export function planInPlaceRelease(
     if (!accepted.length && !hasTooltipSelection) throw error;
     return { ...result, globals: accepted.map(({ id }) => id), refusals };
   }
+}
+
+/** Replace the generic dependency advice when the named rename itself would be refused. */
+export function inPlacePublishError(
+  error: unknown,
+  pub: Publisher,
+  tree: Tree,
+  live: LegacyInput,
+  plan: ReturnType<typeof planInPlaceRelease>,
+) {
+  const dependency = error instanceof Error ? error.cause : undefined;
+  if (!(dependency instanceof UnpublishedGlobal)) return String(error);
+  const { kind, globalName } = dependency;
+  const { published, saved } = stores(pub, tree);
+  const entry = saved.entries.find((entry) => entry.kind === kind && entry.name === globalName);
+  const previous = entry && published.store.entries.find(({ id }) => id === entry.id);
+  if (!entry || !previous || previous.tombstone || previous.name === entry.name)
+    return String(error);
+  const refused = plan.refusals.find(({ id }) => id === entry.id);
+  if (refused) return `The rename to ${globalName} cannot be published. ${refused.error}`;
+  try {
+    selectedRelease(pub, tree, live, [{ id: entry.id, expected: definitionDigest(entry) }], true);
+  } catch (reason) {
+    return `The rename to ${globalName} cannot be published. ${refusalMessage(reason)}`;
+  }
+  return String(error);
 }
 
 /** Rewrite an existing marker using the same alias inputs as its last authored publish. */

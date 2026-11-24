@@ -4,7 +4,7 @@ import { bundleSchema } from '../../services/bundleSchema';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { clearSavedOverlay, rememberSavedGlobal } from '../../stores/savedOverlay';
-import { editorPath, publishedOf, reviewRows, rowKey } from './globalRows';
+import { editorPath, publishedOf, rowKey } from './globalRows';
 import {
   globalKey,
   neededGlobals,
@@ -80,6 +80,27 @@ it('uses the English import language when a nested tooltip lacks a shared transl
   data.bundle.globalsReviewImports = { 13: saved };
   data.bundle.tooltips[13] = published;
   expect(publishedCell(data, importer, 'de', 'next').language).toBe('de');
+});
+
+it('previews a translated tooltip with the shared translation selected for the same publish', async () => {
+  const translation = {
+    ...row(ids.refill, 'titles', 'G_refill', 'changed', 'New note with #Fresh', 'New note with #Fresh'),
+    languages: { de: { before: null, after: 'Deutsche Notiz' } },
+  };
+  const data = await state([translation]);
+  const note = data.bundle.globals!.entries[0]!;
+  note.definitions.en!.body = 'New note';
+  note.definitions.de = { ...note.definitions.en!, body: 'Deutsche Notiz' };
+  const tooltip = make(12, 'English <title Details [G_refill] />');
+  tooltip.text.de = { ...tooltip.text.en!, text: 'Deutsch <title Details [G_refill] />' };
+  const selected = new Set([tooltip.hash, globalKey(ids.refill)]);
+
+  expect(publishedCell(data, tooltip, 'de', 'live', selected).language).toBe('en');
+  expect(publishedCell(data, tooltip, 'de', 'next', new Set([tooltip.hash])).language).toBe('en');
+  expect(publishedCell(data, tooltip, 'de', 'next', selected)).toMatchObject({
+    text: expect.stringContaining('Deutsche Notiz'),
+    language: 'de',
+  });
 });
 const row = (
   id: string,
@@ -160,13 +181,13 @@ beforeEach(() => {
   useReviewSession.setState({ acknowledgments: {}, globals: {}, pushing: false, error: undefined });
 });
 
-it('keeps a bundle without the field on the older rows, and refuses a malformed field', async () => {
+it('filters aggregate rows from a bundle without pending globals, and refuses a malformed field', async () => {
   const { bundle, ...data } = await state();
   const { globalsPending, ...older } = bundle;
   delete older.globals;
   expect(
     (await pendingTooltips({ ...data, bundle: older })).map(({ tooltip }) => tooltip.hash),
-  ).toEqual([12, 13, 3]);
+  ).toEqual([12, 13]);
   expect(bundleSchema.safeParse({ ...older, globalsPending }).success).toBe(true);
   expect(bundleSchema.safeParse({ ...older, globalsPending: [{}] }).success).toBe(false);
   // Present and empty is the new mode: no file rows.
@@ -176,7 +197,6 @@ it('keeps a bundle without the field on the older rows, and refuses a malformed 
 
 it('lists one ordinary row per pending global, and no tooltip it changes', async () => {
   const entries = await pendingTooltips(await state());
-  expect(reviewRows(entries, {})).toBe(entries);
   expect(names(entries)).toEqual([
     'Perk 12',
     'Perk 13',

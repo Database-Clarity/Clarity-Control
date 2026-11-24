@@ -594,6 +594,78 @@ describe('in-place shared text publication', () => {
     },
   );
 
+  it('allows a shared note to return to the name still in its filled LIVE text', async () => {
+    const f = await inPlaceFixture('title G_refill (\nHelp content\n)');
+    const doc = tooltip(142, 'Before <title Details [G_refill] />');
+    f.change({ 'tooltips/142.json': doc });
+    await f.request([142]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    const before = live(f);
+    const original = f.published.entries.find(({ name }) => name === 'G_refill')!;
+    const path = `globals/entries/${original.id}.json`;
+    const history = (entry: typeof original) => ({
+      name: entry.name,
+      revision: entry.revision,
+      at: new Date(now).toISOString(),
+      by: 'alice',
+    });
+    const moved = {
+      ...original,
+      name: 'G_newrefill',
+      nameHistory: [history(original)],
+    };
+    f.change({
+      [path]: moved,
+      'tooltips/142.json': tooltip(142, 'Before <title Details [G_newrefill] />'),
+    });
+    const first = A.replace(/1$/, '2');
+    await f.request([], first, selection(pending(f).find(({ id }) => id === original.id)!));
+    await f.pub.run(false);
+    expect(f.read(paths(first).log).result.status).toBe('unchanged');
+    expect(live(f)).toEqual(before);
+
+    f.change({
+      [path]: { ...original, nameHistory: [...moved.nameHistory, history(moved)] },
+      'tooltips/142.json': doc,
+    });
+    const row = pending(f).find(({ id }) => id === original.id)!;
+    expect(row).toMatchObject({ renameOnly: true });
+    expect(row.refusal).toBeUndefined();
+    const back = A.replace(/1$/, '3');
+    await f.request([], back, selection(row));
+    await f.pub.run(false);
+    expect(f.read(paths(back).log).result.status).toBe('unchanged');
+    expect(live(f)).toEqual(before);
+    expect(f.read('live/tooltips/142.json')).toEqual(doc);
+  });
+
+  it('reports the actual name conflict when a tooltip depends on a refused pending note rename', async () => {
+    const f = await inPlaceFixture('title G_refill (\nHelp content\n)');
+    f.change({ 'tooltips/142.json': tooltip(142, 'Before <title Details [G_refills] />') });
+    await f.request([142]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    const before = f.pub.head(f.options.liveBranch);
+    const original = f.published.entries.find(({ name }) => name === 'G_refill')!;
+    f.change({
+      [`globals/entries/${original.id}.json`]: { ...original, name: 'G_refills' },
+      'tooltips/142.json': tooltip(142, 'After <title Details [G_refills] />'),
+    });
+    const row = pending(f).find(({ id }) => id === original.id)!;
+    expect(row.refusal).toBe(
+      'Tooltip 142 already uses or declares G_refills. Choose a different name.',
+    );
+    const edit = A.replace(/1$/, '2');
+    await f.request([142], edit);
+    await f.pub.run(false);
+    expect(f.read(paths(edit).log).result).toMatchObject({
+      status: 'rejected',
+      error: expect.stringContaining(row.refusal!),
+    });
+    expect(f.pub.head(f.options.liveBranch)).toBe(before);
+  });
+
   it('drops a reversed rename, but publishes a rename and body edit without the tooltip draft', async () => {
     const f = await inPlaceFixture();
     const original = f.published.entries.find(({ id }) => id === f.entry.id)!;
