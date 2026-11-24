@@ -231,8 +231,8 @@
   font-variant-numeric: tabular-nums;
 }
 // The control has to fit beside a draft's Discard in the narrowest editor (480px). As the header
-// narrows, queue mode first drops the shortcut hint; below 38rem (a work-through queue names its
-// list and carries the list's action) the control takes a row of its own, as on a phone and in
+// narrows, queue mode first drops the shortcut hint; below 38.5rem (45.5rem where
+// the queue carries its list's action) the control takes a row of its own, as on a phone and in
 // toggle mode, so the language field keeps its usual width (v2's 9rem cap) and "Markup tools"
 // its full text. The row is there
 // for the whole visit: nothing moves when a draft appears.
@@ -243,29 +243,36 @@
 }
 @media (min-width: 701px) {
   // The header is its own container, so its wrapping is set here; only the query's children
-  // change with its width (the queue takes the second row below 38rem).
+  // change with its width (the queue takes the second row below 38.5rem).
   .paneHeader:has(> .queue) {
     flex-wrap: wrap;
     row-gap: 2px;
   }
-  @container pane-header (max-width: 38rem) {
-    .paneHeader:has(> .queue) {
-      .queue {
-        order: 2;
-        flex: 1 1 100%;
-        min-width: 0;
-        margin-left: 0;
-        + .paneRight {
-          margin-left: auto;
-        }
-      }
-      .queuePosition {
-        flex: 1 1 auto;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
+  @mixin own-row {
+    order: 2;
+    flex: 1 1 100%;
+    min-width: 0;
+    margin-left: 0;
+    + .paneRight {
+      margin-left: auto;
+    }
+    .queuePosition {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+  @container pane-header (max-width: 38.5rem) {
+    .paneHeader > .queue {
+      @include own-row;
+    }
+  }
+  // With an action of its own (Bungie drift, Lost text) the control is that much wider.
+  @container pane-header (max-width: 45.5rem) {
+    .paneHeader > .queue[data-action] {
+      @include own-row;
     }
   }
 }
@@ -324,17 +331,19 @@
 // An open override adds "↑ Enhanced" to the line, which ran the right-hand buttons out of
 // the header or under the Compendium/Reports toggles. The line now gives way one step at a time, each
 // only once the line no longer fits: the shortcut hint goes, "Grouped N" becomes its icon and N, the
-// language field shortens, it shortens again, and "Markup tools" says "Markup". The buttons never
-// shrink.
+// language field shortens, it shortens again, "Markup tools" says "Markup", and "Back to base" says
+// "Back". The buttons never shrink.
 // A container query cannot see what the line holds, so each step's width is set per content: the
 // natural widths at UI 100 (they scale with the rem) of the full line with a draft's dot and
 // Discard, Grouped N (maintainers), and the toggles, plus a little slack for text rendering.
-$override-full: 46.1rem; // language 9, tag 4.9, draft 5.1, Markup 8.6, Marks 3.6, Grouped + inactive 7.3, Back 5.5, gaps
+$override-full: 47.1rem; // language 9, tag 5.3, draft 5.1, Markup 8.6, Marks (2) 4.3, Grouped + inactive 7.3, Back 5.5, gaps
 $override-draft: 5.1rem; // the dot, Discard, and their gaps
 $override-grouped: 5.8rem; // "Grouped N", inactive icon, and their gaps, less the More they leave behind
 $override-toggles: 10.2rem; // Compendium, Reports, and their gaps
+$override-three-toggles: 14.2rem; // and English
 // Each step and the width it saves; "grouped" saves nothing without the control.
-$override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) (markup 1.875rem);
+$override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 1.625rem)
+  (markup 1.875rem) (back 2.75rem);
 
 @mixin override-step($step) {
   @if $step == key {
@@ -359,8 +368,9 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) 
       text-overflow: ellipsis;
     }
   } @else if $step == lang-narrow {
+    // "German" whole.
     .langSelect {
-      max-width: 5rem;
+      max-width: 5.375rem;
     }
   } @else if $step == markup {
     .markupWord {
@@ -370,10 +380,18 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) 
       overflow: hidden;
       clip-path: inset(50%);
     }
+  } @else if $step == back {
+    .backWords {
+      display: none;
+    }
   }
 }
-.paneHeader:has(> .overrideTag):not(:has(> .queue)) > .paneRight {
-  flex-shrink: 0;
+.paneHeader:has(> .overrideTag) {
+  // Three toggles (English, Compendium, Reports) on the narrowest line need the tighter gap.
+  column-gap: 0.375rem;
+  > .paneRight {
+    flex-shrink: 0;
+  }
 }
 .inactiveControl {
   flex: none;
@@ -406,8 +424,8 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) 
 }
 @each $draft in (true, false) {
   @each $grouped in (true, false) {
-    @each $toggles in (true, false) {
-      $state: ':has(> .overrideTag):not(:has(> .queue))';
+    @each $toggles in (0, 2, 3) {
+      $state: ':has(> .overrideTag)';
       $needed: $override-full;
       @if $draft {
         $state: $state + ':has(> .dot)';
@@ -422,10 +440,14 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) 
         $needed: $needed - $override-grouped;
       }
       // The toggles stay in the line (hidden) outside toggle mode: the workspace's mode says.
-      $mode: ".workspace:not([data-mode='toggle'])";
-      @if $toggles {
+      $mode: ".workspace:not([data-mode='toggle'], [data-mode='phone'])";
+      @if $toggles == 2 {
         $mode: ".workspace[data-mode='toggle']";
         $needed: $needed + $override-toggles;
+      } @else if $toggles == 3 {
+        $mode: ".workspace[data-mode='toggle']";
+        $state: $state + ':has(> .paneToggles > :nth-child(3))';
+        $needed: $needed + $override-three-toggles;
       }
       @each $step, $saves in $override-steps {
         @if $step != grouped or $grouped {
@@ -439,6 +461,21 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) 
         }
       }
     }
+  }
+}
+// Queue mode with a version open: where the control shares the line (38.5rem up), the same steps
+// from the width its widest control needs ("Bungie drift 12 of 40 Bungie change < >").
+$queue-needed: 60rem;
+@each $step, $saves in $override-steps {
+  @if $step != grouped {
+    @container pane-header (max-width: #{$queue-needed}) {
+      // :has(> .paneRight) only matches the steps' specificity above.
+      .workspace[data-mode='split']
+        .paneHeader:has(> .overrideTag):has(> .queue):has(> .paneRight) {
+        @include override-step($step);
+      }
+    }
+    $queue-needed: $queue-needed - $saves !global;
   }
 }
 // A queued entry that no longer exists: one line, with the way on.
@@ -820,18 +857,29 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) 
       min-height: var(--tap-sm);
     }
   }
-  .overrideLine {
-    order: 1;
-    display: flex;
-    flex: 1 1 100%;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.25rem 0.5rem;
-    white-space: normal;
+  // An open override shares the tool row, whose tools measure the room it leaves: it never
+  // shrinks. As the row narrows "Back to base" says "Back", then the tag is its arrow alone.
+  .paneHeader > .overrideTag {
+    flex: none;
+    max-width: 5.5rem;
   }
-  .overrideTag .ell {
-    white-space: normal;
+  @container pane-header (max-width: 22rem) {
+    .backWords {
+      display: none;
+    }
+  }
+  @container pane-header (max-width: 18rem) {
+    .paneHeader > .overrideTag:not([data-plain]) {
+      position: relative;
+      min-width: 0;
+      // The word stays for screen readers.
+      .ell {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        clip-path: inset(50%);
+      }
+    }
   }
   // The editor box runs full-bleed (owner 2026-11-10): no outer margin and no side borders; its
   // lines start on the page edge instead of being inset twice. The same for the English source.

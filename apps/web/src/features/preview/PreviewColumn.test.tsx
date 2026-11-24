@@ -3,7 +3,12 @@ import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MarkupGlobals } from '@clarity/core';
-import { PreviewColumn, type EnhancedView, type PreviewColumnProps } from './PreviewColumn';
+import {
+  PreviewColumn,
+  versionLabels,
+  type EnhancedView,
+  type PreviewColumnProps,
+} from './PreviewColumn';
 import type { PreviewMode } from './previewMode';
 
 const BASE = `Intro line.
@@ -231,6 +236,21 @@ describe('PreviewColumn', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     expect(onVariant).toHaveBeenCalledWith(12);
+  });
+
+  it('tells versions with the same name apart', () => {
+    const version = (hash: number, name: string, derived: boolean) => ({ hash, name, derived });
+    expect(
+      versionLabels([
+        version(11, 'Perk', true),
+        version(12, 'Perk', false),
+        version(13, 'B', true),
+      ]),
+    ).toEqual(['Base text', 'Own text', 'B']);
+    expect(versionLabels([version(11, 'Perk', false), version(12, 'Perk', false)])).toEqual([
+      'Own text 11',
+      'Own text 12',
+    ]);
   });
 
   it('says so when nothing differs', async () => {
