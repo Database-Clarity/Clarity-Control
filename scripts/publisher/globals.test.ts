@@ -13,6 +13,8 @@ import {
 } from '../../packages/core/src/globalsRelease/index.js';
 import { exportLegacy, usesEnglishFallback } from '../../packages/core/src/exportLegacy.js';
 import { buildLegacy, type LegacyInput } from '../../packages/export/src/legacy.js';
+import { descriptionConverter, expandAliases } from '../../packages/export/src/converter/index.js';
+import { languages } from '../../packages/core/src/languages.js';
 import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/admission.js';
 import { calculateGlobalImpact } from '../../packages/core/src/globals/impact.js';
 import { inactivePublishableHash, type InactiveMoves } from '../../packages/core/src/inactiveMoves.js';
@@ -559,6 +561,148 @@ describe('withdrawal alongside a pending fallback change', () => {
     else expect(german).not.toContain('Delta');
     expect(await reviewPage(alpha.id)).toEqual([]);
   });
+});
+
+describe('withdrawing a global read by a historical tooltip revision', () => {
+  it.each([
+    ['Delta edit', 'de'],
+    ['Delta edit', undefined],
+    ['Alpha fallback edit', 'de'],
+    ['Alpha edit', 'de'],
+    ['Alpha edit', undefined],
+    ['published reader', 'de'],
+    ['published reader', undefined],
+    ['stale published reader', undefined],
+  ] as const)('syncs after the reader moves off Delta (%s, %s)', async (scenario, lang) => {
+    const { f, port, alpha, delta } = await withdrawalFixture('language');
+    const publishedReader = scenario === 'published reader' || scenario === 'stale published reader';
+    const saveReader = (de: string) => f.change({
+      'tooltips/44.json': {
+        ...tooltip(44, 'x'),
+        text: scenario === 'stale published reader' && de === 'plain'
+          ? {
+              en: { ...cell('x'), updatedAt: '2026-09-01T00:00:00Z' },
+              de: { ...cell(de), sourceUpdatedAt: '2026-01-01T00:00:00Z' },
+            }
+          : { en: cell('x'), de: cell(de) },
+      },
+    });
+    f.options.facts[44] = { name: 'Former Delta reader', type: 'Weapon Perk' };
+    f.options.facts[45] = { name: 'Alpha reader', type: 'Weapon Perk' };
+    f.change({
+      '.publisher/config.json': { ...f.read('.publisher/config.json'), facts: f.options.facts },
+    });
+    saveReader('#Delta');
+    if (scenario === 'Alpha edit' || publishedReader)
+      f.change({ 'tooltips/45.json': tooltip(45, '#Alpha') });
+    const publish = async (hashes: number[], sequence: number, expected = 'done') => {
+      const op = `01K95H0000000000000000000${sequence}`;
+      await f.request(hashes, op);
+      await f.pub.operation(op);
+      const result = f.read(paths(op).log).result;
+      expect(result.status, JSON.stringify(result)).toBe(expected);
+      return result;
+    };
+    await f.globals.drain();
+    if (publishedReader) {
+      await publish([44], 1);
+      await publish([45], 2);
+      await f.globals.drain();
+    }
+    const edit = scenario === 'Delta edit'
+      ? await port.edit(delta.id, '8', 'de')
+      : scenario === 'Alpha fallback edit'
+        ? await port.edit(alpha.id, '112', 'de')
+        : await port.edit(alpha.id, '12', 'en');
+    expect(edit.status, await edit.text()).toBe(200);
+    await f.globals.drain();
+    saveReader('plain');
+    await f.globals.drain();
+    if (publishedReader) {
+      await publish([44], 3);
+      await f.globals.drain();
+    }
+    const liveReader = () => {
+      const live = f.git.tree(f.git.head(L)!);
+      const intermediate = JSON.parse(f.git.blob(live['liveDescriptions.json'])) as LegacyInput;
+      const database = expandAliases(intermediate.perks);
+      const perk = database[44];
+      const rendered = languages.flatMap((language) => {
+        const description = perk?.editor[language];
+        if (!description) return [];
+        return (['main', 'secondary'] as const).map((editorType) =>
+          descriptionConverter({
+            database, hash: 44, language, editorType, descriptionString: description[editorType],
+          }),
+        );
+      });
+      return { intermediate: perk, rendered };
+    };
+    const beforeRemoval = liveReader();
+    if (publishedReader) {
+      expect(beforeRemoval.rendered).toHaveLength(4);
+      expect(beforeRemoval.intermediate.editor.de?.englishFallback).toBe(
+        scenario === 'stale published reader' ? true : undefined,
+      );
+    }
+    const removal = await port.post(`/${delta.id}/remove`, {
+      operation: 'remove',
+      id: delta.id,
+      revision: f.read(`globals/entries/${delta.id}.json`).revision,
+      ...(lang && { lang }),
+    });
+    expect(removal.status, await removal.text()).toBe(200);
+    await f.globals.drain();
+    f.change({ 'tooltips/42.json': tooltip(42, 'independent edit') });
+    await f.globals.drain();
+    await publish([42], 4);
+
+    const rows = () => Object.keys(f.current())
+      .filter((path) => path.startsWith('globals/reviews/'))
+      .map((path) => rowSchema.parse(f.read(path)));
+    const history = rows().find(({ review }) => review.consumer.hash === 44)!;
+    expect(history.review.consumer.lang).toBe('de');
+    expect(new Set(history.review.causes.map(({ globalId }) => globalId))).toEqual(new Set([delta.id]));
+    expect(history.view.before?.rendered).toContain('7');
+    expect(history.view.after?.rendered).toContain('plain');
+    if (publishedReader) {
+      const independentReview = rows().find(({ review }) => review.consumer.hash === 45)!;
+      await port.acknowledge(independentReview, alpha.id);
+      await f.globals.drain();
+      for (const [hash, sequence] of [[45, 5], [44, 6]])
+        expect((await publish([hash], sequence, 'rejected')).error).toContain(
+          'global dependency review required',
+        );
+      expect(JSON.stringify(liveReader())).toBe(JSON.stringify(beforeRemoval));
+    }
+    await port.acknowledge(history, delta.id);
+    await f.globals.drain();
+    expect(rows().find(({ id }) => id === history.id)?.review.acknowledgement.by).toBe('alice');
+    if (publishedReader) {
+      await publish([44, 45], 7);
+      expect(JSON.stringify(liveReader())).toBe(JSON.stringify(beforeRemoval));
+      expect(rows().some(({ id }) => id === history.id)).toBe(false);
+    }
+  });
+
+  it.each(['#Delta', '#{Delta}', 'title Local (\n#Delta\n)\n<title a [Local] />'])(
+    'continues to reject a current German read after a withdrawal (%s)',
+    async (text) => {
+      const { f, port, delta } = await withdrawalFixture('language');
+      const removal = await port.post(`/${delta.id}/remove`, {
+        operation: 'remove',
+        id: delta.id,
+        lang: 'de',
+        revision: delta.revision,
+      });
+      expect(removal.status, await removal.text()).toBe(200);
+      const reader = tooltip(41, '#Beta');
+      reader.text.de = cell(text);
+      f.change({ 'tooltips/41.json': reader });
+      await expect(f.globals.drain()).rejects.toThrow(/still referenced|closure is incomplete/);
+      expect(f.read('globals/sync.json').status).toBe('sync-failed');
+    },
+  );
 });
 
 describe('dependency-safe global release', () => {

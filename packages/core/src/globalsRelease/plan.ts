@@ -155,6 +155,7 @@ function impacts(
     ],
   ] as const;
   return pairs.map(([before, after, names, published]) => {
+    const edited = changes(input, ids, names);
     if (
       published &&
       !calculateGlobalImpact(published, published, [], input.destination, scans).complete
@@ -164,7 +165,7 @@ function impacts(
     let result = calculateGlobalImpact(
       observedBefore,
       after,
-      changes(input, ids, names),
+      edited,
       input.destination,
       scans,
     );
@@ -187,7 +188,7 @@ function impacts(
       result = calculateGlobalImpact(
         observedBefore,
         after,
-        changes(input, ids, names),
+        edited,
         input.destination,
         scans,
       );
@@ -195,19 +196,25 @@ function impacts(
     if (!result.complete) throw new Error('Sync pending: resolver closure is incomplete');
     // A fallback or shared-source review can be required even when no consumer reads
     // the withdrawn definition. Only the resolver's direct impact can block removal.
-    if (withdrawals?.size)
-      for (const row of result.rows)
+    if (withdrawals?.size) {
+      // Historical reads still need review. Only a read in a current snapshot
+      // can make a previously admitted withdrawal unsafe to sync.
+      const current = names
+        ? calculateGlobalImpact(after, after, edited, input.destination, scans)
+        : result;
+      for (const row of current.rows)
         for (const { globalId } of row.causes) {
           const removed = withdrawals.get(globalId);
           if (removed === null || removed?.includes(row.consumer.lang) || removed?.includes('en'))
             throw new Error('Sync pending: a removed global dependency is still referenced');
         }
+    }
     return expandReleaseDependencies(
       input,
       observedBefore,
       after,
       result,
-      changes(input, ids, names).map((change) => change.cause),
+      edited.map((change) => change.cause),
       scans,
       withdrawals && ids.length > 1
         ? (singleton) => fallbackAlternatives(observedBefore, singleton)
