@@ -15,6 +15,7 @@ const numberLanguage = ({ database, hash, language }: DescriptionData) =>
 /** Native inline nodes use the editor's real resolver, in the importing perk's context. */
 const nativeDescription = (descriptionData: DescriptionData, description: string) => {
   const { database, hash, language } = descriptionData
+  const importLanguage = numberLanguage(descriptionData)
   const library = (id: number) => {
     const text = database[id]?.editor[language]
     return [text?.main, text?.secondary].filter(Boolean).join('\n')
@@ -27,7 +28,7 @@ const nativeDescription = (descriptionData: DescriptionData, description: string
   // context for those passes, and observe its reads instead of guessing the dependency graph.
   const imports = new Proxy(Object.create(null) as Record<string, string>, {
     get(_target, key) {
-      const source = typeof key === 'string' ? database[key]?.editor[language]?.main : undefined
+      const source = typeof key === 'string' ? database[key]?.editor[importLanguage]?.main : undefined
       // A late imported fragment can also complete a pair without containing a literal {{.
       if (source?.includes('{')) native = true
       return source

@@ -134,6 +134,7 @@ export interface GlobalRelease {
 }
 
 export class GlobalReleaseRejected extends Error {}
+class MissingPublishedSnapshot extends Error {}
 
 function globalTreeEntries(tree: Tree, prefix: string, modes: Record<string, string> = {}) {
   const entries = Object.entries(tree).filter(([path]) => path.startsWith(`${prefix}/`));
@@ -363,7 +364,8 @@ export class GlobalsPublisher {
     for (const [hash, value] of Object.entries(perks)) {
       if (typeof value.type === 'string') liveTypes[hash] = value.type;
       if (value.aliasOf === undefined) {
-        if (!documents[hash]) throw new Error('Missing last-published consumer snapshot');
+        if (!documents[hash])
+          throw new MissingPublishedSnapshot('Missing last-published consumer snapshot');
         tooltips[hash] = documents[hash];
       } else {
         const { aliasOf, aliasKind } = value;
@@ -1092,7 +1094,11 @@ export class GlobalsPublisher {
   async recordInPlaceProofs(tree: Tree, head: string, live: string) {
     if (syncSchema.parse(this.read(tree, globalsReleasePaths.sync)).status !== 'current') return;
     const sources = await this.sources(tree, live, head);
-    await this.proofs(tree, head, sources, live, []);
+    try {
+      await this.proofs(tree, head, sources, live, []);
+    } catch (error) {
+      if (!(error instanceof MissingPublishedSnapshot)) throw error;
+    }
   }
   async drain(expectedHead?: string) {
     // One coalesced pass over all requests, not one drain per trigger or retry file.
@@ -1147,6 +1153,7 @@ export class GlobalsPublisher {
         return commit;
       } catch (error) {
         if (error instanceof RefRace) continue;
+        if (fence && error instanceof MissingPublishedSnapshot) return head;
         // Failure preserves every cause/row. Independent occupied-name proofs keep
         // same-name body repair possible without approving any release/removal.
         const sync = syncSchema.safeParse(this.read(original, globalsReleasePaths.sync));

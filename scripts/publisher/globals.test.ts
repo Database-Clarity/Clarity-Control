@@ -36,7 +36,7 @@ import {
 import { globalFileBytes, rowSchema, syncSchema } from '../../apps/worker/src/globals/model.js';
 import { GlobalsPublisher, globalTreeOid } from './globals.js';
 import { migrateInPlace } from './globalsInPlace.js';
-import { dryRunGlobalsMigration } from './globalsMigration.js';
+import { dryRunGlobalsMigration, restoreGlobalsMigration } from './globalsMigration.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { LocalRepository, RefRace, type Repository, type Tree } from './git.js';
@@ -313,10 +313,23 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
   return { git, pub, globals, saved, published, options, current, read, change, approve, request };
 }
 
-async function inPlaceFixture(titleSource = '', exports = false) {
+async function inPlaceFixture(titleSource = '', exports = false, secondary?: string) {
   const f = await fixture(titleSource, exports, true, 100);
   const legacyData = f.pub.head(f.options.dataBranch);
-  const legacyLive = f.pub.head(f.options.liveBranch);
+  let legacyLive = f.pub.head(f.options.liveBranch);
+  if (secondary !== undefined) {
+    const tree = f.git.tree(legacyLive);
+    const input = f.pub.read<LegacyInput>(tree, 'liveDescriptions.json')!;
+    const row = input.perks[141];
+    if (!('editor' in row) || !row.editor.en) throw new Error('Missing test tooltip');
+    row.editor.en.secondary = secondary;
+    const historical = f.git.commit(legacyLive, {
+      ...tree,
+      'liveDescriptions.json': f.git.writeBlob(encode(input)),
+    });
+    f.git.cas(L, legacyLive, historical);
+    legacyLive = historical;
+  }
   const tree = f.git.tree(legacyLive);
   const before = f.pub.read<LegacyInput>(tree, 'liveDescriptions.json')!;
   const migratedLive = f.git.commit(legacyLive, {
@@ -494,7 +507,9 @@ describe('in-place shared text publication', () => {
     }
     const mark = await inactivePublishableHash(prior, {});
     const expected = await inactivePublishableHash(doc, {});
-    f.change({ 'live/pushed.json': { 141: mark } });
+    const saved = structuredClone(doc);
+    saved.text.en!.updatedBy = 'an unrelated save stamp';
+    f.change({ 'live/pushed.json': { 141: mark }, 'tooltips/141.json': saved });
     const row = pending(f).find(({ id }) => id === entry.id)!;
     const bundle = f.pub.read<{ pushed: Record<number, string> }>(
       f.git.tree(f.pub.head('editor-data-bundle')),
@@ -503,10 +518,11 @@ describe('in-place shared text publication', () => {
     expect(bundle.pushed[141]).toBe(expected);
     expect(f.read('live/pushed.json')[141]).toBe(mark);
     const before = live(f);
-    await f.request([], A, selection(row));
+    await f.request([141], A, selection(row));
     await f.pub.run(false);
     expect(f.read(paths(A).log).result).toMatchObject({ status: 'unchanged', globals: [entry.id] });
     expect(live(f)).toEqual(before);
+    expect(f.pub.receipt(f.pub.head(f.options.liveBranch), A)?.changed).toEqual([]);
     expect(f.read('live/tooltips/141.json')).toEqual(doc);
     expect(f.read('live/pushed.json')[141]).toBe(expected);
 
@@ -664,16 +680,90 @@ describe('in-place shared text publication', () => {
     expect(live(f).perks[140]).toEqual(before);
   });
 
+  it.each(['import self', 'Independent older text'])(
+    'preserves the LIVE secondary %s in a refill',
+    async (secondary) => {
+      const f = await inPlaceFixture('', false, secondary);
+      const row = pending(f).find(({ id }) => id === f.entry.id)!;
+      expect(row.refusal).toBeUndefined();
+      await f.request([], A, selection(row));
+      await f.pub.run(false);
+      expect(f.read(paths(A).log).result.status).toBe('done');
+      expect(live(f).perks[141]).toMatchObject({ editor: { en: { main: '200', secondary } } });
+    },
+  );
+
+  it('waits while an independent historical secondary uses the selected global', async () => {
+    const f = await inPlaceFixture('', false, 'Older #Beta');
+    const blocked = pending(f).find(({ id }) => id === f.entry.id)!;
+    expect(blocked.refusal).toContain('older text still uses Beta');
+    await f.request([141]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    const next = pending(f).find(({ id }) => id === f.entry.id)!;
+    expect(next.refusal).toBeUndefined();
+    const op = A.replace(/1$/, '2');
+    await f.request([], op, selection(next));
+    await f.pub.run(false);
+    expect(f.read(paths(op).log).result.status).toBe('done');
+  });
+
+  it('refuses unsupported markup introduced by a refilled definition', async () => {
+    const f = await inPlaceFixture();
+    f.entry.definitions.en!.body = '#{ x';
+    f.change({ [f.entryPath]: f.entry });
+    const row = pending(f).find(({ id }) => id === f.entry.id)!;
+    expect(row.refusal).toContain('still holds unlowered markup');
+    await f.request([], A, selection(row));
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('rejected');
+  });
+
+  it('keeps independent publication available with a missing published snapshot and a pending rename', async () => {
+    const f = await inPlaceFixture();
+    f.change({
+      'live/tooltips/141.json': undefined,
+      'tooltips/140.json': tooltip(140, 'Independent edit'),
+      [f.entryPath]: { ...f.entry, name: 'Magnitude' },
+    });
+    const row = pending(f).find(({ id }) => id === f.entry.id)!;
+    expect(row.refusal).toContain('Missing the published source for tooltip 141');
+    await f.request([140]);
+    await f.pub.run();
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    expect(live(f).perks[140]).toMatchObject({ editor: { en: { main: 'Independent edit' } } });
+  });
+
   it('falls back and restores the whole importing tooltip with its shared translation', async () => {
     const f = await inPlaceFixture();
     const source = tooltip(140, 'English source\nexport Info (\nEnglish info #Beta\n)');
     source.text.de = cell('Deutsche Quelle\nexport Info (\nDeutsche Info #Beta\n)');
-    const reader = tooltip(142, 'English introduction\nimport Info from 140');
-    reader.text.de = cell('Deutsche Einleitung\nimport Info from 140');
-    f.change({ 'tooltips/140.json': source, 'tooltips/142.json': reader });
-    await f.request([140, 142]);
+    const independent = tooltip(141, 'Other source\nexport Details (\nEnglish details\n)');
+    independent.text.de = cell('Andere Quelle\nexport Details (\nDeutsche Details\n)');
+    const imports = '\nimport Info from 140\nimport Details from 141';
+    const reader = tooltip(142, `English introduction${imports}`);
+    reader.text.de = cell(`Deutsche Einleitung${imports}`);
+    f.change({
+      'tooltips/140.json': source,
+      'tooltips/141.json': independent,
+      'tooltips/142.json': reader,
+    });
+    await f.request([140, 141, 142]);
     await f.pub.run(false);
     expect(f.read(paths(A).log).result.status).toBe('done');
+    const renderedGerman = () => {
+      const database = expandAliases(live(f).perks);
+      return JSON.stringify(
+        descriptionConverter({
+          database,
+          hash: 142,
+          language: 'de',
+          editorType: 'main',
+          descriptionString: database[142].editor.de!.main,
+        }),
+      );
+    };
+    expect(renderedGerman()).toContain('Deutsche Details');
 
     const original = f.published.entries.find(({ id }) => id === f.entry.id)!;
     const withdrawn = structuredClone(original);
@@ -688,13 +778,15 @@ describe('in-place shared text publication', () => {
     expect(live(f).perks[142]).toMatchObject({
       editor: {
         de: {
-          main: 'English introduction\nimport Info from 140',
+          main: `English introduction${imports}`,
           englishFallback: true,
         },
       },
     });
+    expect(renderedGerman()).toContain('English details');
+    expect(renderedGerman()).not.toContain('Deutsche Details');
 
-    reader.text.en!.text = 'Updated English introduction\nimport Info from 140';
+    reader.text.en!.text = `Updated English introduction${imports}`;
     f.change({ 'tooltips/142.json': reader });
     const republish = A.replace(/1$/, '3');
     await f.request([142], republish);
@@ -703,7 +795,7 @@ describe('in-place shared text publication', () => {
     expect(live(f).perks[142]).toMatchObject({
       editor: {
         de: {
-          main: 'Updated English introduction\nimport Info from 140',
+          main: `Updated English introduction${imports}`,
           englishFallback: true,
         },
       },
@@ -715,9 +807,38 @@ describe('in-place shared text publication', () => {
     expect(f.read(paths(restore).log).result.status).toBe('done');
     const restored = live(f).perks[142];
     expect('editor' in restored && restored.editor.de).toEqual({
-      main: 'Deutsche Einleitung\nimport Info from 140',
-      secondary: 'Deutsche Einleitung\nimport Info from 140',
+      main: `Deutsche Einleitung${imports}`,
+      secondary: `Deutsche Einleitung${imports}`,
     });
+
+    reader.text.en!.text = 'English text with a different import\nimport Details from 141';
+    f.change({ 'tooltips/142.json': reader });
+    const independentEnglish = A.replace(/1$/, '5');
+    await f.request([142], independentEnglish);
+    await f.pub.run(false);
+    expect(f.read(paths(independentEnglish).log).result.status).toBe('done');
+    f.change({ [f.entryPath]: withdrawn });
+    const again = A.replace(/1$/, '6');
+    await f.request([], again, selection(pending(f).find(({ id }) => id === original.id)!));
+    await f.pub.run(false);
+    expect(renderedGerman()).toContain('English details');
+    const marker = f.read('live/pushed.json')[142];
+    const authored = f.read('live/tooltips/142.json');
+    source.text.de!.text = 'Deutsche Quelle\nexport Info (\nDeutsche Info ohne geteilten Wert\n)';
+    f.change({ 'tooltips/140.json': source });
+    const sourceOnly = A.replace(/1$/, '7');
+    await f.request([140], sourceOnly);
+    await f.pub.run(false);
+    expect(f.read(paths(sourceOnly).log).result.status).toBe('done');
+    expect(f.pub.receipt(f.pub.head(f.options.liveBranch), sourceOnly)).toMatchObject({
+      changed: [140],
+      inPlace: { refills: [142] },
+    });
+    expect(renderedGerman()).toContain('Deutsche Einleitung');
+    expect(renderedGerman()).toContain('Deutsche Info ohne geteilten Wert');
+    expect(renderedGerman()).toContain('Deutsche Details');
+    expect(f.read('live/pushed.json')[142]).toBe(marker);
+    expect(f.read('live/tooltips/142.json')).toEqual(authored);
   });
 
   it('validates inactive removal without reading its discarded markup', async () => {
@@ -793,6 +914,7 @@ describe('in-place shared text publication', () => {
       login: 'translator',
       languages: ['de'],
     });
+    const editor = await mutationPort(f, { role: 'editor', login: 'bob' });
     const maintainer = await mutationPort(f);
     const id = f.entry.id;
     const withdraw = (port: typeof maintainer, lang?: string) =>
@@ -804,6 +926,8 @@ describe('in-place shared text publication', () => {
       });
     expect((await withdraw(maintainer)).status).toBe(503);
     expect((await withdraw(maintainer, 'en')).status).toBe(503);
+    expect((await withdraw(editor)).status).toBe(403);
+    expect((await withdraw(editor, 'en')).status).toBe(403);
     f.change({ [globalsInPlacePath]: undefined });
     expect((await withdraw(translator, 'de')).status).toBe(403);
     expect((await withdraw(maintainer, 'de')).status).toBe(503);
@@ -926,7 +1050,27 @@ describe('in-place shared text publication', () => {
     );
     expect(git.head(D)).toBe(staleCatalogue);
     expect(git.head(L)).toBe(currentLive);
-  });
+
+    git.cas(D, staleCatalogue, aligned);
+    const migrationInputs = {
+      catalog: { items: { 140: { categoryId: 'perk' } }, categories: [{ id: 'perk' }] },
+      inventoryItems: { 140: { displayProperties: { description: 'Fixture game text' } } },
+      sandboxPerks: {},
+    };
+    for (const step of ['hold', 'live', 'record'] as const) {
+      await expect(
+        dryRunGlobalsMigration(publisher, migrationInputs, (checkpoint) => {
+          if (checkpoint === step) throw new Error(`Interrupted after ${step}`);
+        }),
+      ).rejects.toThrow(`Interrupted after ${step}`);
+      const resumed = await dryRunGlobalsMigration(publisher, migrationInputs);
+      expect(resumed.files).toHaveLength(34);
+      expect(resumed.olderSecondaries).toEqual([]);
+      restoreGlobalsMigration(publisher);
+      expect(git.head(D)).toBe(aligned);
+      expect(git.head(L)).toBe(currentLive);
+    }
+  }, 90_000);
 });
 async function mutationPort(
   f: Awaited<ReturnType<typeof fixture>>,

@@ -31,8 +31,10 @@ import {
   assertScheduledGlobalNames,
   authoredInPlaceOptions,
   exportGlobalsProof,
+  neutralRenameHashes,
   planInPlaceRelease,
   proveInPlaceInputs,
+  refillImportedTooltips,
 } from './globalsInPlace.js';
 import type { Repository, Tree } from './git.js';
 import type { LegacyInput } from '../../packages/export/src/index.js';
@@ -77,16 +79,14 @@ for (let i = 0; i < tooltips.length; i++)
   if ((await inactivePublishableHash(tooltips[i], aliases, moves)) !== receipt.entries[i].digest)
     throw new Error('Receipt digest mismatch');
 const hashes = tooltips.map((tooltip) => tooltip.hash);
-const selectedMoves = selectedInactiveMoves(moves, hashes, aliases);
-const active = tooltips.filter(({ hash }) => !isMovedInactive(hash, selectedMoves));
 const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
 const payload = JSON.parse(request.payload);
 const fence = globalsInPlaceFenceSchema.optional().parse(atSource(globalsInPlacePath));
 if (Boolean(receipt.inPlace) !== Boolean(fence) || (fence && fence.state !== 'active'))
   throw new Error('Receipt belongs to a different shared-text mode');
-const sourceTree = (): Tree =>
+const sourceTree = (commit = receipt.sourceCommit): Tree =>
   Object.fromEntries(
-    git('ls-tree', '-rz', receipt.sourceCommit)
+    git('ls-tree', '-rz', commit)
       .split('\0')
       .filter(Boolean)
       .map((line) => {
@@ -100,6 +100,7 @@ const plan =
     const tree = sourceTree();
     const readOnly = {
       blob: (oid: string) => git('cat-file', 'blob', oid),
+      tree: sourceTree,
     } as Repository;
     const publisher = new Publisher(readOnly, {
       ...config,
@@ -122,6 +123,14 @@ const plan =
       stableStringify(release.refusals) !== stableStringify(receipt.inPlace.refusals ?? [])
     )
       throw new Error('Receipt shared definitions differ from the request');
+    const neutral = neutralRenameHashes(publisher, tree, receipt.entries, release.rewritten);
+    const documents = tooltips.filter(({ hash }) => !neutral.has(hash));
+    const selectedMoves = selectedInactiveMoves(
+      moves,
+      documents.map(({ hash }) => hash),
+      aliases,
+    );
+    const active = documents.filter(({ hash }) => !isMovedInactive(hash, selectedMoves));
     if (payload.kind === 'batch') assertScheduledGlobalNames(active, release);
     const options = authoredInPlaceOptions(
       publisher,
@@ -131,19 +140,31 @@ const plan =
       active,
       activeAliases(aliases, selectedMoves),
     );
-    return { ...release, options };
+    const live = { ...base, perks: { ...base.perks, ...release.refills } as LegacyInput['perks'] };
+    return { ...release, options, documents, active, selectedMoves, live, publisher, tree };
   })();
 const globalsInPlace = plan?.options;
-const live = plan ? ({ ...base, perks: { ...base.perks, ...plan.refills } } as LegacyInput) : base;
-if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
+const publishable = plan?.documents ?? tooltips;
+const selectedMoves = plan?.selectedMoves ?? selectedInactiveMoves(moves, hashes, aliases);
+if (plan) assertInPlaceDocuments(plan.active, plan.options);
 const exported = exportWithInactiveMoves(
-  tooltips,
+  publishable,
   receipt.now,
   config.facts,
   aliases,
   selectedMoves,
   globalsInPlace && { globalsInPlace },
 );
+if (plan)
+  refillImportedTooltips(
+    plan.publisher,
+    plan.tree,
+    plan,
+    plan.active,
+    activeAliases(aliases, selectedMoves),
+    exported,
+  );
+const live = plan?.live ?? base;
 const requester = payload.requester;
 stampUploads(exported, new Set<number>(receipt.changed), base.perks, receipt.now, requester.login);
 const merge = (entries: typeof exported): LegacyInput =>
@@ -172,16 +193,23 @@ const merge = (entries: typeof exported): LegacyInput =>
         ),
       };
 const merged = merge(exported);
-if (globalsInPlace && hashes.length) {
+if (globalsInPlace && publishable.length) {
   const { raw, fallbacks } = exportGlobalsProof(
-    tooltips,
+    publishable,
     receipt.now,
     config.facts,
     aliases,
     selectedMoves,
     globalsInPlace,
   );
-  proveInPlaceInputs(base, merge(raw), merged, globalsInPlace, hashes, fallbacks);
+  proveInPlaceInputs(
+    base,
+    merge(raw),
+    merged,
+    globalsInPlace,
+    publishable.map(({ hash }) => hash),
+    fallbacks,
+  );
 }
 const expected = JSON.stringify(merged, null, 2) + '\n';
 const out = resolve(outArg);

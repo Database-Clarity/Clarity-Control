@@ -1,3 +1,4 @@
+import { namePaths } from '../../apps/worker/src/globals/handlers.js';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
@@ -646,7 +647,18 @@ it.each([
     expect(f.pub.head(f.options.liveBranch)).toBe(migratedLive);
     change(rename ? '10' : '13', true);
   };
-  await f.pub.operation(R);
+  const writeProofs = GlobalsPublisher.prototype.recordInPlaceProofs;
+  const clockDuringRecord = vi
+    .spyOn(GlobalsPublisher.prototype, 'recordInPlaceProofs')
+    .mockImplementation(async function (this: GlobalsPublisher, ...args) {
+      await writeProofs.apply(this, args);
+      f.clock.now += 100;
+    });
+  try {
+    await f.pub.operation(R);
+  } finally {
+    clockDuringRecord.mockRestore();
+  }
   const live = f.pub.head(f.options.liveBranch);
   if (rename) {
     expect(f.batch().status).toBe('needs_attention');
@@ -657,6 +669,13 @@ it.each([
     return;
   }
   expect(f.batch().status).toBe('published');
+  const proof = f.read<{ sources: { live: string; upcoming: string } }>(
+    (await namePaths('variables', 'Alpha')).proof,
+  );
+  expect(proof.sources.live).toBe(live);
+  expect(proof.sources.upcoming).toBe(
+    globalTreeOid(f.git.tree(f.pub.head(f.options.dataBranch)), 'schedule'),
+  );
   expect(f.pub.receipt(live, R)).toMatchObject({
     inPlace: { globals: [], refills: [] },
     changed: [123],
@@ -665,6 +684,111 @@ it.each([
     perks: { 123: { editor: { en: { main: 'Fixed 13' } } } },
   });
 });
+
+it.each([false, true])(
+  'keeps a published importer when a scheduled source switches to English (after preparation: %s)',
+  async (afterPreparation) => {
+    const f = await fixture();
+    const { store } = await withGlobals(f, 'English source');
+    const translated = (text: string) => ({
+      ...f.base.text.en!,
+      updatedAt: '2030-03-17T17:15:00.000Z',
+      sourceUpdatedAt: f.base.text.en!.updatedAt,
+      text,
+    });
+    const base = structuredClone(f.base);
+    base.text.en!.text = 'English source';
+    base.text.de = translated('Deutsche Quelle');
+    const proposed = structuredClone(base);
+    proposed.text.de = translated('Deutsche Quelle #Alpha');
+    const reader = { ...tip('English reader\nimport main from 123'), hash: 124 };
+    reader.text.de = translated('Deutscher Leser\nimport main from 123');
+    const member = f.read<Record<string, unknown>>(schedulePaths.member(B, 123));
+    const legacyLive = f.pub.head(f.options.liveBranch);
+    const liveTree = f.git.tree(legacyLive);
+    const input = f.pub.read<LegacyInput>(liveTree, 'liveDescriptions.json')!;
+    Object.assign(input.perks, exportLegacy([base, reader], 0, f.options.facts, {}));
+    const populatedLive = f.git.commit(
+      legacyLive,
+      {
+        ...liveTree,
+        'liveDescriptions.json': f.git.writeBlob(json(input)),
+      },
+      'Populate scheduled source and its importer',
+    );
+    f.git.cas(L, legacyLive, populatedLive);
+    const migratedLive = f.git.commit(
+      populatedLive,
+      {
+        ...liveTree,
+        'liveDescriptions.json': f.git.writeBlob(json(migrateInPlace(input))),
+      },
+      'Migrate scheduled refill fixture',
+    );
+    f.git.cas(L, populatedLive, migratedLive);
+    const pin = f.read<{ capabilities: string[] }>('.publisher/PIN');
+    pin.capabilities.push(globalsInPlaceCapability);
+    f.change({
+      '.publisher/PIN': pin,
+      [globalsInPlacePath]: {
+        state: 'active',
+        destination: f.options.liveBranch,
+        legacyData: f.pub.head(f.options.dataBranch),
+        legacyLive: populatedLive,
+        migratedLive,
+      },
+      'live/pushed.json': { 123: await publishableHash(base), 124: await publishableHash(reader) },
+      'tooltips/123.json': base,
+      'live/tooltips/123.json': base,
+      'tooltips/124.json': reader,
+      'live/tooltips/124.json': reader,
+      [schedulePaths.member(B, 123)]: { ...member, base, proposed },
+    });
+    const translatedStore = structuredClone(store);
+    const alpha = translatedStore.entries.find(({ name }) => name === 'Alpha')!;
+    const german = { ...alpha.definitions.en!, body: 'zehn' };
+    delete german.provenance;
+    alpha.definitions.de = german;
+    const variables = translatedStore.aggregates.find(({ document }) => document.hash === 2)!;
+    variables.languages.de = {
+      metadata: variables.languages.en!.metadata,
+      segments: [{ entryId: alpha.id, beforeName: 'var ', afterName: ' = ', afterBody: '' }],
+    };
+    const setDefinitions = (next: typeof store) =>
+      f.change({
+        'globals/layout.json': { version: 1, aggregates: next.aggregates },
+        ...Object.fromEntries(
+          next.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+        ),
+        'globals/live/converter-v2-test.json': {
+          version: 1,
+          destination: f.options.liveBranch,
+          store: next,
+        },
+      });
+    if (afterPreparation) setDefinitions(translatedStore);
+    f.admit('schedule');
+    await f.prep.drain();
+    expect(f.batch().status, JSON.stringify(f.request().reasons)).toBe('scheduled');
+    if (afterPreparation) setDefinitions(store);
+    const authoredReader = f.read('live/tooltips/124.json');
+    const readerMarker = f.read<Record<number, string>>('live/pushed.json')[124];
+    await f.pub.operation(R);
+    const live = f.pub.head(f.options.liveBranch);
+    expect(f.batch().status, JSON.stringify(f.read(paths(R).log))).toBe('published');
+    expect(f.pub.receipt(live, R)).toMatchObject({
+      entries: [{ hash: 123 }],
+      changed: [123],
+      inPlace: { refills: [124] },
+      exported: { 124: { editor: { de: { englishFallback: true } } } },
+    });
+    expect(f.read('live/tooltips/124.json')).toEqual(authoredReader);
+    expect(f.read<Record<number, string>>('live/pushed.json')[124]).toBe(readerMarker);
+    expect(f.pub.read(f.git.tree(live), 'liveDescriptions.json')).toMatchObject({
+      perks: { 124: { editor: { de: { main: reader.text.en!.text, englishFallback: true } } } },
+    });
+  },
+);
 
 describe('scheduled global closure', () => {
   it.each([
