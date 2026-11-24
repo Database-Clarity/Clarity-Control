@@ -46,17 +46,40 @@ it('uses the English import language when a nested tooltip lacks a shared transl
       de: cell('Deutscher Einstieg\nimport main from 13'),
     },
   };
-  data.bundle.tooltips[13] = {
+  const published = {
     ...make(13, ''),
     text: {
       en: cell('Import source <title Details [G_refill] />'),
       de: cell('Quelle <title Details [G_refill] />'),
     },
   };
+  const saved = {
+    ...published,
+    text: {
+      en: cell('Unpublished English source'),
+      de: cell('Unveröffentlichte Quelle'),
+    },
+  };
+  data.bundle.tooltips[13] = saved;
+  data.bundle.globalsReviewImports = { 13: published };
   expect(publishedCell(data, importer, 'de', 'next')).toEqual({
     text: importer.text.en.text,
     language: 'en',
   });
+  const fallback = publishedGlobals({ variables: '', titles: '' }, data, 'en');
+  expect(fallback.imports?.[13]).toContain('Import source');
+  expect(fallback.imports?.[13]).not.toContain('Unpublished');
+  const included = new Set([13]);
+  expect(publishedCell(data, importer, 'de', 'next', included)).toEqual({
+    text: importer.text.de.text,
+    language: 'de',
+  });
+  expect(
+    publishedGlobals({ variables: '', titles: '' }, data, 'de', 'next', included).imports?.[13],
+  ).toBe('Unveröffentlichte Quelle');
+  data.bundle.globalsReviewImports = { 13: saved };
+  data.bundle.tooltips[13] = published;
+  expect(publishedCell(data, importer, 'de', 'next').language).toBe('de');
 });
 const row = (
   id: string,
@@ -387,11 +410,10 @@ it('shows tooltips with the published globals, whatever is pending', async () =>
     imports,
   };
   const library = publishedGlobals(globals, data, 'de');
-  expect(library.variables).not.toContain('neuer Text\nvar Was');
-  expect(library.variables).toContain('var Was = old text');
-  expect(library.titles).toContain('Old note');
-  expect(library.imports!['global']).toContain('Old export');
-  expect(library.imports!['42']).toBe('import 42');
+  expect(library.variables).toBe('var e = 🡅');
+  expect(library.titles).toBe('');
+  expect(library.imports!['global']).toBeUndefined();
+  expect(library.imports!['42']).toBeUndefined();
   // Nothing pending is the switched mode too; only an absent field is the older one.
   const empty = await state([]);
   const german: Tooltip = {

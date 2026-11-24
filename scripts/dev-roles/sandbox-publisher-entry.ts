@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { catalog, source } from '../../apps/worker/src/catalog.js';
 import { LocalRepository } from '../publisher/git.js';
 import { Publisher } from '../publisher/publisher.js';
+import { drainCurrentSaves } from '../publisher/currentSave.js';
+import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import { SandboxGit } from './sandbox-git.mjs';
 import { createAdapter } from './sandbox-fetch.mjs';
 
@@ -91,4 +93,6 @@ const publisher = new Publisher(repository, {
 });
 // The pipeline refreshes global proofs and the editor bundle from the same
 // local refs. Report catalogs carry forward at their original snapshot SHA.
+await drainCurrentSaves(publisher);
+await new SchedulePreparer(publisher).drain();
 await publisher.run();

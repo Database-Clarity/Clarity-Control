@@ -8,7 +8,7 @@ import {
 import type { Lang } from '../languages.js';
 import { lowerConsumerMarkup, variableReferences } from '../markup/braces.js';
 import { markupCommentContext, removeMarkupComments } from '../markup/comments.js';
-import { parseLines } from '../markup/lines.js';
+import { markupInlineRanges, parseLines } from '../markup/lines.js';
 import { markupConditions, markupImports, prepareMarkup } from '../markup/prepare.js';
 import { extractBlocks, extractVariables } from '../markup/syntax.js';
 import { globalReferenceSpans } from './references.js';
@@ -55,12 +55,26 @@ function* tagVariables(source: string) {
   const local = extractVariables(uncommented);
   for (const text of new Set([uncommented, source.replace(/\r/g, '')])) {
     const comments = text === uncommented ? [] : markupCommentContext(text).comments;
-    for (const match of text.matchAll(/<(?:link|title)\b[^\n]*?(?:\/>|$)/gm)) {
-      const [tag] = match;
-      const end = match.index + tag.length;
-      if (comments.some(({ from, to }) => from <= match.index && to >= end)) continue;
+    const open = /^<(?:link|title)\b/;
+    const candidates = Array.from(
+      text.matchAll(/<(?:link|title)\b[^\n]*?(?:\/>|$)/gm),
+      (match) => ({
+        start: match.index,
+        tag: match[0],
+      }),
+    );
+    for (const line of text.matchAll(/[^\n]+/g)) {
+      if (!line[0].includes('#')) continue;
+      for (const { from, to } of markupInlineRanges(line[0])) {
+        const tag = line[0].slice(from, to);
+        if (open.test(tag)) candidates.push({ start: line.index + from, tag });
+      }
+    }
+    for (const { start, tag } of candidates) {
+      const end = start + tag.length;
+      if (comments.some(({ from, to }) => from <= start && to >= end)) continue;
       const literal =
-        !comments.some(({ from, to }) => from < end && match.index < to) &&
+        !comments.some(({ from, to }) => from < end && start < to) &&
         /^[^[\]\n]*\[[^[\]<>\n]*\] *\/>$/.test(tag);
       const destination = literal ? tag.indexOf('[') : tag.length;
       const wholeLink =
@@ -74,6 +88,30 @@ function* tagVariables(source: string) {
           };
     }
   }
+}
+
+const localInPlaceVariables = (source: string) => extractVariables(removeMarkupComments(source));
+
+/** Make a shadowing local explicit before the proof's legacy libraries can override it. */
+export function bindInPlaceLocalVariables(
+  source: string,
+  { definitions, unavailable }: GlobalsInPlaceOptions,
+) {
+  if (!source.includes('var ') || !source.includes('#')) return source;
+  const local = localInPlaceVariables(source);
+  if (!Object.keys(local).length) return source;
+  const { comments } = markupCommentContext(source);
+  let result = source;
+  for (const { name, from, to } of variableReferences(source).reverse()) {
+    if (
+      !Object.hasOwn(local, name) ||
+      (!Object.hasOwn(definitions.variables ?? {}, name) && !unavailable?.variables?.has(name)) ||
+      comments.some((span) => span.from <= from && from < span.to)
+    )
+      continue;
+    result = result.slice(0, from) + local[name] + result.slice(to);
+  }
+  return result;
 }
 
 export function inPlaceLabelVariable(
@@ -231,6 +269,7 @@ export function resolveGlobalsInPlace(
   language: Lang,
   { definitions, unavailable }: GlobalsInPlaceOptions,
 ): string {
+  source = bindInPlaceLocalVariables(source, { definitions, unavailable });
   const requirePublished = (kind: Kind, name: string) => {
     if (unavailable?.[kind]?.has(name) && !Object.hasOwn(definitions[kind] ?? {}, name))
       throw new UnpublishedGlobal(kind, name);

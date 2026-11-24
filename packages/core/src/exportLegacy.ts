@@ -9,6 +9,7 @@ import { validateTextWithReads } from './validation/index.js';
 import { numberTokens, numberValues, resolveNumberTokens } from './numbers/map.js';
 import { validateNumberTooltip } from './validation/numbers.js';
 import {
+  bindInPlaceLocalVariables,
   globalsInPlaceLibraryText,
   MissingGlobalTranslation,
   protectCommentedGlobalImports,
@@ -264,7 +265,7 @@ export function exportLegacy(
             }
             if (source.includes('{{')) throw new Error(baseEnhancedPublishMessage);
             if (options?.preserveGlobalReferencesForProof)
-              source = protectCommentedGlobalImports(resolved);
+              source = protectCommentedGlobalImports(bindInPlaceLocalVariables(resolved, globals));
           } catch (cause) {
             const message = cause instanceof Error ? cause.message : String(cause);
             throw new Error(`Tooltip ${tooltip.hash} (${language}): ${message}`, { cause });

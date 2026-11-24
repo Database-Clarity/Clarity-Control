@@ -4,6 +4,7 @@ import {
   globalPublishedSchema,
   activeAliases,
   composeGlobalRelease,
+  effectiveSharedNotes,
   globalAggregateHash,
   globalReferenceSpans,
   globalsInPlaceDefinition,
@@ -45,6 +46,7 @@ import {
   type Tooltip,
 } from '../../packages/core/src/index.js';
 import { provesInPlace, type LegacyInput } from '../../packages/export/src/index.js';
+import { markupImports } from '../../packages/core/src/markup/prepare.js';
 import { createHash } from 'node:crypto';
 import { ZodError } from 'zod';
 import { type Tree } from './git.js';
@@ -474,7 +476,7 @@ function rewrite(source: string, renames: readonly Rename[]) {
   // Published names are resolved against the original snapshot. Apply edits from right to
   // left so choosing multiple renames cannot rewrite a name introduced by another selection.
   const edits = renames.flatMap(({ kind, from, to }) =>
-    rewriteGlobalReferences(source, kind, from, to).edits.map((edit) => ({
+    rewriteGlobalReferences(source, kind, from, to, true).edits.map((edit) => ({
       ...edit,
       kind,
       toName: to,
@@ -558,7 +560,7 @@ function withdrawsEnglish(entry: GlobalRecord, previous: GlobalRecord | undefine
   return !!entry.tombstone || (!!previous?.definitions.en && !entry.definitions.en);
 }
 
-function assertHistoricalSecondaries(
+export function assertHistoricalSecondaries(
   pub: Publisher,
   tree: Tree,
   live: LegacyInput,
@@ -602,7 +604,7 @@ function refillLanguage(
   return { ...approved, secondary: current.secondary };
 }
 
-function assertWithdrawal(
+export function withdrawalIssue(
   selected: GlobalRecord,
   previous: GlobalRecord | undefined,
   saved: GlobalStore,
@@ -612,17 +614,21 @@ function assertWithdrawal(
   if (!previous || previous.tombstone) return;
   const names = new Set([selected.name, previous.name]);
   const reads = (text: string) =>
-    globalReferenceSpans(text, selected.kind).some(({ name }) => names.has(name));
+    globalReferenceSpans(text, selected.kind).some(({ name }) => names.has(name)) ||
+    (selected.kind === 'titles' &&
+      text.includes('<title') &&
+      text.includes('#') &&
+      effectiveSharedNotes(lowerConsumerMarkup(text), { variables: '', titles: '' }, names).length >
+        0);
   const reader = documents.find((doc) => Object.values(doc.text).some((cell) => reads(cell.text)));
-  if (reader)
-    throw new Error(`Tooltip ${reader.custom?.name || reader.hash} still uses ${selected.name}.`);
+  if (reader) return `Tooltip ${reader.custom?.name || reader.hash} still uses ${selected.name}.`;
   const dependency = [...saved.entries, ...published.entries].find(
     (entry) =>
       entry.id !== selected.id &&
       !entry.tombstone &&
       Object.values(entry.definitions).some((cell) => reads(cell.body)),
   );
-  if (dependency) throw new Error(`${dependency.name} still uses ${selected.name}.`);
+  if (dependency) return `${dependency.name} still uses ${selected.name}.`;
 }
 
 function selectedRelease(
@@ -660,8 +666,16 @@ function selectedRelease(
         ...globals.upcoming(tree).flatMap(Object.values),
       ]
     : [];
-  for (const entry of withdrawals)
-    assertWithdrawal(entry, previous.get(entry.id), saved, published.store, removalDocs);
+  for (const entry of withdrawals) {
+    const issue = withdrawalIssue(
+      entry,
+      previous.get(entry.id),
+      saved,
+      published.store,
+      removalDocs,
+    );
+    if (issue) throw new Error(issue);
+  }
 
   const renames = renamesOf(published.store, selected);
   for (const entry of selected) {
@@ -996,13 +1010,45 @@ export function neutralRenameHashes(
   );
 }
 
-export function bundleInPlaceReview(pub: Publisher, tree: Tree, fence: GlobalsInPlaceFence) {
+export function bundleInPlaceReview(
+  pub: Publisher,
+  tree: Tree,
+  fence: GlobalsInPlaceFence,
+  current = new GlobalsPublisher(pub).documents(tree, 'tooltips'),
+) {
   const live = pub.head(pub.options.liveBranch);
   if (!pub.git.ancestor(fence.migratedLive, live))
     throw new Error('LIVE has no in-place migration');
   const input = liveGlobalsInput(pub, live);
   assertInPlaceLibraries(input);
   const { published, saved } = stores(pub, tree);
+  const targets = new Set<number>();
+  const collect = (text: string) => {
+    if (!text.includes('import ')) return;
+    for (const line of markupImports(text.replace(/\r/g, ''))) {
+      const hash = / from (\d+) *$/.exec(line)?.[1];
+      if (hash) targets.add(Number(hash));
+    }
+  };
+  for (const tooltip of Object.values(current))
+    for (const { text } of Object.values(tooltip.text)) collect(text);
+  for (const row of Object.values(input.perks))
+    if ('editor' in row)
+      for (const cell of Object.values(row.editor)) {
+        collect(cell.main);
+        if (cell.secondary !== cell.main) collect(cell.secondary);
+      }
+  for (const entry of [...published.store.entries, ...saved.entries])
+    for (const { body } of Object.values(entry.definitions)) collect(body);
+  const reviewImports: Record<string, Tooltip> = {};
+  for (const hash of targets) {
+    if (globalsInPlaceLibraryText(hash) !== undefined) continue;
+    const row = input.perks[hash];
+    if (!row) continue;
+    const canonical = 'aliasOf' in row ? row.aliasOf : hash;
+    const document = pub.read<Tooltip>(tree, `live/tooltips/${canonical}.json`);
+    if (document) reviewImports[hash] = document;
+  }
   const pending = pendingEntries(published.store, saved);
   const globalsPending: GlobalsPending = pending.map((entry) => {
     const previous = published.store.entries.find(({ id }) => id === entry.id);
@@ -1081,5 +1127,5 @@ export function bundleInPlaceReview(pub: Publisher, tree: Tree, fence: GlobalsIn
     }
     rewritePushed(pub, tree, pushed, rewritten);
   }
-  return { globalsPending, pushed };
+  return { globalsPending, pushed, reviewImports };
 }

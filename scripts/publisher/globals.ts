@@ -31,7 +31,12 @@ import {
 import { projectGlobals } from '../../packages/core/src/globals/projection.js';
 import { assertGlobalTransition } from '../../packages/core/src/globals/transition.js';
 import { globalSourceText } from '../../packages/core/src/globals/source.js';
-import { globalsFence } from './globalsInPlace.js';
+import {
+  assertHistoricalSecondaries,
+  globalsFence,
+  liveGlobalsInput,
+  withdrawalIssue,
+} from './globalsInPlace.js';
 import { rewriteGlobalReferences } from '../../packages/core/src/globals/references.js';
 import { markupDefinitions } from '../../packages/core/src/markup/clashes.js';
 import { extractBlocks } from '../../packages/core/src/markup/syntax.js';
@@ -1200,6 +1205,7 @@ export class GlobalsPublisher {
 
   private async intents(tree: Tree, head: string) {
     const seen = new Set<string>();
+    const inPlace = globalsFence(this.publisher, tree)?.state === 'active';
     const current = await this.sources(tree, this.publisher.head(this.options.liveBranch), head);
     for (const path of Object.keys(tree)
       .filter((path) => path.startsWith('globals/intents/'))
@@ -1258,6 +1264,7 @@ export class GlobalsPublisher {
             entry.kind,
             entry.name,
             intent.name,
+            inPlace,
           );
           if (rewritten.edits.length) {
             definition.body = rewritten.text;
@@ -1270,7 +1277,13 @@ export class GlobalsPublisher {
         if (before.aggregates.some((aggregate) => aggregate.document.hash === document.hash))
           continue;
         for (const cell of Object.values(document.text))
-          cell.text = rewriteGlobalReferences(cell.text, entry.kind, entry.name, intent.name).text;
+          cell.text = rewriteGlobalReferences(
+            cell.text,
+            entry.kind,
+            entry.name,
+            intent.name,
+            inPlace,
+          ).text;
       }
       const after = reconcileGlobalStore(before.aggregates, all, {
         preserveNewLanguageSourceStamp: true,
@@ -1526,6 +1539,16 @@ export class GlobalsPublisher {
         limits.metadataBytes,
       );
     }
+    const removalDocs = inPlace
+      ? [
+          ...new Set(
+            [...snapshots, authoredSources].flatMap((snapshot) => Object.values(snapshot.tooltips)),
+          ),
+        ].filter(({ hash }) => hash > 3)
+      : [];
+    const liveInput = inPlace && liveGlobalsInput(this.publisher, live);
+    const publishedById =
+      inPlace && new Map(captured.published.entries.map((entry) => [entry.id, entry]));
     for (const entry of captured.saved.entries)
       for (const lang of [undefined, ...(Object.keys(entry.definitions) as Lang[])]) {
         const names = [
@@ -1539,38 +1562,57 @@ export class GlobalsPublisher {
         const path = `globals/proofs/removal/${entry.id}-${lang ?? 'all'}.json`;
         delete tree[path];
         if (inPlace && lang && lang !== 'en') continue;
-        const referenced = snapshots.some((snapshot) => {
-          const change = {
-            cause: {
-              globalId: entry.id,
-              beforeRevision: entry.revision,
-              afterRevision: entry.revision,
-            },
-            kind: entry.kind,
-            beforeName: names[0],
-            afterName: entry.name,
-            ...(lang ? { languages: [lang] } : {}),
-          };
-          const impact = calculateGlobalImpact(
-            snapshot,
-            snapshot,
-            names.map((name) => ({ ...change, beforeName: name })),
-            this.options.liveBranch,
-            scans,
+        if (liveInput && publishedById) {
+          const issue = withdrawalIssue(
+            entry,
+            publishedById.get(entry.id) ?? entry,
+            captured.saved,
+            captured.published,
+            removalDocs,
           );
-          return (
-            !impact.complete ||
-            impact.rows.length ||
-            languages.some(
-              (language) =>
-                (!lang || language === lang || lang === 'en') &&
-                names.some((name) => scans.references(snapshot, entry.kind, language).has(name)),
-            )
+          if (issue) continue;
+          try {
+            assertHistoricalSecondaries(this.publisher, tree, liveInput, [entry]);
+          } catch {
+            continue;
+          }
+        }
+        const referenced =
+          !inPlace &&
+          snapshots.some((snapshot) => {
+            const change = {
+              cause: {
+                globalId: entry.id,
+                beforeRevision: entry.revision,
+                afterRevision: entry.revision,
+              },
+              kind: entry.kind,
+              beforeName: names[0],
+              afterName: entry.name,
+              ...(lang ? { languages: [lang] } : {}),
+            };
+            const impact = calculateGlobalImpact(
+              snapshot,
+              snapshot,
+              names.map((name) => ({ ...change, beforeName: name })),
+              this.options.liveBranch,
+              scans,
+            );
+            return (
+              !impact.complete ||
+              impact.rows.length ||
+              languages.some(
+                (language) =>
+                  (!lang || language === lang || lang === 'en') &&
+                  names.some((name) => scans.references(snapshot, entry.kind, language).has(name)),
+              )
+            );
+          });
+        const authoredReference =
+          !inPlace &&
+          languages.some((language) =>
+            names.some((name) => scans.references(authoredSources, entry.kind, language).has(name)),
           );
-        });
-        const authoredReference = languages.some((language) =>
-          names.some((name) => scans.references(authoredSources, entry.kind, language).has(name)),
-        );
         if (!referenced && !authoredReference)
           this.write(
             tree,

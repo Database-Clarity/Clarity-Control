@@ -2684,7 +2684,7 @@ export class Publisher {
     } catch {
       // Invalid JSON and invalid shapes must not wedge terminal rejection or bundle refresh.
     }
-    const inPlace = fence && bundleInPlaceReview(this, t, fence);
+    const inPlace = fence && bundleInPlaceReview(this, t, fence, tooltips);
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
@@ -2710,7 +2710,9 @@ export class Publisher {
         : {}),
       publishQueue,
       ...(scheduledQueue.length ? { scheduledQueue } : {}),
-      ...(inPlace ? { globalsPending: inPlace.globalsPending } : {}),
+      ...(inPlace
+        ? { globalsPending: inPlace.globalsPending, globalsReviewImports: inPlace.reviewImports }
+        : {}),
       // The globals catalogue at this same head; null (never a partial list) when malformed,
       // so the editor says it is unavailable without stopping the bundle or the queue.
       ...(hasGlobals(t)

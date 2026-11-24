@@ -1,5 +1,6 @@
-import { markupCommentContext } from '../markup/prepare.js';
+import { markupCommentContext, removeMarkupComments } from '../markup/prepare.js';
 import { variableReferences } from '../markup/braces.js';
+import { extractVariables } from '../markup/syntax.js';
 import { validGlobalName, type GlobalRecord } from './model.js';
 
 export interface GlobalReferenceSpan {
@@ -66,11 +67,18 @@ export function rewriteGlobalReferences(
   kind: GlobalRecord['kind'],
   beforeName: string,
   afterName: string,
+  ignoreLocalVariables = false,
 ): { text: string; edits: GlobalReferenceSpan[] } {
   if (!validGlobalName(kind, beforeName) || !validGlobalName(kind, afterName))
     throw new Error('Invalid global reference name');
   if (kind === 'variables' && (beforeName === 'e' || afterName === 'e') && beforeName !== afterName)
     throw new Error('The legacy enhanced arrow identity is protected');
+  if (
+    kind === 'variables' &&
+    ignoreLocalVariables &&
+    Object.hasOwn(extractVariables(removeMarkupComments(text)), beforeName)
+  )
+    return { text, edits: [] };
   const edits = globalReferenceSpans(text, kind).filter((ref) => ref.name === beforeName);
   let next = text;
   for (const ref of [...edits].reverse()) {

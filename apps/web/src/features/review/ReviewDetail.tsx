@@ -27,10 +27,11 @@ import { CompendiumChanges, FieldChanges } from '../history/TooltipDiff';
 import { useRenderedDiff } from '../history/useRenderedDiff';
 import { itemFor, listName } from '../navigation/catalog';
 import { globalUsers, unitName, type GlobalPart } from './globalRows';
-import { publishedCell, publishedGlobals, type PendingGlobal } from './globalsPending';
+import { publishedCell, type PendingGlobal } from './globalsPending';
 import { reviewGlobals, textLanguages, type Classification } from './kinds';
 import type { PendingTooltip } from './model';
 import type { Published } from './published';
+import { useReviewQueue } from './queueStore';
 import { useDelayed } from './useDelayed';
 import styles from './Review.module.scss';
 
@@ -286,12 +287,25 @@ function GlobalNote({ entry, part }: { entry: PendingTooltip; part: GlobalPart }
 }
 
 /** Rendered text, plain (New, Removed, Restored), 12 lines then "Show all". */
-function PlainText({ text, lang, hash }: { text: string; lang: Lang; hash: number }) {
+function PlainText({
+  text,
+  lang,
+  hash,
+  side,
+  selected,
+}: {
+  text: string;
+  lang: Lang;
+  hash: number;
+  side: 'live' | 'next';
+  selected?: ReadonlySet<number>;
+}) {
   const data = useDataStore((state) => state.data);
   const [all, setAll] = useState(false);
   const { base, enhanced } = useMemo(() => {
-    const saved = diffGlobals(data, {}, lang, hash);
-    const globals = hash < 0 ? saved : publishedGlobals(saved, data, lang);
+    const globals = data?.bundle.globalsPending
+      ? reviewGlobals(data, lang, hash, side, selected)
+      : diffGlobals(data, {}, lang, hash);
     const render = (variant: boolean) => parseMarkup(text, variantGlobals(globals, variant)).lines;
     const base = render(false),
       enhanced = render(true);
@@ -299,7 +313,7 @@ function PlainText({ text, lang, hash }: { text: string; lang: Lang; hash: numbe
       base,
       enhanced: JSON.stringify(base) === JSON.stringify(enhanced) ? undefined : enhanced,
     };
-  }, [data, lang, hash, text]);
+  }, [data, lang, hash, text, side, selected]);
   const cut = (lines: MarkupLine[]) => (all ? lines : lines.slice(0, 12));
   const longest = Math.max(base.length, enhanced?.length ?? 0);
   return (
@@ -390,6 +404,7 @@ function TextChange({
   after,
   previousLanguage,
   currentLanguage,
+  selected,
   lang,
   hash,
   classification,
@@ -398,21 +413,22 @@ function TextChange({
   after: string;
   previousLanguage: Lang;
   currentLanguage: Lang;
+  selected?: ReadonlySet<number>;
   lang: Lang;
   hash: number;
   classification: Classification | undefined;
 }) {
   const data = useDataStore((state) => state.data);
   const globals = useMemo(
-    () => reviewGlobals(data, currentLanguage, hash),
-    [data, currentLanguage, hash],
+    () => reviewGlobals(data, currentLanguage, hash, 'next', selected),
+    [data, currentLanguage, hash, selected],
   );
   const previous = useMemo(
     () =>
-      previousLanguage !== currentLanguage
-        ? reviewGlobals(data, previousLanguage, hash)
+      data?.bundle.globalsPending && hash >= 0
+        ? reviewGlobals(data, previousLanguage, hash, 'live')
         : undefined,
-    [data, previousLanguage, currentLanguage, hash],
+    [data, previousLanguage, hash],
   );
   const { result, busy } = useRenderedDiff(before, after, globals, previous);
   const variants = classification?.variants;
@@ -547,6 +563,9 @@ export const ReviewDetail = memo(function ReviewDetail({
 }) {
   const user = useAuthStore((state) => state.user);
   const data = useDataStore((state) => state.data);
+  const selected = useReviewQueue((state) =>
+    data?.bundle.globalsPending ? state.selected : undefined,
+  );
   const [saved, setSaved] = useState<HistoryCommit | null>();
   const pending = entry.part?.pending;
   // The last saver: one request for the open change only. Its line is reserved, so nothing
@@ -584,12 +603,18 @@ export const ReviewDetail = memo(function ReviewDetail({
           .filter(([, value]) => value?.text)
           .map(([lang, value], _, all) => {
             const cell = data?.bundle.globalsPending
-              ? publishedCell(data, tooltip, lang, side)
+              ? publishedCell(data, tooltip, lang, side, selected)
               : { text: value.text, language: lang };
             return (
               <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
                 {(all.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
-                <PlainText text={cell.text} lang={cell.language} hash={entry.tooltip.hash} />
+                <PlainText
+                  text={cell.text}
+                  lang={cell.language}
+                  hash={entry.tooltip.hash}
+                  side={side}
+                  selected={selected}
+                />
               </section>
             );
           })
@@ -599,7 +624,7 @@ export const ReviewDetail = memo(function ReviewDetail({
     const changed = classification!.languages ?? textLanguages(live, entry.tooltip);
     evidence = changed.map((lang) => {
       const before = publishedCell(data, live, lang, 'live');
-      const after = publishedCell(data, entry.tooltip, lang, 'next');
+      const after = publishedCell(data, entry.tooltip, lang, 'next', selected);
       return (
         <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
           {(changed.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
@@ -608,6 +633,7 @@ export const ReviewDetail = memo(function ReviewDetail({
             after={after.text}
             previousLanguage={before.language}
             currentLanguage={after.language}
+            selected={selected}
             lang={lang}
             hash={entry.tooltip.hash}
             classification={classification}

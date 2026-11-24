@@ -55,6 +55,8 @@ export const bundleSchema = z.object({
    * their own. Fails closed: a malformed field must not bring those files back.
    */
   globalsPending: globalsPendingSchema.optional(),
+  /** Published authored sources targeted by numeric imports in Review. */
+  globalsReviewImports: z.record(z.string().regex(/^\d+$/), tooltipSchema).optional(),
   /** Publish requests waiting in the Worker's queue (written by the publisher pipeline; absent until it runs). */
   publishQueue: z
     .array(

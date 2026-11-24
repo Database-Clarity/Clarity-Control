@@ -1,6 +1,7 @@
 import {
   exportLegacy,
   globalsInPlaceDefinition,
+  globalsInPlaceLibraryText,
   languages,
   isLegacyAliasStub,
   resolveAlias,
@@ -17,7 +18,7 @@ import type { Bundle } from '../../services/bundle';
 import type { EditorData } from '../../stores/data';
 import { globalTypes, type GlobalKind } from '../globals/model';
 import type { PendingTooltip } from './model';
-import { exportedText, publishedFor, usePublished } from './published';
+import { exportedText } from './published';
 
 export type PendingGlobal = GlobalsPending[number];
 
@@ -221,21 +222,11 @@ export function publishedCell(
   tooltip: Tooltip | null,
   lang: Lang,
   side: 'live' | 'next',
+  selected?: ReadonlySet<number>,
 ): { text: string; language: Lang } {
   const text = exportedText(tooltip, lang);
   if (!data?.bundle.globalsPending || !tooltip || tooltip.hash < 0) return { text, language: lang };
-  const definitions = publishedDefinitions(data.bundle)[side];
-  const options = withImportedGlobalsFallback({ definitions }, (hash) => {
-    const canonical = resolveAlias(hash, data.aliases);
-    const published = publishedFor(
-      usePublished.getState().byHash,
-      canonical,
-      data.bundle.pushed[canonical],
-    );
-    const document =
-      published?.status === 'ready' ? published.tooltip : data.bundle.tooltips[canonical];
-    return document ? { document } : undefined;
-  });
+  const options = reviewImportOptions(data, side, selected);
   try {
     const exported = exportLegacy([tooltip], 0, undefined, {}, { globalsInPlace: options })[
       tooltip.hash
@@ -251,29 +242,69 @@ export function publishedCell(
 export const publishedText = (...args: Parameters<typeof publishedCell>) =>
   publishedCell(...args).text;
 
-/** What a filled text's imports still read: the published globals, never a pending change. */
+function reviewImport(
+  data: EditorData,
+  hash: number,
+  side: 'live' | 'next',
+  selected?: ReadonlySet<number>,
+) {
+  const canonical = resolveAlias(hash, data.aliases);
+  if (side === 'next' && selected?.has(canonical)) return data.bundle.tooltips[canonical];
+  return data.bundle.globalsReviewImports?.[hash];
+}
+
+function reviewImportOptions(
+  data: EditorData,
+  side: 'live' | 'next',
+  selected?: ReadonlySet<number>,
+) {
+  return withImportedGlobalsFallback(
+    { definitions: publishedDefinitions(data.bundle)[side] },
+    (hash) => {
+      const document = reviewImport(data, hash, side, selected);
+      if (document) return { document };
+    },
+  );
+}
+
+/** A filled cell and its numeric imports use the same definitions and source selection. */
 export function publishedGlobals(
   globals: MarkupGlobals,
   data: EditorData | null,
   lang: Lang,
+  side: 'live' | 'next' = 'next',
+  selected?: ReadonlySet<number>,
 ): MarkupGlobals {
   if (!data?.bundle.globalsPending) return globals;
-  const { next } = publishedDefinitions(data.bundle);
-  const library = (kind: GlobalKind, declare: (name: string, body: string) => string) =>
-    Object.entries(next[kind])
-      .flatMap(([name, entry]) => {
-        const body = (entry[lang] ?? entry.en)?.body;
-        return body === undefined ? [] : [declare(name, body)];
-      })
-      .join('\n');
-  const exports = library('exports', (name, body) => `export ${name} (\n${body}\n)`);
+  const options = reviewImportOptions(data, side, selected);
+  const imports = new Map<number, string | undefined>();
+  const read = (hash: number) => {
+    if (!imports.has(hash)) {
+      const document = reviewImport(data, hash, side, selected);
+      let text: string | undefined;
+      try {
+        const row =
+          document &&
+          exportLegacy([document], 0, undefined, {}, { globalsInPlace: options })[document.hash];
+        text = row && !isLegacyAliasStub(row) ? row.editor[lang]?.main : undefined;
+      } catch {
+        // An unrenderable source remains unresolved in the preview.
+      }
+      imports.set(hash, text);
+    }
+    return imports.get(hash);
+  };
   return {
     ...globals,
-    variables: library('variables', (name, body) => `var ${name} = ${body.trim() || 'empty'}`),
-    titles: library('titles', (name, body) => `title ${name} (\n${body}\n)`),
-    imports: Object.assign(Object.create(globals.imports ?? null) as Record<string, string>, {
-      1: exports,
-      global: exports,
-    }),
+    lang,
+    variables: globalsInPlaceLibraryText(2)!,
+    titles: '',
+    imports: new Proxy(
+      {},
+      {
+        get: (_target, name) =>
+          typeof name === 'string' && /^\d+$/.test(name) ? read(Number(name)) : undefined,
+      },
+    ),
   };
 }

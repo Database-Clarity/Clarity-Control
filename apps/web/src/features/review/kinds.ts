@@ -64,9 +64,15 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
 }
 
 /** What a row's text renders with: a tooltip's published globals, a global's saved ones. */
-export function reviewGlobals(data: EditorData | null, lang: Lang, hash: number) {
+export function reviewGlobals(
+  data: EditorData | null,
+  lang: Lang,
+  hash: number,
+  side: 'live' | 'next' = 'next',
+  selected?: ReadonlySet<number>,
+) {
   const globals = diffGlobals(data, {}, lang, hash, 'live');
-  return hash < 0 ? globals : publishedGlobals(globals, data, lang);
+  return hash < 0 ? globals : publishedGlobals(globals, data, lang, side, selected);
 }
 
 /** Languages whose saved source or exported text differs. */
@@ -244,8 +250,8 @@ export function classifyRows(
           previous.text,
           current.text,
           reviewGlobals(data, current.language, saved.hash),
-          previous.language !== current.language
-            ? reviewGlobals(data, previous.language, saved.hash)
+          data.bundle.globalsPending && saved.hash >= 0
+            ? reviewGlobals(data, previous.language, saved.hash, 'live')
             : undefined,
         );
       }),

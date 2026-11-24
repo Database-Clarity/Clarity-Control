@@ -730,6 +730,7 @@ describe('in-place shared text publication', () => {
     ['published', 'Beta', '<title Up to #Beta [Local] />\ntitle Local (\nNote\n)'],
     ['saved', 'Newvar', '<link Up to #{Newvar} [https://example.com] />'],
     ['nested destination', 'Beta', '<link Up to #Beta [https://example.com/?q=a[b]] />'],
+    ['nested line marker', 'Beta', '<link <bold/> Up to #Beta [https://example.com] />'],
     ['comment opens a tag', 'Beta', '/* <title foo */ #Beta <link b [https://example.com] />'],
   ])('refuses a %s variable in a tooltip label', async (state, name, text) => {
     const f = await inPlaceFixture();
@@ -759,6 +760,15 @@ describe('in-place shared text publication', () => {
       await f.request([142], next);
       await f.pub.run(false);
       expect(f.read(paths(next).log).result.status).toBe('done');
+      expect(formatV2Text(live(f), 142, 'en')).toContain('Up to 10');
+      expect(Buffer.from(buildLegacy(live(f), 'clarity')).toString()).toContain('Up to 10');
+      const affected = pending(f).find(({ id }) => id === f.entry.id)!;
+      expect(affected.affected).not.toContain(142);
+      const change = A.replace(/1$/, '3');
+      await f.request([], change, selection(affected));
+      await f.pub.run(false);
+      expect(f.read(paths(change).log).result.status).toBe('done');
+      expect(formatV2Text(live(f), 142, 'en')).toContain('Up to 10');
     }
   });
 
