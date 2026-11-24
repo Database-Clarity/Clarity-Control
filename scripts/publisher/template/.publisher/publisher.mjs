@@ -27155,6 +27155,7 @@ init_syntax();
 // packages/core/src/globals/references.ts
 init_prepare();
 init_braces();
+init_syntax();
 init_model();
 function globalReferenceSpans(text, kind) {
   const { comments } = markupCommentContext(text);
@@ -27185,11 +27186,13 @@ function globalReferenceSpans(text, kind) {
     )
   );
 }
-function rewriteGlobalReferences(text, kind, beforeName, afterName) {
+function rewriteGlobalReferences(text, kind, beforeName, afterName, ignoreLocalVariables = false) {
   if (!validGlobalName(kind, beforeName) || !validGlobalName(kind, afterName))
     throw new Error("Invalid global reference name");
   if (kind === "variables" && (beforeName === "e" || afterName === "e") && beforeName !== afterName)
     throw new Error("The legacy enhanced arrow identity is protected");
+  if (kind === "variables" && ignoreLocalVariables && Object.hasOwn(extractVariables(removeMarkupComments(text)), beforeName))
+    return { text, edits: [] };
   const edits = globalReferenceSpans(text, kind).filter((ref) => ref.name === beforeName);
   let next = text;
   for (const ref of [...edits].reverse()) {
@@ -27229,11 +27232,25 @@ function* tagVariables(source2) {
   const local = extractVariables(uncommented);
   for (const text of /* @__PURE__ */ new Set([uncommented, source2.replace(/\r/g, "")])) {
     const comments = text === uncommented ? [] : markupCommentContext(text).comments;
-    for (const match of text.matchAll(/<(?:link|title)\b[^\n]*?(?:\/>|$)/gm)) {
-      const [tag] = match;
-      const end = match.index + tag.length;
-      if (comments.some(({ from, to }) => from <= match.index && to >= end)) continue;
-      const literal2 = !comments.some(({ from, to }) => from < end && match.index < to) && /^[^\[\]\n]*\[[^\[\]<>\n]*\] *\/>$/.test(tag);
+    const open2 = /^<(?:link|title)\b/;
+    const candidates = Array.from(
+      text.matchAll(/<(?:link|title)\b[^\n]*?(?:\/>|$)/gm),
+      (match) => ({
+        start: match.index,
+        tag: match[0]
+      })
+    );
+    for (const line of text.matchAll(/[^\n]+/g)) {
+      if (!line[0].includes("#")) continue;
+      for (const { from, to } of markupInlineRanges(line[0])) {
+        const tag = line[0].slice(from, to);
+        if (open2.test(tag)) candidates.push({ start: line.index + from, tag });
+      }
+    }
+    for (const { start, tag } of candidates) {
+      const end = start + tag.length;
+      if (comments.some(({ from, to }) => from <= start && to >= end)) continue;
+      const literal2 = !comments.some(({ from, to }) => from < end && start < to) && /^[^[\]\n]*\[[^[\]<>\n]*\] *\/>$/.test(tag);
       const destination = literal2 ? tag.indexOf("[") : tag.length;
       const wholeLink = literal2 && /^<link .* \[#(?:[A-Za-z0-9]+|\{[A-Za-z0-9]+\})\] *\/>$/.test(tag);
       for (const { name: name2, from } of variableReferences(tag))
@@ -27246,6 +27263,20 @@ function* tagVariables(source2) {
     }
   }
 }
+var localInPlaceVariables = (source2) => extractVariables(removeMarkupComments(source2));
+function bindInPlaceLocalVariables(source2, { definitions, unavailable }) {
+  if (!source2.includes("var ") || !source2.includes("#")) return source2;
+  const local = localInPlaceVariables(source2);
+  if (!Object.keys(local).length) return source2;
+  const { comments } = markupCommentContext(source2);
+  let result = source2;
+  for (const { name: name2, from, to } of variableReferences(source2).reverse()) {
+    if (!Object.hasOwn(local, name2) || !Object.hasOwn(definitions.variables ?? {}, name2) && !unavailable?.variables?.has(name2) || comments.some((span2) => span2.from <= from && from < span2.to))
+      continue;
+    result = result.slice(0, from) + local[name2] + result.slice(to);
+  }
+  return result;
+}
 function inPlaceLabelVariable(source2, shared, target) {
   for (const { name: name2, destination, wholeLink } of tagVariables(source2))
     if (target === void 0 ? !destination || !wholeLink && shared.has(name2) : name2 === target)
@@ -27257,7 +27288,7 @@ function inPlaceLinkVariables(source2) {
   );
 }
 function plainInPlaceDestination(body2, names) {
-  return !!body2 && body2.trim() === body2 && !/[\[\]<>\r\n]/.test(body2) && !variableReferences(body2).some(({ name: name2 }) => names.has(name2));
+  return !!body2 && body2.trim() === body2 && !/[[\]<>\r\n]/.test(body2) && !variableReferences(body2).some(({ name: name2 }) => names.has(name2));
 }
 function globalsInPlaceSaveIssue(source2, titleNames) {
   if (!source2.includes("import ") && (!titleNames?.size || !source2.includes("export ")))
@@ -27343,6 +27374,7 @@ function protectCommentedGlobalImports(source2) {
   );
 }
 function resolveGlobalsInPlace(source2, language, { definitions, unavailable }) {
+  source2 = bindInPlaceLocalVariables(source2, { definitions, unavailable });
   const requirePublished = (kind, name2) => {
     if (unavailable?.[kind]?.has(name2) && !Object.hasOwn(definitions[kind] ?? {}, name2))
       throw new UnpublishedGlobal(kind, name2);
@@ -27629,7 +27661,7 @@ function exportLegacy(tooltips, now, catalog, aliases = {}, options) {
             }
             if (source2.includes("{{")) throw new Error(baseEnhancedPublishMessage);
             if (options?.preserveGlobalReferencesForProof)
-              source2 = protectCommentedGlobalImports(resolved);
+              source2 = protectCommentedGlobalImports(bindInPlaceLocalVariables(resolved, globals));
           } catch (cause) {
             const message = cause instanceof Error ? cause.message : String(cause);
             throw new Error(`Tooltip ${tooltip.hash} (${language}): ${message}`, { cause });
@@ -32029,6 +32061,7 @@ function provesInPlace(before, after, hashes = /* @__PURE__ */ new Set([
 }
 
 // scripts/publisher/globalsInPlace.ts
+init_prepare();
 init_zod();
 import { createHash as createHash2 } from "node:crypto";
 
@@ -32366,7 +32399,7 @@ function renamesOf(published, selected) {
 }
 function rewrite(source2, renames) {
   const edits = renames.flatMap(
-    ({ kind, from, to }) => rewriteGlobalReferences(source2, kind, from, to).edits.map((edit) => ({
+    ({ kind, from, to }) => rewriteGlobalReferences(source2, kind, from, to, true).edits.map((edit) => ({
       ...edit,
       kind,
       toName: to
@@ -32458,17 +32491,16 @@ function refillLanguage(current, approved) {
   if (!current || !approved || current.secondary === current.main) return approved;
   return { ...approved, secondary: current.secondary };
 }
-function assertWithdrawal(selected, previous, saved, published, documents) {
+function withdrawalIssue(selected, previous, saved, published, documents) {
   if (!previous || previous.tombstone) return;
   const names = /* @__PURE__ */ new Set([selected.name, previous.name]);
-  const reads = (text) => globalReferenceSpans(text, selected.kind).some(({ name: name2 }) => names.has(name2));
+  const reads = (text) => globalReferenceSpans(text, selected.kind).some(({ name: name2 }) => names.has(name2)) || selected.kind === "titles" && text.includes("<title") && text.includes("#") && effectiveSharedNotes(lowerConsumerMarkup(text), { variables: "", titles: "" }, names).length > 0;
   const reader = documents.find((doc) => Object.values(doc.text).some((cell) => reads(cell.text)));
-  if (reader)
-    throw new Error(`Tooltip ${reader.custom?.name || reader.hash} still uses ${selected.name}.`);
+  if (reader) return `Tooltip ${reader.custom?.name || reader.hash} still uses ${selected.name}.`;
   const dependency = [...saved.entries, ...published.entries].find(
     (entry) => entry.id !== selected.id && !entry.tombstone && Object.values(entry.definitions).some((cell) => reads(cell.body))
   );
-  if (dependency) throw new Error(`${dependency.name} still uses ${selected.name}.`);
+  if (dependency) return `${dependency.name} still uses ${selected.name}.`;
 }
 function selectedRelease(pub, tree, live, selection2, maintainer) {
   const { published, saved } = stores(pub, tree);
@@ -32497,8 +32529,16 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
     ...Object.values(globals.documents(tree, "tooltips")),
     ...globals.upcoming(tree).flatMap(Object.values)
   ] : [];
-  for (const entry of withdrawals)
-    assertWithdrawal(entry, previous.get(entry.id), saved, published.store, removalDocs);
+  for (const entry of withdrawals) {
+    const issue2 = withdrawalIssue(
+      entry,
+      previous.get(entry.id),
+      saved,
+      published.store,
+      removalDocs
+    );
+    if (issue2) throw new Error(issue2);
+  }
   const renames = renamesOf(published.store, selected);
   for (const entry of selected) {
     const to = entry.name;
@@ -32761,13 +32801,40 @@ function neutralRenameHashes(pub, tree, entries, rewritten) {
     }).map(({ hash: hash2 }) => hash2)
   );
 }
-function bundleInPlaceReview(pub, tree, fence) {
+function bundleInPlaceReview(pub, tree, fence, current = new GlobalsPublisher(pub).documents(tree, "tooltips")) {
   const live = pub.head(pub.options.liveBranch);
   if (!pub.git.ancestor(fence.migratedLive, live))
     throw new Error("LIVE has no in-place migration");
   const input2 = liveGlobalsInput(pub, live);
   assertInPlaceLibraries(input2);
   const { published, saved } = stores(pub, tree);
+  const targets = /* @__PURE__ */ new Set();
+  const collect = (text) => {
+    if (!text.includes("import ")) return;
+    for (const line of markupImports(text.replace(/\r/g, ""))) {
+      const hash2 = / from (\d+) *$/.exec(line)?.[1];
+      if (hash2) targets.add(Number(hash2));
+    }
+  };
+  for (const tooltip of Object.values(current))
+    for (const { text } of Object.values(tooltip.text)) collect(text);
+  for (const row of Object.values(input2.perks))
+    if ("editor" in row)
+      for (const cell of Object.values(row.editor)) {
+        collect(cell.main);
+        if (cell.secondary !== cell.main) collect(cell.secondary);
+      }
+  for (const entry of [...published.store.entries, ...saved.entries])
+    for (const { body: body2 } of Object.values(entry.definitions)) collect(body2);
+  const reviewImports = {};
+  for (const hash2 of targets) {
+    if (globalsInPlaceLibraryText(hash2) !== void 0) continue;
+    const row = input2.perks[hash2];
+    if (!row) continue;
+    const canonical = "aliasOf" in row ? row.aliasOf : hash2;
+    const document = pub.read(tree, `live/tooltips/${canonical}.json`);
+    if (document) reviewImports[hash2] = document;
+  }
   const pending = pendingEntries(published.store, saved);
   const globalsPending = pending.map((entry) => {
     const previous = published.store.entries.find(({ id }) => id === entry.id);
@@ -32823,7 +32890,7 @@ function bundleInPlaceReview(pub, tree, fence) {
     }
     rewritePushed(pub, tree, pushed, rewritten);
   }
-  return { globalsPending, pushed };
+  return { globalsPending, pushed, reviewImports };
 }
 
 // scripts/publisher/globals.ts
@@ -33808,6 +33875,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
   }
   async intents(tree, head) {
     const seen = /* @__PURE__ */ new Set();
+    const inPlace = globalsFence(this.publisher, tree)?.state === "active";
     const current = await this.sources(tree, this.publisher.head(this.options.liveBranch), head);
     for (const path of Object.keys(tree).filter((path2) => path2.startsWith("globals/intents/")).sort()) {
       const intent = intentSchema.parse(this.read(tree, path));
@@ -33849,7 +33917,8 @@ var GlobalsPublisher = class _GlobalsPublisher {
             definition2.body,
             entry.kind,
             entry.name,
-            intent.name
+            intent.name,
+            inPlace
           );
           if (rewritten.edits.length) {
             definition2.body = rewritten.text;
@@ -33862,7 +33931,13 @@ var GlobalsPublisher = class _GlobalsPublisher {
         if (before.aggregates.some((aggregate) => aggregate.document.hash === document.hash))
           continue;
         for (const cell of Object.values(document.text))
-          cell.text = rewriteGlobalReferences(cell.text, entry.kind, entry.name, intent.name).text;
+          cell.text = rewriteGlobalReferences(
+            cell.text,
+            entry.kind,
+            entry.name,
+            intent.name,
+            inPlace
+          ).text;
       }
       const after = reconcileGlobalStore(before.aggregates, all, {
         preserveNewLanguageSourceStamp: true
@@ -34082,6 +34157,13 @@ var GlobalsPublisher = class _GlobalsPublisher {
         limits.metadataBytes
       );
     }
+    const removalDocs = inPlace ? [
+      ...new Set(
+        [...snapshots, authoredSources].flatMap((snapshot) => Object.values(snapshot.tooltips))
+      )
+    ].filter(({ hash: hash2 }) => hash2 > 3) : [];
+    const liveInput = inPlace && liveGlobalsInput(this.publisher, live);
+    const publishedById = inPlace && new Map(captured.published.entries.map((entry) => [entry.id, entry]));
     for (const entry of captured.saved.entries)
       for (const lang of [void 0, ...Object.keys(entry.definitions)]) {
         const names = [
@@ -34095,7 +34177,22 @@ var GlobalsPublisher = class _GlobalsPublisher {
         const path = `globals/proofs/removal/${entry.id}-${lang ?? "all"}.json`;
         delete tree[path];
         if (inPlace && lang && lang !== "en") continue;
-        const referenced = snapshots.some((snapshot) => {
+        if (liveInput && publishedById) {
+          const issue2 = withdrawalIssue(
+            entry,
+            publishedById.get(entry.id) ?? entry,
+            captured.saved,
+            captured.published,
+            removalDocs
+          );
+          if (issue2) continue;
+          try {
+            assertHistoricalSecondaries(this.publisher, tree, liveInput, [entry]);
+          } catch {
+            continue;
+          }
+        }
+        const referenced = !inPlace && snapshots.some((snapshot) => {
           const change = {
             cause: {
               globalId: entry.id,
@@ -34118,7 +34215,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
             (language) => (!lang || language === lang || lang === "en") && names.some((name2) => scans.references(snapshot, entry.kind, language).has(name2))
           );
         });
-        const authoredReference = languages2.some(
+        const authoredReference = !inPlace && languages2.some(
           (language) => names.some((name2) => scans.references(authoredSources, entry.kind, language).has(name2))
         );
         if (!referenced && !authoredReference)
@@ -37631,7 +37728,7 @@ var Publisher = class _Publisher {
       if (t[inactiveMovesPath]) inactiveMoves = this.movesAt(t);
     } catch {
     }
-    const inPlace = fence && bundleInPlaceReview(this, t, fence);
+    const inPlace = fence && bundleInPlaceReview(this, t, fence, tooltips);
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
@@ -37653,7 +37750,7 @@ var Publisher = class _Publisher {
       ...sandboxPointers && Object.keys(sandboxPointers.pointers).length ? { sandboxPointers } : {},
       publishQueue,
       ...scheduledQueue.length ? { scheduledQueue } : {},
-      ...inPlace ? { globalsPending: inPlace.globalsPending } : {},
+      ...inPlace ? { globalsPending: inPlace.globalsPending, globalsReviewImports: inPlace.reviewImports } : {},
       // The globals catalogue at this same head; null (never a partial list) when malformed,
       // so the editor says it is unavailable without stopping the bundle or the queue.
       ...hasGlobals(t) ? {
