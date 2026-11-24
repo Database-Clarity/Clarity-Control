@@ -2,6 +2,7 @@ import { languages, type Lang, type Tooltip } from '@clarity/core';
 import { create } from 'zustand';
 import type { EditorData } from '../../stores/data';
 import { diffGlobals } from '../history/RenderedWordDiff';
+import { publishedGlobals } from './globalsPending';
 import { classifyRendered } from '../history/useRenderedDiff';
 import { publishedOf, rowKey, usesOthers, type RowKey } from './globalRows';
 import type { PendingTooltip } from './model';
@@ -16,12 +17,12 @@ type PublishedState = ReturnType<typeof usePublished.getState>;
  */
 export const kindWords = [
   'Text changed',
-  'Global changed',
   'No visible change',
   'Output unchanged',
   'Definition changed',
   'New',
   'Links changed',
+  'Renamed',
   'Removed',
   'Restored',
   'On hold',
@@ -31,7 +32,7 @@ export type Kind = (typeof kindWords)[number];
 
 export interface Classification {
   kind: Kind;
-  /** Text changed, or Global changed: the languages whose rendered text differs. */
+  /** Text changed: the languages whose rendered text differs. */
   languages?: Lang[];
   /** Text changed on a text with Base and Enhanced forms: which of them change. */
   scope?: 'both' | 'base' | 'enhanced';
@@ -49,12 +50,18 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
   if (entry.inactiveChange === 'restore') return { kind: 'Restored' };
   if (entry.unpublishable) return { kind: 'On hold' };
   if (entry.markerOnly) return { kind: 'Leftover' };
-  if (entry.globals?.unedited && entry.globals.causes.length) return { kind: 'Global changed' };
   if (entry.part?.change === 'removed') return { kind: 'Removed' };
+  if (entry.part?.change === 'renamed') return { kind: 'Renamed' };
   if (entry.part?.change === 'same-text')
     return { kind: usesOthers(entry.tooltip) ? 'Definition changed' : 'Output unchanged' };
   if (entry.isNew) return { kind: 'New' };
   return undefined;
+}
+
+/** What a row's text renders with: a tooltip's published globals, a global's saved ones. */
+export function reviewGlobals(data: EditorData | null, lang: Lang, hash: number) {
+  const globals = diffGlobals(data, {}, lang, hash, 'live');
+  return hash < 0 ? globals : publishedGlobals(globals, data?.bundle.globalsPending, lang);
 }
 
 /** Languages whose saved source or exported text differs. */
@@ -64,28 +71,6 @@ export const textLanguages = (before: Tooltip | null, current: Tooltip) =>
       before?.text[lang]?.text !== current.text[lang]?.text ||
       exportedText(before, lang) !== exportedText(current, lang),
   );
-
-/** Text with every global filled in, as it publishes; only its imports are looked up. */
-export const publishedGlobals = (data: EditorData | null, lang: Lang, hash: number) => ({
-  ...diffGlobals(data, {}, lang, hash, 'live'),
-  titles: '',
-});
-
-/** What changes per language: the text as it publishes when a global changes it, else the saved. */
-export function textChanges(entry: PendingTooltip, before: Tooltip | null) {
-  const diff = entry.globals?.diff;
-  return diff
-    ? languages.flatMap((lang) => {
-        const from = diff[lang]?.before?.main ?? '',
-          to = diff[lang]?.after?.main ?? '';
-        return from === to ? [] : [{ lang, before: from, after: to }];
-      })
-    : textLanguages(before, entry.tooltip).map((lang) => ({
-        lang,
-        before: exportedText(before, lang),
-        after: exportedText(entry.tooltip, lang),
-      }));
-}
 
 /** Source lines between the first and last changed line (the larger side). */
 export function changedLines(before: string, after: string): number {
@@ -118,16 +103,16 @@ type Output = { base: boolean; enhanced: boolean; variantsDiffer: boolean };
 
 /**
  * The word for a published row from its rendered comparison per changed language (`outputs`,
- * same order as `changed`). A failed check leaves the row without a word (never a guess).
+ * same order as `textLanguages`). A failed check leaves the row without a word (never a guess).
  * `Text changed` wins over everything else on the row.
  */
 export function publishedKind(
   before: Tooltip | null,
   current: Tooltip,
   outputs: readonly (Output | undefined)[],
-  changed = textLanguages(before, current),
 ): Classification | undefined {
   if (!before) return { kind: 'New' };
+  const changed = textLanguages(before, current);
   if (outputs.some((output) => !output)) return undefined;
   const visible = changed.filter((_, index) => outputs[index]!.base || outputs[index]!.enhanced);
   if (visible.length) {
@@ -157,11 +142,9 @@ export function publishedKind(
 }
 
 // ---- background classification ----
-type Diff = NonNullable<PendingTooltip['globals']>['diff'] | undefined;
 interface Classified {
   saved: Tooltip;
   savedJson: string;
-  diff: Diff;
   published: Tooltip | null;
   tooltips: EditorData['bundle']['tooltips'];
   aliases: EditorData['aliases'];
@@ -172,10 +155,6 @@ interface KindsState {
 }
 export const useKinds = create<KindsState>(() => ({ byHash: {} }));
 
-/** A tooltip is checked once, however many globals list it. */
-const checkKey = (entry: PendingTooltip): RowKey =>
-  entry.part ? rowKey(entry) : entry.tooltip.hash;
-
 /** The row's word: local, or the background result for exactly this saved and published text. */
 export function kindOf(
   entry: PendingTooltip,
@@ -183,33 +162,27 @@ export function kindOf(
   byHash: KindsState['byHash'],
 ): Classification | undefined {
   const local = localKind(entry);
-  if (local && local.kind !== 'Global changed') return local;
+  if (local) return local;
   if (published?.status !== 'ready') return undefined;
   if (!published.tooltip) return { kind: 'New' };
-  const done = byHash[checkKey(entry)];
+  const done = byHash[rowKey(entry)];
   // A reload (Refresh) brings equal saved text in new objects: the word stays while it is checked
   // again against the new imports, never blanking.
-  return done && done.published === published.tooltip && sameSaved(done, entry)
+  return done && done.published === published.tooltip && sameSaved(done, entry.tooltip)
     ? done.value
-    : local;
+    : undefined;
 }
 
 /** The classified saved text is this one (same object, or the same content after a reload). */
-function sameSaved(done: Classified, entry: PendingTooltip) {
-  return (
-    (done.saved === entry.tooltip && done.diff === entry.globals?.diff) ||
-    done.savedJson === savedJson(entry)
-  );
+function sameSaved(done: Classified, saved: Tooltip) {
+  return done.saved === saved || done.savedJson === JSON.stringify(saved);
 }
-const savedJson = ({ tooltip, globals }: PendingTooltip) =>
-  JSON.stringify(globals ? [tooltip, globals.diff] : tooltip);
 
 /** The latest check asked for per row; an older check's answer never replaces a newer one. */
 const running = new Map<
   RowKey,
   {
     saved: Tooltip;
-    diff: Diff;
     before: Tooltip;
     tooltips: EditorData['bundle']['tooltips'];
     aliases: EditorData['aliases'];
@@ -218,13 +191,11 @@ const running = new Map<
 
 /**
  * Classify every row whose published text is in hand and that has no result for it yet. The
- * rendered checks run in the diff worker; the page never waits for them. `open`: also check rows
- * whose word is known without it (how their text changed shows with them).
+ * rendered checks run in the diff worker; the page never waits for them.
  */
 export function classifyRows(
   rows: readonly { entry: PendingTooltip; published: Published | undefined }[],
   data: EditorData,
-  open = false,
 ) {
   const byHash = useKinds.getState().byHash;
   const {
@@ -232,18 +203,14 @@ export function classifyRows(
     bundle: { tooltips },
   } = data;
   for (const { entry, published } of rows) {
-    const local = localKind(entry);
-    if (local && !(open && local.kind === 'Global changed')) continue;
-    if (published?.status !== 'ready' || !published.tooltip) continue;
+    if (localKind(entry) || published?.status !== 'ready' || !published.tooltip) continue;
     const saved = entry.tooltip,
-      before = published.tooltip,
-      diff = entry.globals?.diff;
-    const key = checkKey(entry);
+      before = published.tooltip;
+    const key = rowKey(entry);
     const done = byHash[key];
     if (
       done &&
       done.saved === saved &&
-      done.diff === diff &&
       done.published === before &&
       done.tooltips === tooltips &&
       done.aliases === aliases
@@ -256,39 +223,27 @@ export function classifyRows(
     const pending = running.get(key);
     if (
       pending?.saved === saved &&
-      pending.diff === diff &&
       pending.before === before &&
       pending.tooltips === tooltips &&
       pending.aliases === aliases
     )
       continue;
-    const request = { saved, diff, before, tooltips, aliases };
+    const request = { saved, before, tooltips, aliases };
     running.set(key, request);
-    const changed = textChanges(entry, before);
+    const changed = textLanguages(before, saved);
     void Promise.all(
-      changed.map(({ lang, before: from, after: to }) =>
+      changed.map((lang) =>
         classifyRendered(
-          from,
-          to,
-          diff
-            ? publishedGlobals(data, lang, saved.hash)
-            : diffGlobals(data, {}, lang, saved.hash, 'live'),
+          exportedText(before, lang),
+          exportedText(saved, lang),
+          reviewGlobals(data, lang, saved.hash),
         ),
       ),
     ).then((outputs) => {
       // A newer check for this row (new saved text, published text, or imports) owns the result.
       if (running.get(key) !== request) return;
       running.delete(key);
-      const langs = changed.map(({ lang }) => lang);
-      const checked = publishedKind(before, saved, outputs, langs);
-      const value: Classification | undefined = local
-        ? {
-            ...checked,
-            kind: local.kind,
-            // A failed check shows every language rather than claiming nothing changed.
-            languages: checked ? (checked.languages ?? []) : langs,
-          }
-        : checked;
+      const value = publishedKind(before, saved, outputs);
       // Both sides rendered with the saved imports: for a globals entry that uses others, equal
       // output is not proven.
       const unproven =
@@ -300,8 +255,7 @@ export function classifyRows(
           ...state.byHash,
           [key]: {
             saved,
-            savedJson: savedJson(entry),
-            diff,
+            savedJson: JSON.stringify(saved),
             published: before,
             tooltips,
             aliases,
@@ -360,12 +314,12 @@ export function kindCounts(kinds: readonly (Kind | undefined)[]): string {
       const noun = index === 0 ? (n === 1 ? ' tooltip' : ' tooltips') : '';
       const phrase: Record<Kind | 'unknown', string> = {
         'Text changed': `with changed text`,
-        'Global changed': `with a changed global`,
         'No visible change': `with no visible change`,
         'Output unchanged': `with unchanged output`,
         'Definition changed': `with a changed definition`,
         New: `new`,
         'Links changed': `with changed links`,
+        Renamed: `renamed`,
         Removed: `removed`,
         Restored: `restored`,
         'On hold': `on hold`,
@@ -374,7 +328,7 @@ export function kindCounts(kinds: readonly (Kind | undefined)[]): string {
       };
       const words = phrase[kind ?? 'unknown'];
       // Adjectives go before the noun ("19 new tooltips"), phrases after ("6 with …").
-      return /^(new|removed|restored|leftover)$/.test(words)
+      return /^(new|renamed|removed|restored|leftover)$/.test(words)
         ? `${n} ${words}${noun}`
         : `${n}${noun} ${words}`;
     });

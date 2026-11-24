@@ -189,15 +189,19 @@ it('renders the definition while only the opened entry reviews wait, fail, and r
   expect(button('Rename').disabled).toBe(false);
 });
 
-it('says nothing about waiting or paused publishing once globals fill in tooltips', async () => {
+it('reviews no tooltip impact and waits for no sync once globals fill in tooltips', async () => {
+  const id = globalFixtureSnapshot.entries[0]!.id;
   const snapshot: GlobalSnapshot = {
     ...globalFixtureSnapshot,
-    status: 'sync-pending',
     destinationSync: { test: { status: 'sync-pending', causeIds: [], lastFailure: null } },
   };
-  const id = globalFixtureSnapshot.entries[0]!.id;
-  await mount(`/globals/${id}`, service(snapshot));
+  const reader = () => ({
+    ...service(snapshot),
+    readEntry: vi.fn().mockResolvedValue({ kind: 'ok', value: snapshot }),
+  });
+  await mount(`/globals/${id}`, reader());
   expect(host.textContent).toContain('is paused.');
+  expect(host.textContent).toContain('Needs review');
   await act(async () => root!.unmount());
   host.remove();
   useDataStore.setState({
@@ -205,13 +209,19 @@ it('says nothing about waiting or paused publishing once globals fill in tooltip
       items: {},
       categories: [],
       aliases: {},
-      bundle: { tooltips: {}, pushed: {}, globalsInPlace: { revision: 'a'.repeat(40), rows: {} } },
+      bundle: { tooltips: {}, pushed: {}, globalsPending: [] },
     } as unknown as EditorData,
     status: 'ready',
   });
-  await mount(`/globals/${id}`, service(snapshot));
-  expect(host.textContent).not.toContain('is paused.');
+  const filled = reader();
+  await mount(`/globals/${id}`, filled);
+  expect(filled.readEntry).toHaveBeenCalledExactlyOnceWith(id, { reviews: false });
+  for (const text of ['is paused.', 'Waiting for', 'Needs review', 'Tooltip impact'])
+    expect(host.textContent).not.toContain(text);
   expect(host.querySelector('[aria-label="Refresh sync"]')).toBeNull();
+  expect([...host.querySelectorAll('select')].some((n) => n.textContent?.includes('acknow'))).toBe(
+    false,
+  );
 });
 
 it('recovers reviews from a newer Worker head without replacing the draft or reloading the catalogue', async () => {

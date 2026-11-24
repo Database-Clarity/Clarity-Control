@@ -4,6 +4,7 @@ import { PublishHttpError, type RemoteStatus } from '../../services/publisher/ap
 import { createMemoryOpStore, type OpStore } from '../../services/publisher/opStore';
 import { describeOp, groupPublishes } from './publishStatus';
 import {
+  activeGlobals,
   activeHashes,
   PublishDriver,
   publishingAlready,
@@ -176,11 +177,17 @@ it.each([false, true])(
       digest: digest(1),
       previous: undefined,
     }));
-    const globalsRevision = 'c'.repeat(40);
-    const group = await first.create(reviewed, globalsRevision);
+    const globals = [{ id: 'g_refill-0001', expected: digest(3), name: 'G_refill' }];
+    const group = await first.create(reviewed, globals);
     await settle();
     const admitted = h.api.post.mock.calls.map(([body]) => body);
     expect(admitted.map(({ hashes }) => hashes.length)).toEqual([50, 50, 1]);
+    // Globals go with the first part, by id and digest only.
+    expect(admitted.map((sent) => sent.globals)).toEqual([
+      [{ id: 'g_refill-0001', expected: digest(3) }],
+      undefined,
+      undefined,
+    ]);
     first.stop();
     const resumed = h.make();
     const refused = admitted.slice(1);
@@ -200,9 +207,6 @@ it.each([false, true])(
     const retried = h.api.post.mock.calls.slice(3).map(([body]) => body);
     expect(retried.slice(0, 2)).toEqual(refused);
     expect(retried[2]?.hashes).toEqual(refused.flatMap(({ hashes }) => hashes));
-    expect(h.api.post.mock.calls.map(([body]) => body.globalsRevision)).toEqual(
-      h.api.post.mock.calls.map(() => globalsRevision),
-    );
     expect(retried[2]?.expected).toEqual(
       Object.assign({}, ...refused.map(({ expected }) => expected)),
     );
@@ -215,6 +219,36 @@ it.each([false, true])(
     resumed.stop();
   },
 );
+
+it('publishes globals alone, keeps them across a reload and a refusal, and holds them meanwhile', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  const globals = [{ id: 'g_refill-0001', expected: digest(3), name: 'G_refill' }];
+  await first.create([], globals);
+  await settle();
+  const sent = h.api.post.mock.calls[0]![0];
+  expect(sent).toEqual({
+    opId: op().opId,
+    hashes: [],
+    expected: {},
+    globals: [{ id: 'g_refill-0001', expected: digest(3) }],
+  });
+  expect(activeGlobals(ops())).toEqual(new Set(['g_refill-0001']));
+  await expect(first.create([inputs[0]!], globals)).rejects.toThrow(publishingAlready);
+  first.stop();
+  const resumed = h.make();
+  h.api.status.mockResolvedValue('unknown');
+  vi.setSystemTime(Date.now() + 10_000);
+  await resumed.start('1');
+  expect(h.api.post.mock.calls.at(-1)![0]).toEqual(sent);
+  expect(describeOp(op(), undefined, Date.now(), () => 'now').lead).toBe('G_refill');
+  h.api.status.mockResolvedValue('rejected');
+  h.api.post.mockResolvedValue({ status: 'rejected', refusal: 'Tooltip 10: no.' });
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) * 3);
+  expect(op()).toMatchObject({ status: 'rejected', error: 'G_refill: Tooltip 10: no.' });
+  resumed.stop();
+});
 
 it('shows a named changed row without resending its part after another part succeeds', async () => {
   const h = harness();

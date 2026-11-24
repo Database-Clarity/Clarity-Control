@@ -15,13 +15,13 @@ export interface PublishBody {
   opId: string;
   hashes: number[];
   expected: Record<string, string>;
-  globalsRevision?: string;
+  globals?: { id: string; expected: string }[];
 }
-export const publishBody = ({ opId, hashes, expected, globalsRevision }: PublishBody) => ({
+export const publishBody = ({ opId, hashes, expected, globals }: PublishBody): PublishBody => ({
   opId,
   hashes,
   expected,
-  ...(globalsRevision === undefined ? {} : { globalsRevision }),
+  ...(globals ? { globals: globals.map(({ id, expected }) => ({ id, expected })) } : {}),
 });
 
 /** A non-2xx answer. `status` 0 = the request never got an answer (offline, timeout, CORS). */

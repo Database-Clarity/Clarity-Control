@@ -25,8 +25,8 @@ export interface PublishOp {
   groupCreatedAt?: number;
   hashes: number[];
   expected: Record<string, string>;
-  /** The globals definitions this was reviewed with (`bundle.globalsInPlace.revision`). */
-  globalsRevision?: string;
+  /** Globals published by this request, with the reviewed definition; the name is for display. */
+  globals?: { id: string; expected: string; name: string }[];
   /** The pushed marker each hash had when confirmed (null = none), for the acknowledgment overlay. */
   previous: Record<string, string | null>;
   status: OpStatus;
@@ -214,7 +214,7 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
     groupCreatedAt: current.groupCreatedAt,
     hashes: current.hashes,
     expected: current.expected,
-    globalsRevision: current.globalsRevision,
+    globals: current.globals,
     previous: current.previous,
   };
   if (isTerminal(current.status) && next.status !== current.status) {

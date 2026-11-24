@@ -8,7 +8,8 @@ import { SkeletonRows } from '../../ui/Skeleton';
 import { rowKey, unitCount, useReviewRows } from './globalRows';
 import { kindWords, useRowKinds, type Kind } from './kinds';
 import { canPush, publishableHashes, type PendingTooltip } from './model';
-import { activeHashes, usePublishState } from './publishDriver';
+import { globalKey } from './globalsPending';
+import { activeGlobals, activeHashes, usePublishState } from './publishDriver';
 import { matchesFilter, queueView, type RowKinds } from './queueModel';
 import { useReviewQueue } from './queueStore';
 import { ReviewQueue } from './ReviewQueue';
@@ -19,11 +20,17 @@ import styles from './ReviewQueue.module.scss';
 
 const count = new Intl.NumberFormat('en');
 
-/** Hashes inside a publish that is still queued or being sent; they cannot be picked again. */
+/** Rows inside a publish that is still queued or being sent; they cannot be picked again. */
 export function useInFlight(): ReadonlySet<number> {
   const publisher = publisherEnabled();
   const ops = usePublishState((state) => state.ops);
-  return useMemo(() => (publisher ? activeHashes(ops) : new Set<number>()), [ops, publisher]);
+  return useMemo(
+    () =>
+      publisher
+        ? new Set([...activeHashes(ops), ...[...activeGlobals(ops)].map(globalKey)])
+        : new Set<number>(),
+    [ops, publisher],
+  );
 }
 
 /** The filters' URL: keeps the open change when it still matches, else the first that does. */

@@ -3,10 +3,12 @@ import { globalsEnabled } from '../../services/globalsFlag';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
-import { publishedOf, unitNames } from './globalRows';
+import { unitNames } from './globalRows';
+import { neededGlobals } from './globalsPending';
 import { canPush, type PendingTooltip } from './model';
 import { publishDependencies } from './publishDependencies';
 import {
+  activeGlobals,
   activeHashes,
   publishChunks,
   PublishClosureLimitError,
@@ -14,21 +16,46 @@ import {
   usePublishState,
   type PublishInput,
 } from './publishDriver';
-import { usePublished } from './published';
+import { publishedFor, usePublished } from './published';
 import { publishDriver } from './publisher';
 import { useReviewSession } from './session';
 
+/** The chosen rows, and the new globals they use: those publish along or hold the rows back. */
+export function withNeededGlobals(
+  chosen: PendingTooltip[],
+  pending: PendingTooltip[],
+  inFlight: ReadonlySet<number>,
+  data: EditorData,
+) {
+  const needed = neededGlobals(chosen, pending, data);
+  for (const { global, by } of needed) {
+    if (global.unpublishable)
+      throw new Error(
+        `${by.name} uses the new global ${global.name}, which can't be published yet. ${global.unpublishable}`,
+      );
+    if (inFlight.has(global.tooltip.hash))
+      throw new Error(
+        `${by.name} uses the new global ${global.name}, which is being published. Publish it once that is live.`,
+      );
+  }
+  return {
+    picked: [...chosen, ...needed.map(({ global }) => global)],
+    needed: new Map(needed.map(({ global, by }) => [global, by.name])),
+  };
+}
+
+/** The chosen tooltips' requests; globals join the first (`queuePublish`). */
 export function planReviewedPublish(
-  entries: PendingTooltip[],
+  chosen: PendingTooltip[],
   pending: PendingTooltip[],
   data: EditorData,
 ) {
+  const entries = chosen.filter(({ part }) => !part?.pending);
   const { bundle, aliases } = data;
   const byHash = usePublished.getState().byHash;
   const pendingByHash = new Map(
-    // A row that only a global changes is already live as saved: nothing waits for it.
     pending
-      .filter((entry) => !entry.markerOnly && !entry.globals?.unedited)
+      .filter((entry) => !entry.markerOnly && !entry.part?.pending)
       .map((entry) => [entry.tooltip.hash, entry]),
   );
   const inputs = entries.map(({ tooltip, inactiveChange, inactiveAliases }) => ({
@@ -42,14 +69,14 @@ export function planReviewedPublish(
   }));
   const published: Record<number, Tooltip | null | undefined> = {};
   if (inputs.some(({ removal }) => removal)) {
-    const versions = entries.map((entry) => ({
-      hash: entry.tooltip.hash,
-      pushed: entry.pushed,
+    const versions = entries.map(({ tooltip, pushed, inactiveChange }) => ({
+      hash: tooltip.hash,
+      pushed,
       // A canonical removal marker records absence even when the archive retains old text.
       version:
-        entry.inactiveChange === 'restore'
+        inactiveChange === 'restore'
           ? { status: 'ready' as const, tooltip: null }
-          : publishedOf(entry, byHash),
+          : publishedFor(byHash, tooltip.hash, pushed),
     }));
     if (versions.some(({ version }) => version?.status === 'missing'))
       throw new Error('Some selected changes need published versions that could not be recovered.');
@@ -106,12 +133,16 @@ export function planReviewedPublish(
  */
 export async function queuePublish(
   inputs: ReturnType<typeof planReviewedPublish>,
+  chosen: readonly PendingTooltip[],
   data: EditorData,
   isMounted: () => boolean,
 ): Promise<boolean> {
   const user = useAuthStore.getState().user;
   const session = useReviewSession.getState();
-  if (!canPush(user) || !inputs.length || session.pushing) return false;
+  const globals = chosen.flatMap(({ part }) =>
+    part?.pending ? [{ id: part.pending.id, expected: part.pending.digest, name: part.name }] : [],
+  );
+  if (!canPush(user) || !(inputs.length || globals.length) || session.pushing) return false;
   useReviewSession.setState({ pushing: true, notice: undefined, error: undefined });
   try {
     const reviewed: PublishInput[] = await Promise.all(
@@ -129,9 +160,15 @@ export async function queuePublish(
     )
       return false;
     // A confirmation can outlive the rows it listed: another publish may hold them by now.
-    const held = activeHashes(usePublishState.getState().ops);
-    if (reviewed.some(({ hash }) => held.has(hash))) throw new Error(publishingAlready);
-    await publishDriver.create(reviewed, data.bundle.globalsInPlace?.revision);
+    const { ops } = usePublishState.getState();
+    const held = activeHashes(ops);
+    const heldGlobals = activeGlobals(ops);
+    if (
+      reviewed.some(({ hash }) => held.has(hash)) ||
+      globals.some(({ id }) => heldGlobals.has(id))
+    )
+      throw new Error(publishingAlready);
+    await publishDriver.create(reviewed, globals);
     return true;
   } catch (reason) {
     useReviewSession.setState({ error: `${errorMessage(reason).replace(/[.!?]*$/, '.')}` });

@@ -29,6 +29,6 @@ export function reviewRows(
     restore.markerOpen ? 'open' : 'hidden',
   );
   return view.ordered
-    .filter(({ tooltip }) => view.shown.has(tooltip.hash))
+    .filter(({ tooltip, part }) => !part?.pending && view.shown.has(tooltip.hash))
     .map((entry) => reviewItem(entry, data));
 }

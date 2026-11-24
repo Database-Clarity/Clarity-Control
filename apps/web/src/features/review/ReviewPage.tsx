@@ -24,7 +24,6 @@ import { useLeftQueue } from '../queue/useQueue';
 import {
   editorLabel,
   editorPath,
-  globalEntryPath,
   publishedOf,
   routedRow,
   rowKey,
@@ -34,7 +33,8 @@ import {
   useReviewRows,
   type RowKey,
 } from './globalRows';
-import { classifyRows, kindOf, textChanges, useKinds, useRowKinds } from './kinds';
+import { rowIdentity } from './globalsPending';
+import { classifyRows, kindOf, useKinds, useRowKinds } from './kinds';
 import {
   canPush,
   pendingTooltips,
@@ -45,7 +45,7 @@ import {
 } from './model';
 import { loadPublished, publishedFor, publishedRows, usePublished } from './published';
 import { PublishActivity } from './PublishActivity';
-import { planReviewedPublish, queuePublish } from './publishAction';
+import { planReviewedPublish, queuePublish, withNeededGlobals } from './publishAction';
 import { publishDriver } from './publisher';
 import { PushConfirm } from './PushConfirm';
 import { queueView, stepRow } from './queueModel';
@@ -143,10 +143,19 @@ export function ReviewPage() {
   batchesView.current = subview === 'batches';
   useEffect(() => preloadBatches(user), [user]);
   const drafts = useDraftStore((state) => Object.keys(state.drafts).length);
-  const { pushing, notice, error: pushError, acknowledgments } = useReviewSession();
+  const {
+    pushing,
+    notice,
+    error: pushError,
+    acknowledgments,
+    globals: publishedGlobals,
+  } = useReviewSession();
   const prepared = useMemo(
-    () => (data && !Object.keys(acknowledgments).length ? preparedPending(data) : undefined),
-    [data, acknowledgments],
+    () =>
+      data && !Object.keys(acknowledgments).length && !Object.keys(publishedGlobals).length
+        ? preparedPending(data)
+        : undefined,
+    [data, acknowledgments, publishedGlobals],
   );
   const [entries, setEntries] = useState<PendingTooltip[] | undefined>(prepared);
   const selected = useReviewQueue((state) => state.selected);
@@ -159,6 +168,7 @@ export function ReviewPage() {
     entries: PendingTooltip[];
     data: EditorData;
     inputs?: ReturnType<typeof planReviewedPublish>;
+    needed?: ReadonlyMap<PendingTooltip, string>;
   }>();
   // A newer snapshot is being compared; the old list and open change stay on screen meanwhile.
   const [comparing, setComparing] = useState(!prepared);
@@ -227,7 +237,7 @@ export function ReviewPage() {
     return () => {
       active = false;
     };
-  }, [data, acknowledgments, prepared, clearSelection]);
+  }, [data, acknowledgments, publishedGlobals, prepared, clearSelection]);
   const list = entries ?? noEntries;
   // What the list shows; what is ticked and published is always an entry of `list`.
   const rows = useReviewRows(entries ?? null);
@@ -258,17 +268,6 @@ export function ReviewPage() {
   // Without a route, open the first change; leftovers open only when named or picked.
   const index = routedIndex >= 0 ? routedIndex : view.contentCount ? 0 : -1;
   const current = index < 0 ? undefined : ordered[index];
-  const following = ordered[index + 1];
-  useEffect(() => {
-    // How a global's change shows (columns, languages) is checked as its row opens, one row ahead.
-    if (!data) return;
-    const near = [current, following].filter((entry) => entry !== undefined);
-    classifyRows(
-      near.map((entry) => ({ entry, published: publishedOf(entry, published) })),
-      data,
-      true,
-    );
-  }, [current, following, published, data]);
   const selectRow = useCallback(
     (key: RowKey | undefined) => {
       if (key === undefined) return;
@@ -438,8 +437,9 @@ export function ReviewPage() {
     if (!chosen.length) return;
     setError(undefined);
     try {
-      const inputs = publisher ? planReviewedPublish(chosen, entries, data) : undefined;
-      setConfirming({ entries: chosen, data, inputs });
+      const { picked, needed } = withNeededGlobals(chosen, entries, inFlight, data);
+      const inputs = publisher ? planReviewedPublish(picked, entries, data) : undefined;
+      setConfirming({ entries: picked, data, inputs, needed });
     } catch (reason) {
       setError(errorMessage(reason));
     }
@@ -542,7 +542,7 @@ export function ReviewPage() {
     setError(undefined);
     const isMounted = () => mounted.current;
     const succeeded = inputs
-      ? await queuePublish(inputs, reviewed, isMounted)
+      ? await queuePublish(inputs, picked, reviewed, isMounted)
       : await publishReviewed(picked, reviewed, isMounted);
     if (succeeded && mounted.current) {
       clearSelection();
@@ -568,9 +568,8 @@ export function ReviewPage() {
     if (current) void loadPublished([{ hash: current.tooltip.hash, marker: current.pushed }], true);
   }, [current]);
   const refreshing = reloading || comparing;
-  // The definitions this list was built with are older than a save of this tab.
   const globalsAhead = useMemo(
-    () => !!data?.bundle.globalsInPlace && savedGlobalsAhead(data.bundle),
+    () => !!data?.bundle.globalsPending && savedGlobalsAhead(data.bundle).size > 0,
     [data],
   );
 
@@ -596,18 +595,8 @@ export function ReviewPage() {
       </article>
     );
 
-  const cause = current?.globals?.unedited && (current.under ?? current.globals.causes[0]);
-  const restore = !current ? undefined : cause ? (
-    <Link
-      className={styles.openGlobal}
-      to={globalEntryPath(
-        cause,
-        textChanges(current, null).map(({ lang }) => lang),
-      )}
-    >
-      Open {cause.name}
-    </Link>
-  ) : (
+  // A global's earlier text is restored from its own page's History.
+  const restore = current && !current.part?.pending && (
     <RestoreLive
       entry={current.part?.unit ?? current}
       name={unitName(current)}
@@ -667,6 +656,7 @@ export function ReviewPage() {
           entries={confirming.entries}
           rows={rows}
           kinds={kinds}
+          needed={confirming.needed}
           background={publisher}
           onConfirm={() => void publish(confirming)}
           onCancel={() => setConfirming(undefined)}
@@ -735,7 +725,7 @@ export function ReviewPage() {
                 ·
               </span>
               <h2 title={current.name}>{current.name}</h2>
-              <span className={`${styles.muted} ${styles.hash}`}>{current.tooltip.hash}</span>
+              <span className={`${styles.muted} ${styles.hash}`}>{rowIdentity(current)}</span>
             </span>
             <span className={styles.identityEnd}>
               {included && <span className={styles.included}>Included</span>}

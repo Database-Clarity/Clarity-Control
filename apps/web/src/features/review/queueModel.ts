@@ -6,9 +6,6 @@ import type { PendingTooltip } from './model';
 /** The one group that holds every migration leftover (marker-only); never a category id. */
 export const markerGroup = '~marker-only';
 
-/** The groups of changed globals: unlike categories they start closed, for this visit only. */
-export const globalGroupPrefix = '~global:';
-
 /** Each row's word, by its key (undefined while not known). */
 export type RowKinds = ReadonlyMap<RowKey, Kind | undefined>;
 
@@ -20,13 +17,8 @@ export interface QueueGroup {
   count: number;
   /** Says which rows are ticked together. */
   note?: string;
-  /**
-   * Publishable hashes in the group, what its select-all checkbox picks: never leftovers, and never
-   * a tooltip with its own edit in a global's group.
-   */
+  /** Publishable hashes in the group, what its select-all checkbox picks (never leftovers). */
   publishable: number[];
-  /** A changed global's group ("101 tooltips"), or its line for the tooltips with their own edits. */
-  global?: 'all' | 'edited';
   collapsed: boolean;
 }
 export interface QueueRow {
@@ -57,8 +49,8 @@ export function matchesFilter(
 ): boolean {
   if (kind && kinds?.get(rowKey(entry)) !== kind) return false;
   if (!query) return true;
-  const { name, category, categoryId, tooltip, under } = entry;
-  return `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash} ${under?.name ?? ''}`
+  const { name, category, categoryId, tooltip } = entry;
+  return `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
     .toLowerCase()
     .includes(query.toLowerCase());
 }
@@ -115,56 +107,11 @@ export function queueView(
   }
   const items: QueueItem[] = [];
   const shown = new Set<RowKey>();
-  const groupOf = ({ under, categoryId }: PendingTooltip) =>
-    under ? `${globalGroupPrefix}${under.id}` : categoryId;
-  const addGlobal = (group: QueueGroup, rows: PendingTooltip[]) => {
-    // Find and the kind filter open these groups: closed by default, they would hide the matches.
-    const filtered = !!(query || kind);
-    if (filtered) group.id += ':found';
-    group.collapsed = collapsed.has(group.id) === filtered;
-    items.push(group);
-    if (!group.collapsed)
-      for (const entry of rows) {
-        items.push({ kind: 'row', entry, group: group.id });
-        shown.add(rowKey(entry));
-      }
-  };
   for (let start = 0; start < content.length;) {
-    const id = groupOf(content[start]!);
+    const id = content[start]!.categoryId;
     let end = start;
-    while (end < content.length && groupOf(content[end]!) === id) end++;
+    while (end < content.length && content[end]!.categoryId === id) end++;
     const rows = content.slice(start, end);
-    const { under } = rows[0]!;
-    start = end;
-    if (under) {
-      const unedited = rows.filter(({ globals }) => globals?.unedited);
-      const edited = rows.filter(({ globals }) => !globals?.unedited);
-      const group = { kind: 'group', id, count: rows.length, collapsed: false } as const;
-      addGlobal(
-        {
-          ...group,
-          label: under.name,
-          publishable: unedited
-            .filter(({ unpublishable }) => !unpublishable)
-            .map(({ tooltip }) => tooltip.hash),
-          global: 'all',
-        },
-        unedited,
-      );
-      if (edited.length)
-        addGlobal(
-          {
-            ...group,
-            id: `${id}:edited`,
-            label: `${edited.length} also ${edited.length === 1 ? 'has its own edit' : 'have their own edits'}`,
-            count: edited.length,
-            publishable: [],
-            global: 'edited',
-          },
-          edited,
-        );
-      continue;
-    }
     const isCollapsed = collapsed.has(id);
     items.push({
       kind: 'group',
@@ -184,6 +131,7 @@ export function queueView(
         items.push({ kind: 'row', entry, group: id });
         shown.add(rowKey(entry));
       }
+    start = end;
   }
   if (markers.length) {
     // Shown leftovers start collapsed; their rows can be opened and ticked one by one.
@@ -218,22 +166,19 @@ export function queueView(
 
 /**
  * The next shown row from `current` in `delta` direction, skipping rows of collapsed groups.
- * A current row that is itself hidden (its group collapsed) still steps from its own position; one
- * opened inside a closed global's group also steps through that group.
+ * A current row that is itself hidden (its group collapsed) still steps from its own position.
  */
 export function stepRow(view: QueueView, current: number, delta: number): number {
   const { ordered, shown } = view;
   if (!ordered.length) return -1;
   const direction = Math.sign(delta) || 1;
-  const inside = ordered[current]?.under?.id;
   let remaining = Math.abs(delta);
   let index = current;
   let found = current;
   while (remaining > 0) {
     index += direction;
     if (index < 0 || index >= ordered.length) break;
-    const row = ordered[index]!;
-    if (!shown.has(rowKey(row)) && (!inside || row.under?.id !== inside)) continue;
+    if (!shown.has(rowKey(ordered[index]!))) continue;
     found = index;
     remaining--;
   }

@@ -30,6 +30,17 @@ function elapsed(start: number, end: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+const changeCount = (op: PublishOp) => op.hashes.length + (op.globals?.length ?? 0);
+
+/** "3 tooltips", with the globals by name ("G_refill and 3 tooltips"; four or more are counted). */
+function changeNames({ hashes, globals = [] }: PublishOp): string {
+  const tooltips = `${hashes.length} tooltip${hashes.length === 1 ? '' : 's'}`;
+  return new Intl.ListFormat('en').format([
+    ...(globals.length > 3 ? [`${globals.length} globals`] : globals.map(({ name }) => name)),
+    ...(hashes.length || !globals.length ? [tooltips] : []),
+  ]);
+}
+
 /**
  * The one place statuses become words. Wording keeps "nothing went live" explicit when true.
  * `combining`: every part has finished and the group is reading receipts or combining refusals, so
@@ -43,12 +54,12 @@ export function describeOp(
   combining = false,
   liveCount?: number,
 ): OpView {
-  const count = op.hashes.length;
+  const count = changeCount(op);
   const startedAt = op.groupCreatedAt ?? op.createdAt;
-  const tooltipCount = `${count} tooltip${count === 1 ? '' : 's'}`;
+  const tooltipCount = changeNames(op);
   const lead =
     liveCount !== undefined && !isTerminal(op.status)
-      ? `${liveCount} of ${count} tooltips live.`
+      ? `${liveCount} of ${count} ${op.globals ? 'changes' : 'tooltips'} live.`
       : op.status === 'done' || op.status === 'pending'
         ? tooltipCount
         : `${tooltipCount} · ${when(startedAt)}`;
@@ -95,7 +106,7 @@ export function describeOp(
         ...base,
         tone: 'ok',
         chip: 'Already live',
-        detail: 'Live already matched these tooltips.',
+        detail: `Live already matched these ${op.globals ? 'changes' : 'tooltips'}.`,
       };
     case 'stale':
       return {
@@ -159,11 +170,13 @@ export function groupPublishes(
   }
   return [...groups.values()].map((members) => {
     const first = members[0]!;
-    const count = members.reduce((total, op) => total + op.hashes.length, 0);
+    const tooltips = members.reduce((total, op) => total + op.hashes.length, 0);
+    const count = members.reduce((total, op) => total + changeCount(op), 0);
+    const globals = members.flatMap((op) => op.globals ?? []);
     const missing =
       first.groupHashCount === undefined
         ? members.length < (first.groupSize ?? members.length)
-        : count !== first.groupHashCount;
+        : tooltips !== first.groupHashCount;
     const unfinished =
       members.find((op) => op.status === 'pending') ?? members.find((op) => !isTerminal(op.status));
     const combining =
@@ -180,7 +193,7 @@ export function groupPublishes(
     );
     const successful = members
       .filter((op) => op.status === 'done' || op.status === 'unchanged')
-      .reduce((count, op) => count + op.hashes.length, 0);
+      .reduce((count, op) => count + changeCount(op), 0);
     return {
       members,
       liveCount: first.groupId ? successful : undefined,
@@ -193,6 +206,7 @@ export function groupPublishes(
         acceptedAt: unfinished ? (unfinished.acceptedAt ?? unfinished.createdAt) : first.acceptedAt,
         syncPendingSince: unfinished?.syncPendingSince,
         hashes: members.flatMap((op) => op.hashes),
+        ...(globals.length ? { globals } : {}),
         status: missing
           ? 'failed'
           : unfinished
@@ -207,7 +221,7 @@ export function groupPublishes(
         error: missing
           ? 'Some local publish records are unavailable. Check live status before publishing again.'
           : failed
-            ? `Publish incomplete: ${successful} of ${count} tooltips confirmed live.${
+            ? `Publish incomplete: ${successful} of ${count} ${globals.length ? 'changes' : 'tooltips'} confirmed live.${
                 // The first failed part's own reason (e.g. the Worker's error), so the grouped
                 // row still says why; it describes that part only, never the whole group.
                 // Each refusal names at most ten tooltips; list three parts, then count the rest.

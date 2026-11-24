@@ -281,7 +281,10 @@ function Workspace({
   // The Worker requeues only causes this entry owns; the repository-wide status still blocks.
   const ownCauses = sync.causeIds.filter((cause) => snapshot.causeEntries?.[cause] === entry?.id);
   const openId = entry?.id;
-  const savedImpacts = (openId && snapshot.impacts[openId]) || noImpacts;
+  // Globals that tooltips are filled with: Review approves the change itself, so no tooltip's
+  // impact is reviewed and nothing waits for a sync.
+  const filled = useDataStore((state) => !!state.data?.bundle.globalsPending);
+  const savedImpacts = (!filled && openId && snapshot.impacts[openId]) || noImpacts;
   // The loaded tooltips (the same data the tooltip editor uses) give previews, references, and
   // usages; the definition being edited still comes from the globals catalogue.
   const data = useDataStore((state) => state.data);
@@ -304,18 +307,23 @@ function Workspace({
   );
   const [reviewReload, setReviewReload] = useState(0);
   const [reviewError, setReviewError] = useState('');
+  /** The opened entry as the Worker has it: the bundle's catalogue may lag behind saves. */
+  const [confirmed, setConfirmed] = useState<string>();
   const reviewsMissing =
-    !!entry && service.readEntry !== undefined && snapshot.impacts[entry.id] === undefined;
+    !!entry &&
+    service.readEntry !== undefined &&
+    (filled ? confirmed !== entry.id : snapshot.impacts[entry.id] === undefined);
   useEffect(() => {
     if (!reviewsMissing || !entry || !service.readEntry) return;
     let active = true;
     setReviewError('');
-    service
-      .readEntry(entry.id)
+    (filled ? service.readEntry(entry.id, { reviews: false }) : service.readEntry(entry.id))
       .then((result) => {
         if (!active) return;
-        if (result.kind === 'ok') onSnapshot(result.value);
-        else setReviewError(result.message);
+        if (result.kind === 'ok') {
+          setConfirmed(entry.id);
+          onSnapshot(result.value);
+        } else setReviewError(result.message);
       })
       .catch((reason: unknown) => {
         if (active)
@@ -324,7 +332,7 @@ function Workspace({
     return () => {
       active = false;
     };
-  }, [service, entry, reviewsMissing, snapshot.head, reviewReload, onSnapshot]);
+  }, [service, entry, filled, reviewsMissing, snapshot.head, reviewReload, onSnapshot]);
   const projection =
     dirty &&
     projected?.key === key &&
@@ -356,7 +364,7 @@ function Workspace({
   // Language and Review filter the saved impacts under each row too (and so the selection); a
   // row stays while it uses the global in that language or still has a matching impact.
   const usageLang = params.get('usageLang') as Lang | null;
-  const review = params.get('review');
+  const review = filled ? null : params.get('review');
   const shownRows = allRows
     .map((row) => ({
       ...row,
@@ -585,6 +593,7 @@ function Workspace({
       pending={pending}
       blocked={dirty || reviewOpen}
       reviewsMissing={reviewsMissing}
+      filled={filled}
       referenced={savedImpacts.length > 0 || allRows.some((row) => row.direct || row.via.length)}
       structural={structural}
       maintainer={actor.role === 'maintainer'}
@@ -655,11 +664,9 @@ function Workspace({
   );
   const renameIntent = snapshot.renameIntents?.[entry.id];
   const renameQueued = renameIntent && renameIntent.status !== 'not-applied';
-  // Globals that fill in tooltips wait for nothing and hold no publish back: only failures show.
-  const inPlace = !!data?.bundle.globalsInPlace;
-  const syncNotice = inPlace ? sync.status === 'sync-failed' : sync.status !== 'current';
+  const syncStatus = filled ? 'current' : sync.status;
   const blockedDestinations = Object.entries(snapshot.destinationSync)
-    .filter(([, state]) => !inPlace && state.status !== 'current')
+    .filter(([, state]) => !filled && state.status !== 'current')
     .map(([destination]) => destinationLabel(destination));
   const notices = (
     <>
@@ -668,18 +675,18 @@ function Workspace({
           Rename to {renameIntent.name} did not apply. Open Actions and choose Rename to try again.
         </p>
       )}
-      {(renameQueued || syncNotice || blockedDestinations.length > 0) && (
+      {(renameQueued || syncStatus !== 'current' || blockedDestinations.length > 0) && (
         <div
           className={styles.notice}
-          data-tone={sync.status === 'sync-failed' ? 'warn' : undefined}
+          data-tone={syncStatus === 'sync-failed' ? 'warn' : undefined}
         >
           <span role="status">
             {renameQueued && `Rename queued. Refresh to check whether it applied. `}
-            {sync.status === 'sync-failed'
+            {syncStatus === 'sync-failed'
               ? /^sync failed/i.test(sync.lastFailure ?? '')
                 ? sync.lastFailure
                 : `Sync failed. ${sync.lastFailure ?? 'Failure details unavailable.'}`
-              : sync.status === 'sync-pending' && !inPlace
+              : syncStatus === 'sync-pending'
                 ? !snapshot.sync[entry.id]
                   ? 'Check status unavailable. Refresh to try again.'
                   : ownCauses.length && !renameQueued
@@ -701,7 +708,7 @@ function Workspace({
             >
               Refresh
             </button>
-            {sync.status === 'sync-failed' && (
+            {syncStatus === 'sync-failed' && (
               <button
                 type="button"
                 className={page.ghost}
@@ -983,11 +990,11 @@ function Workspace({
                 <div role="alert">
                   <p>{reviewError}</p>
                   <button disabled={pending} onClick={() => setReviewReload((value) => value + 1)}>
-                    Retry reviews
+                    {filled ? 'Retry' : 'Retry reviews'}
                   </button>
                 </div>
               ) : (
-                <p role="status">Loading reviews…</p>
+                !filled && <p role="status">Loading reviews…</p>
               ))}
             {projectedScope && !projection && (
               <p>
@@ -1016,11 +1023,15 @@ function Workspace({
               {[
                 { key: 'category', label: 'Category', values: filterValues.category },
                 { key: 'usageLang', label: 'Language', values: filterValues.usageLang },
-                {
-                  key: 'review',
-                  label: 'Review',
-                  values: ['required', 'acknowledged', 'stale'],
-                },
+                ...(filled
+                  ? []
+                  : [
+                      {
+                        key: 'review',
+                        label: 'Review',
+                        values: ['required', 'acknowledged', 'stale'],
+                      },
+                    ]),
               ].map((filter) => (
                 <label key={filter.key}>
                   {filter.label}
@@ -1057,10 +1068,7 @@ function Workspace({
             ) : (
               !shownRows.length && (
                 <p>
-                  {query ||
-                  params.get('category') ||
-                  params.get('usageLang') ||
-                  params.get('review')
+                  {query || params.get('category') || params.get('usageLang') || review
                     ? 'No matching usages. Clear the filters to restore them.'
                     : 'Not used by any tooltip.'}
                 </p>
@@ -1355,6 +1363,7 @@ function GlobalActions({
   pending,
   blocked,
   reviewsMissing,
+  filled,
   entry,
   lang,
   onSubmit,
@@ -1369,6 +1378,7 @@ function GlobalActions({
   pending: boolean;
   blocked: boolean;
   reviewsMissing: boolean;
+  filled: boolean;
   entry?: GlobalEntry;
   lang: Lang;
   onSubmit(mutation: GlobalMutation): Promise<boolean>;
@@ -1432,7 +1442,11 @@ function GlobalActions({
                   </button>
                 ),
             )}
-            {reviewsMissing && <p>Load reviews before changing globals.</p>}
+            {reviewsMissing && (
+              <p>
+                {filled ? 'Checking the saved version…' : 'Load reviews before changing globals.'}
+              </p>
+            )}
           </div>
         ) : (
           <form

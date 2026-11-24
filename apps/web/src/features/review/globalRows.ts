@@ -9,6 +9,7 @@ import {
   uncomment,
   type GlobalKind,
 } from '../globals/model';
+import type { PendingGlobal } from './globalsPending';
 import type { PendingTooltip } from './model';
 import { publishedFor, usePublished, type Published } from './published';
 
@@ -31,13 +32,15 @@ export interface GlobalPart {
   /** The declarations as written, for raw markup. */
   source: { before: Definition['source']; after: Definition['source'] };
   /** What is known without rendering: no longer goes live, or the same text in another declaration. */
-  change?: 'removed' | 'same-text';
+  change?: 'removed' | 'renamed' | 'same-text';
+  /** Published by itself (`bundle.globalsPending`), not as part of a file. */
+  pending?: PendingGlobal;
 }
 
-/** A row's identity: the tooltip hash, with the entry's name or the global it is listed under. */
+/** A row's identity: the tooltip hash, the global's id, or the file's hash and the entry's name. */
 export type RowKey = number | string;
-export const rowKey = ({ tooltip, part, under }: PendingTooltip): RowKey =>
-  part ? `${tooltip.hash}:${part.name}` : under ? `${tooltip.hash}:${under.id}` : tooltip.hash;
+export const rowKey = ({ tooltip, part }: PendingTooltip): RowKey =>
+  part ? (part.pending?.id ?? `${tooltip.hash}:${part.name}`) : tooltip.hash;
 
 /** The row a `?hash=` names; a file's plain hash (or an entry no longer listed) finds its first. */
 export function routedRow<T extends PendingTooltip>(
@@ -189,43 +192,10 @@ const isFile = ({ categoryId, markerOnly, tooltip }: PendingTooltip) =>
 const same = (a: Published | undefined, b: Published | undefined) =>
   a === b || (a?.status === 'ready' && b?.status === 'ready' && a.tooltip === b.tooltip);
 
-type Cause = NonNullable<PendingTooltip['under']>;
-const groups = new WeakMap<readonly PendingTooltip[], PendingTooltip[]>();
-/**
- * Globals that fill in tooltips: after the tooltips people edited, each changed global with every
- * tooltip it changes (those with their own edits last). An unedited tooltip is listed only there.
- */
-function globalGroups(entries: PendingTooltip[]): PendingTooltip[] {
-  const known = groups.get(entries);
-  if (known) return known;
-  const causes = new Map<string, { cause: Cause; rows: PendingTooltip[] }>();
-  for (const entry of entries)
-    for (const cause of entry.globals?.causes ?? []) {
-      const group = causes.get(cause.id);
-      if (group) group.rows.push(entry);
-      else causes.set(cause.id, { cause, rows: [entry] });
-    }
-  const rows = !causes.size
-    ? entries
-    : [
-        ...entries.filter(({ globals }) => !globals?.unedited || !globals.causes.length),
-        ...[...causes.values()]
-          .sort((a, b) => a.cause.name.localeCompare(b.cause.name))
-          .flatMap(({ cause, rows: changed }) =>
-            [
-              ...changed.filter(({ globals }) => globals!.unedited),
-              ...changed.filter(({ globals }) => !globals!.unedited),
-            ].map((entry) => ({ ...entry, under: cause })),
-          ),
-      ];
-  groups.set(entries, rows);
-  return rows;
-}
-
 /** The list Review shows: every pending change, with a globals file as its changed entries. */
 export function reviewRows(entries: PendingTooltip[], byHash: ByHash): PendingTooltip[] {
   const files = entries.filter(isFile);
-  if (!files.length) return globalGroups(entries);
+  if (!files.length) return entries;
   // Rows stay the same objects until these files' own published text changes.
   const used = files.map((file) => publishedOf(file, byHash));
   const known = expanded.get(entries);
@@ -248,9 +218,7 @@ export function useReviewRows(entries: PendingTooltip[] | null): PendingTooltip[
 
 /** The published version a row is compared with. */
 export const publishedOf = (entry: PendingTooltip, byHash: ByHash): Published | undefined =>
-  entry.part
-    ? entry.part.published
-    : (entry.globals?.unedited ?? publishedFor(byHash, entry.tooltip.hash, entry.pushed));
+  entry.part ? entry.part.published : publishedFor(byHash, entry.tooltip.hash, entry.pushed);
 
 /** How many changes (publish units) these rows stand for. */
 export const unitCount = (rows: readonly PendingTooltip[]) =>
@@ -264,22 +232,23 @@ export const unitName = ({ name, part }: PendingTooltip) => (part ? list.format(
 export const unitNames = (entries: PendingTooltip[], byHash: ByHash) =>
   new Map(reviewRows(entries, byHash).map((row) => [row.tooltip.hash, unitName(row)]));
 
-const hasPage = (part: GlobalPart) => Object.keys(part.source.after).length > 0;
+const hasPage = (part: GlobalPart) =>
+  part.pending ? part.change !== 'removed' : Object.keys(part.source.after).length > 0;
 /** Where a row is edited (`/t/1?global=name` opens the entry itself); a removed entry has no page. */
 export const editorPath = ({ tooltip, part }: PendingTooltip) =>
   !part
     ? `/t/${tooltip.hash}`
-    : hasPage(part)
-      ? globalPath({ hash: tooltip.hash, name: part.name })
-      : globalsEnabled
-        ? '/globals'
-        : `/t/${tooltip.hash}`;
+    : part.pending
+      ? hasPage(part)
+        ? `/globals/${part.pending.id}`
+        : '/globals'
+      : hasPage(part)
+        ? globalPath({ hash: tooltip.hash, name: part.name })
+        : globalsEnabled
+          ? '/globals'
+          : `/t/${tooltip.hash}`;
 export const editorLabel = ({ part }: PendingTooltip) =>
   part && !hasPage(part) ? 'Open globals' : 'Open in editor';
-
-/** A changed global's own page, in a language it changed. */
-export const globalEntryPath = ({ id }: Cause, langs: readonly Lang[]) =>
-  `/globals/${id}${langs.length && !langs.includes('en') ? `?lang=${langs[0]}` : ''}`;
 
 /** How many tooltips use this entry directly, as saved. */
 export function globalUsers({ kind, name }: GlobalPart, data: EditorData): number {

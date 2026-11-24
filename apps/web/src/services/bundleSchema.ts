@@ -7,7 +7,7 @@ import {
   aliasGroupsSchema,
   globalIdSchema,
   globalRecordSchema,
-  globalsInPlaceReviewSchema,
+  globalsPendingSchema,
 } from '@clarity/core';
 import { z } from 'zod';
 
@@ -50,11 +50,11 @@ export const bundleSchema = z.object({
     .optional()
     .catch(null),
   /**
-   * Globals fill their text into each tooltip when it publishes: what every tooltip would publish
-   * differently from live, and the definitions commit it was built with. Absent: globals publish as
-   * their own files. Fails closed: a malformed field must not bring that older publish path back.
+   * Globals whose saved definition is not the published one, each published by itself. Present,
+   * even when empty: tooltips publish with their globals filled in, and globals have no files of
+   * their own. Fails closed: a malformed field must not bring those files back.
    */
-  globalsInPlace: globalsInPlaceReviewSchema.optional(),
+  globalsPending: globalsPendingSchema.optional(),
   /** Publish requests waiting in the Worker's queue (written by the publisher pipeline; absent until it runs). */
   publishQueue: z
     .array(

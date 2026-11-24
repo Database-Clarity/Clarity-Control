@@ -24,16 +24,20 @@ export const publishDriver = new PublishDriver({
   name: publishName,
   acknowledge(op) {
     useReviewSession.setState((state) => ({
+      ...(op.globals
+        ? {
+            globals: {
+              ...state.globals,
+              ...Object.fromEntries(op.globals.map(({ id, expected }) => [id, expected])),
+            },
+          }
+        : {}),
       acknowledgments: {
         ...state.acknowledgments,
         ...Object.fromEntries(
           op.hashes.map((hash) => [
             hash,
-            {
-              digest: op.expected[hash]!,
-              previous: op.previous[hash] ?? undefined,
-              ...(op.globalsRevision === undefined ? {} : { globalsRevision: op.globalsRevision }),
-            },
+            { digest: op.expected[hash]!, previous: op.previous[hash] ?? undefined },
           ]),
         ),
       },
@@ -41,10 +45,10 @@ export const publishDriver = new PublishDriver({
   },
 });
 
-/** Tooltips and globals by name once globals fill in tooltips; a request may predate that. */
+/** By name once globals have no files; a stored request may predate that. */
 function publishName(hash: number): string {
   const data = useDataStore.getState().data;
-  if (!data?.bundle.globalsInPlace) return String(hash);
+  if (!data?.bundle.globalsPending) return String(hash);
   const file = globalTypes.find((type) => type.hash === hash);
   if (file) return `global ${file.kind}`;
   return data.items[hash]?.name ?? data.bundle.tooltips[hash]?.custom?.name ?? `Tooltip ${hash}`;

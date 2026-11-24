@@ -13,11 +13,11 @@ import { canPush, type PendingTooltip } from './model';
 interface Acknowledgment {
   digest: string;
   previous: string | undefined;
-  /** Published with these globals (`bundle.globalsInPlace.revision`). */
-  globalsRevision?: string;
 }
 interface ReviewSession {
   acknowledgments: Record<string, Acknowledgment>;
+  /** Published globals, by id: the definition digest that went live. */
+  globals: Record<string, string>;
   pushing: boolean;
   notice: string | undefined;
   error: string | undefined;
@@ -26,6 +26,7 @@ interface ReviewSession {
 // Tab-memory only. Unlike the route, this survives Layout's loading/error gates.
 export const useReviewSession = create<ReviewSession>(() => ({
   acknowledgments: {},
+  globals: {},
   pushing: false,
   notice: undefined,
   error: undefined,
@@ -37,19 +38,16 @@ useAuthStore.subscribe((state, previous) => {
   useReviewSession.setState({ notice: undefined, error: undefined });
 });
 
-const coversGlobals = (
-  hash: string,
-  { globalsRevision }: Acknowledgment,
-  { bundle: { globalsInPlace } }: EditorData,
-) => !!globalsInPlace?.rows[hash]?.differs && globalsRevision === globalsInPlace.revision;
-
-/** Tooltips already published with the loaded bundle's globals, which it may not know yet. */
-export function acknowledgedGlobals(data: EditorData): ReadonlySet<number> {
-  return new Set(
-    Object.entries(useReviewSession.getState().acknowledgments).flatMap(([hash, acknowledgment]) =>
-      coversGlobals(hash, acknowledgment, data) ? [Number(hash)] : [],
-    ),
+/** Globals this session published that the loaded bundle still lists with that definition. */
+export function acknowledgedGlobals(data: EditorData): ReadonlySet<string> {
+  const { globals } = useReviewSession.getState();
+  const waiting = Object.entries(globals).filter(([id, digest]) =>
+    data.bundle.globalsPending?.some((entry) => entry.id === id && entry.digest === digest),
   );
+  // A bundle that caught up, or a newer definition, retires it: the same text can be pending again.
+  if (waiting.length !== Object.keys(globals).length)
+    useReviewSession.setState({ globals: Object.fromEntries(waiting) });
+  return new Set(waiting.map(([id]) => id));
 }
 
 export function acknowledgedMarkers(data: EditorData): Readonly<Record<string, string>> {
@@ -61,13 +59,7 @@ export function acknowledgedMarkers(data: EditorData): Readonly<Record<string, s
   for (const [hash, acknowledgment] of overlays) {
     // Equal = caught up. Different from the pre-push marker = superseding server state.
     // Deleted tooltips also retire the overlay. Never overlay a later authoritative marker.
-    // Filling in a global leaves the marker alone: such a publish is retired by its comparison.
-    const waiting =
-      markers[hash] === acknowledgment.previous &&
-      (acknowledgment.digest !== acknowledgment.previous ||
-        acknowledgment.globalsRevision === undefined ||
-        coversGlobals(hash, acknowledgment, data));
-    if (data.bundle.tooltips[hash] && waiting) {
+    if (data.bundle.tooltips[hash] && markers[hash] === acknowledgment.previous) {
       retained[hash] = acknowledgment;
       markers[hash] = acknowledgment.digest;
     }
@@ -86,6 +78,10 @@ export async function publishReviewed(
   const version = identityVersion;
   const current = () => version === identityVersion;
   if (!canPush(user) || !entries.length || useReviewSession.getState().pushing) return false;
+  if (entries.some(({ part }) => part?.pending)) {
+    useReviewSession.setState({ error: 'Globals cannot be published from this build.' });
+    return false;
+  }
   useReviewSession.setState({ pushing: true, notice: undefined, error: undefined });
   try {
     const expected = Object.fromEntries(

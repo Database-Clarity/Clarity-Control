@@ -133,13 +133,19 @@ export function publishChunks<T extends Omit<PublishInput, 'digest'>>(inputs: re
  * Hashes covered by an operation that is still queued or being sent. A group that is recovering
  * from a refusal holds every one of its rows until it can no longer recover, never part of it.
  */
-export function activeHashes(ops: readonly PublishOp[]): Set<number> {
+export const activeHashes = (ops: readonly PublishOp[]): Set<number> =>
+  new Set(heldOps(ops).flatMap((op) => op.hashes));
+/** Globals covered likewise, by id. */
+export const activeGlobals = (ops: readonly PublishOp[]): Set<string> =>
+  new Set(heldOps(ops).flatMap((op) => op.globals?.map(({ id }) => id) ?? []));
+
+function heldOps(ops: readonly PublishOp[]): PublishOp[] {
   const groups = new Map<string, PublishOp[]>();
   for (const op of ops)
     if (op.groupId) groups.set(op.groupId, [...(groups.get(op.groupId) ?? []), op]);
   const held = ops.filter((op) => !isTerminal(op.status) || needsPublishReceipt(op));
   for (const members of groups.values()) if (recovering(members)) held.push(...members);
-  return new Set(held.flatMap((op) => op.hashes));
+  return held;
 }
 
 /** A group with an unread receipt, or with a refusal that it can still combine and resend. */
@@ -255,13 +261,16 @@ export class PublishDriver {
    * Persist, then send. The record exists in storage before any request leaves, so a reload or a
    * lost 202 can only ever resend this exact opId and body. Rejects if storage is unavailable.
    */
-  async create(inputs: PublishInput[], globalsRevision?: string): Promise<PublishOp> {
+  async create(
+    inputs: PublishInput[],
+    globals: NonNullable<PublishOp['globals']> = [],
+  ): Promise<PublishOp> {
     const userId = this.userId;
     const generation = this.generation;
     if (!userId) throw new Error('Sign in to publish.');
-    if (!inputs.length) throw new Error('Nothing to publish.');
+    if (!inputs.length && !globals.length) throw new Error('Nothing to publish.');
     const now = this.deps.now();
-    const planned = publishChunks(inputs);
+    const planned = inputs.length ? publishChunks(inputs) : [[]];
     const groupId = newOpId(now);
     const chunks: PublishOp[] = [];
     for (const chunk of planned) {
@@ -282,7 +291,8 @@ export class PublishDriver {
         hashes: chunk.map((input) => input.hash),
         expected: Object.fromEntries(chunk.map((input) => [input.hash, input.digest])),
         previous: Object.fromEntries(chunk.map((input) => [input.hash, input.previous ?? null])),
-        ...(globalsRevision === undefined ? {} : { globalsRevision }),
+        // First, so the parts that use a new global find it published.
+        ...(chunks.length === 0 && globals.length ? { globals } : {}),
         status: 'created',
         updatedAt: now,
       };
@@ -294,8 +304,11 @@ export class PublishDriver {
     let busy = false;
     try {
       // A publish stored since Review listed these rows (or one still recovering) holds them.
-      const held = activeHashes(await this.deps.store.list(userId));
-      busy = inputs.some(({ hash }) => held.has(hash));
+      const stored = await this.deps.store.list(userId);
+      const held = activeHashes(stored);
+      const heldGlobals = activeGlobals(stored);
+      busy =
+        inputs.some(({ hash }) => held.has(hash)) || globals.some(({ id }) => heldGlobals.has(id));
       if (!busy) {
         if (chunks.length === 1) await this.deps.store.add(chunks[0]!);
         else await this.deps.store.addMany(chunks);
@@ -532,6 +545,7 @@ export class PublishDriver {
       const now = this.deps.now();
       const replacements = parts.map((part): PublishOp => {
         const first = part[0]!;
+        const globals = part.flatMap((op) => op.globals ?? []);
         return {
           opId: newOpId(now),
           userId: first.userId,
@@ -544,9 +558,7 @@ export class PublishDriver {
           hashes: part.flatMap((op) => op.hashes),
           expected: Object.assign({}, ...part.map((op) => op.expected)),
           previous: Object.assign({}, ...part.map((op) => op.previous)),
-          ...(first.globalsRevision === undefined
-            ? {}
-            : { globalsRevision: first.globalsRevision }),
+          ...(globals.length ? { globals } : {}),
           status: 'created',
           createdAt: now,
           groupCreatedAt: first.groupCreatedAt ?? first.createdAt,
@@ -676,7 +688,7 @@ export class PublishDriver {
           return this.settle(opId, {
             status: 'rejected',
             receiptChecked: true,
-            error: `The publisher refused tooltips ${this.names(op)}. Its reason could not be read (HTTP ${status}${detail ? `: ${detail.slice(0, 160)}` : ''}).`,
+            error: `The publisher refused ${this.subject(op)}. Its reason could not be read (HTTP ${status}${detail ? `: ${detail.slice(0, 160)}` : ''}).`,
           });
         } else this.note(opId, 'Checking why the publisher refused this part.');
         return;
@@ -693,14 +705,23 @@ export class PublishDriver {
             refusal,
             regroupable: answer?.regroupable,
             error:
-              answer?.regroupable === false ? refusal : `Tooltips ${this.names(op)}: ${refusal}`,
+              answer?.regroupable === false
+                ? refusal
+                : `${this.subject(op, op.globals ? 'tooltips' : 'Tooltips')}: ${refusal}`,
           }
         : {}),
     });
   }
 
-  private names(op: PublishOp) {
-    return hashList(op.hashes, this.deps.name);
+  /** "tooltips 10, 20", or with the globals of the request first. */
+  private subject(op: PublishOp, tooltipsWord = 'tooltips') {
+    const tooltips = op.hashes.length
+      ? [`${tooltipsWord} ${hashList(op.hashes, this.deps.name)}`]
+      : [];
+    return new Intl.ListFormat('en').format([
+      ...(op.globals?.map(({ name }) => name) ?? []),
+      ...tooltips,
+    ]);
   }
 
   private current(opId: string) {

@@ -18,9 +18,6 @@ type Entry = { at: number; serverAt?: number; tooltip: Tooltip | null }; // null
 const entries = new Map<number, Entry>();
 let version = 0;
 
-/** This tab saved the tooltip after the loaded bundle: what the bundle compared is older text. */
-export const savedAhead = (hash: number): boolean => entries.has(hash);
-
 /** Changes whenever a save is remembered or the overlay is cleared (see load() in data.ts). */
 export function savedOverlayVersion(): number {
   return version;
@@ -54,10 +51,10 @@ export function rememberSavedGlobal(entry: GlobalRecord, head: string, now = Dat
   globals.set(entry.id, { at: now, head, entry });
 }
 
-/** This tab saved a global that the loaded bundle does not hold yet. */
-export function savedGlobalsAhead(bundle: Bundle): boolean {
+/** Globals this tab saved that the loaded bundle does not hold yet. */
+export function savedGlobalsAhead(bundle: Bundle): ReadonlySet<string> {
   applySavedGlobals(bundle, bundle.globals?.entries ?? []);
-  return globals.size > 0;
+  return new Set(globals.keys());
 }
 
 /** The alias groups after this tab's removals, until the bundle lists those members as removed. */
