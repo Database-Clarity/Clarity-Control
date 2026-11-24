@@ -377,15 +377,15 @@ export function ReviewQueue({
       setViewport((previous) => ({ ...previous, top: destination }));
     }
   }, [cancelWheel, items, offsets, selectedIndex, total, viewport.height]);
-  // A shorter list (a filter, a collapsed group) can leave the window past its end. A reveal of
-  // the selected row in this same commit already chose an in-range destination: it wins.
+  // A shorter list or a taller viewport can leave the window past the native scroll limit.
+  // A reveal of the selected row in this same commit already chose an in-range destination.
   useLayoutEffect(() => {
     if (pendingReveal.current !== undefined) return;
-    const max = Math.max(0, total - observedViewport.current.height);
+    const max = Math.max(0, total - viewport.height);
     if (observedViewport.current.top <= max) return;
     pendingReveal.current = max;
     setViewport((previous) => ({ ...previous, top: max }));
-  }, [total]);
+  }, [total, viewport.height]);
   useLayoutEffect(() => {
     if (pendingReveal.current !== viewport.top) return;
     pendingReveal.current = undefined;

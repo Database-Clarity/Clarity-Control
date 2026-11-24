@@ -205,6 +205,13 @@ function SavedSidebar() {
                 placeholder="Find change"
                 value={query}
                 onChange={(event) => update(event.target.value, kind)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape' || !query) return;
+                  // Clear Find before Escape can dismiss the phone's list sheet.
+                  event.preventDefault();
+                  event.stopPropagation();
+                  update('', kind);
+                }}
               />
               {!query && (
                 <kbd aria-hidden="true" className={styles.findKey}>

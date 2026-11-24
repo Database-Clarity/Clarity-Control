@@ -130,6 +130,59 @@ function listView(changes: { hash: number; name: string; category: string }[]): 
   return view;
 }
 
+it('renders the top after clearing a filter grows the viewport', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const changes = Array.from({ length: 6 }, (_, hash) => ({
+    hash,
+    name: `Tooltip ${hash}`,
+    category: 'Perk',
+  }));
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  let resize!: ResizeObserverCallback;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const render = (rows: typeof changes) =>
+    act(async () =>
+      root.render(
+        <MemoryRouter>
+          <ReviewQueue kinds={noKinds} view={listView(rows)} selectedHash="5" />
+        </MemoryRouter>,
+      ),
+    );
+  try {
+    await render(changes.slice(-1));
+    const scroller = host.querySelector<HTMLElement>('[aria-label="Scroll pending saved changes"]')!;
+    const measure = (height: number) =>
+      act(async () =>
+        resize(
+          [{ target: scroller, contentRect: { height } } as unknown as ResizeObserverEntry],
+          {} as ResizeObserver,
+        ),
+      );
+    await measure(32);
+    await render(changes);
+    // The browser clamps against the grown viewport. It may stay at zero without a scroll event.
+    scroller.scrollTop = 0;
+    await measure(192);
+    expect(host.querySelector('ul')?.style.top).toBe('0px');
+    expect(host.querySelectorAll('[data-review-hash]')).toHaveLength(6);
+    expect(host.querySelector('[aria-current="page"]')?.getAttribute('data-review-hash')).toBe('5');
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+    useReviewQueue.setState({ scrollTop: 0 });
+  }
+});
+
 it('bounds a long queue, reveals deep URL selections, and keeps keyboard access across windows', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const host = document.createElement('div');
