@@ -89,9 +89,14 @@ class ActionRepository implements Repository {
     else if (next) this.refs.set(ref, next);
     else this.refs.delete(ref);
   }
+  casMany(updates: { ref: string; old: string; next: string }[]) {
+    if (updates.some(({ ref, old }) => this.head(ref) !== old))
+      throw new RefRace('Fixture refs moved');
+    for (const { ref, old, next } of updates) this.cas(ref, old, next);
+  }
   history(ref: string) {
     const result: string[] = [];
-    let h = this.head(ref);
+    let h = this.f.snapshots.has(ref) ? ref : this.head(ref);
     while (h) {
       result.unshift(h);
       h = this.f.commitParents.get(h)?.[0];
