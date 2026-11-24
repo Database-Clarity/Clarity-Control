@@ -22050,9 +22050,9 @@ function lowerDelimitedMarkup(text) {
   }
   return changed ? lines.join("\n") : text;
 }
-function lowerConsumerMarkup(text, arrow) {
+function lowerConsumerMarkup(text, arrow2) {
   const lowered = lowerDelimitedMarkup(lowerElementTags(lowerExoticMarkup(text)));
-  return arrow ? lowered.replaceAll("<arrow/>", arrow === "legacy" ? "\u{1F81A}" : "\u2192") : lowered;
+  return arrow2 ? lowered.replaceAll("<arrow/>", arrow2 === "legacy" ? "\u{1F81A}" : "\u2192") : lowered;
 }
 function isMarkupOnly(before, after, values, afterValues = values) {
   const lower2 = (text, map2) => lowerConsumerMarkup(map2 ? resolveNumberTokens(text, map2) : text);
@@ -25707,8 +25707,8 @@ var databaseConverter = (converterType, database, identical) => {
 
 // packages/export/src/elementTags.ts
 init_braces();
-function lowerInput(input2, arrow, elementTags = false) {
-  const lower2 = (text) => elementTags ? lowerDelimitedMarkup(lowerExoticMarkup(text)) : lowerConsumerMarkup(text, arrow);
+function lowerInput(input2, arrow2, elementTags = false) {
+  const lower2 = (text) => elementTags ? lowerDelimitedMarkup(lowerExoticMarkup(text)) : lowerConsumerMarkup(text, arrow2);
   let perks;
   for (const [hash2, perk] of Object.entries(input2.perks)) {
     if (!("editor" in perk) || !perk.editor) continue;
@@ -26857,6 +26857,7 @@ init_numbers();
 init_baseEnhanced();
 init_braces();
 init_comments();
+init_elementTags();
 init_syntax();
 var globalsInPlaceMessages = {
   aggregateImport: "Refer to the global by name instead of importing tooltip 1, 2, or 3.",
@@ -26869,6 +26870,10 @@ var globalsInPlaceMessages = {
   localVariable: "Use a global variable in the global definition.",
   localNote: "Rename the local title so it has a different name from the global note.",
   generatedReference: "Separate the global variable from nearby markup so its value cannot create another reference.",
+  generatedStructure: "Write imports and block syntax directly instead of using a global variable.",
+  noteReference: "Write the shared note name directly inside the title tag.",
+  elementTag: "Place the global value outside the element tag when it contains markup.",
+  unclosedBlock: "Close the block before using a shared note.",
   nativePair: "Keep both arms of the base/enhanced pair valid after filling in globals.",
   commentedImport: "Remove the global import from the comment.",
   cyclicExport: "Remove the cycle between named global exports.",
@@ -26876,8 +26881,23 @@ var globalsInPlaceMessages = {
   missingTranslation: "Add or update the translation for this global."
 };
 var importLine = /^import ([A-z0-9 ]+?) from (\d+|global) *$/gm;
-var titleTag = /<title .*? \[([^\]\n]+)\] \/>/g;
+var titleTag = /<title\b.*?(?:\/>|$)/gm;
+var blockOpen = /^(?:export .+|title .+|enhanced|catalyst|exotic perk) \( *$/;
+var blockClose = /^\) *$/;
 var declaration = /^ *(?:var |(?:export .+|title .+|enhanced|catalyst|exotic perk) \( *$)/m;
+var structuralLine = /^(?:var [A-Za-z0-9]+ = (?=[^\S\r\n]*\S)|(?:import (?:[A-z0-9 ]+? from (?:\d+|global)|self) *|(?:export .+|title .+|enhanced|catalyst|exotic perk) \( *|\) *)$)/gm;
+var arrow = "\u{1F845}";
+function blockDepth(line, depth) {
+  if (blockOpen.test(line)) return depth + 1;
+  if (blockClose.test(line)) return Math.max(0, depth - 1);
+  return depth;
+}
+function noteNames(text) {
+  return [...text.matchAll(titleTag)].flatMap(([tag]) => {
+    const target = /\[.+\]/.exec(tag)?.[0];
+    return target ? [target.replace(/[[\]]/g, "")] : [];
+  });
+}
 function validateGlobalsInPlaceDefinition(kind, body2, definitions) {
   const issues = [];
   const visible = removeMarkupComments(body2);
@@ -26917,7 +26937,7 @@ function inline(source2, language, { definitions, missingTranslation = "english"
       issue2(globalsInPlaceMessages.missingTranslation, name2);
       return;
     }
-    const body2 = selected.body.trim();
+    const body2 = kind === "variables" ? selected.body.trim() : selected.body;
     const definitionIssues = validateGlobalsInPlaceDefinition(kind, selected.body, definitions);
     for (const message of definitionIssues) issue2(message, name2);
     if (definitionIssues.length) return;
@@ -26957,50 +26977,70 @@ function inline(source2, language, { definitions, missingTranslation = "english"
     if (!text2.includes("#") || !definitions.variables) return text2;
     const hidden = comments(text2);
     const refs = variableReferences(text2);
+    const elements3 = findElementTags(text2);
+    const remaining = [];
     let result = "";
     let at = 0;
     for (const { name: name2, from, to } of refs) {
-      if (name2 === "e" || hidden.some((comment) => from >= comment.from && from < comment.to))
+      const body2 = name2 !== "e" && !hidden.some((comment) => from >= comment.from && from < comment.to) ? lookup("variables", name2) : void 0;
+      if (body2 === void 0) {
+        remaining.push(name2);
         continue;
-      const body2 = lookup("variables", name2);
-      if (body2 === void 0) continue;
+      }
+      if (text2[from - 1] === "<" || (!body2.trim() || /[<|[\]]/.test(body2)) && elements3.some((tag) => from >= tag.from && to <= tag.to))
+        issue2(globalsInPlaceMessages.elementTag);
       result += text2.slice(at, from) + body2;
       at = to;
     }
-    return at === 0 ? text2 : result + text2.slice(at);
+    if (!at) return text2;
+    result += text2.slice(at);
+    if (variableReferences(result).map(({ name: name2 }) => name2).join(",") !== remaining.join(","))
+      issue2(globalsInPlaceMessages.generatedReference);
+    if ((text2.match(structuralLine) ?? []).join("\n") !== (result.match(structuralLine) ?? []).join("\n") || hidden.map(({ from, to }) => text2.slice(from, to)).join("\n") !== comments(result).map(({ from, to }) => result.slice(from, to)).join("\n"))
+      issue2(globalsInPlaceMessages.generatedStructure);
+    return result;
   }
   let text = variables(imports(source2));
-  if (text !== source2 && (variables(text) !== text || imports(text) !== text))
-    issue2(globalsInPlaceMessages.generatedReference);
-  if (text.includes("<title ") && definitions.titles) {
+  if (definitions.titles && (text.includes("<title") || text.includes("title "))) {
     const visible = removeMarkupComments(text);
-    const names = (value2) => [...value2.matchAll(titleTag)].map((match) => match[1]);
     for (const block of Object.values(extractBlocks(visible, "export")))
-      if (names(block).some((name2) => Object.hasOwn(definitions.titles, name2)))
+      if (noteNames(block).some((name2) => Object.hasOwn(definitions.titles, name2)))
         issue2(globalsInPlaceMessages.noteInExport);
+    if (/^var [A-Za-z0-9]+ = .*<title\b/m.test(visible) || [...visible.matchAll(titleTag)].some(([tag]) => {
+      const target = /\[.+\]/.exec(tag)?.[0];
+      return variableReferences(target ?? tag).some(({ name: name2 }) => name2 !== "e");
+    }))
+      issue2(globalsInPlaceMessages.noteReference);
     const local = extractBlocks(visible, "title");
+    const names = new Set(noteNames(visible));
     const blocks = [];
-    for (const name2 of new Set(names(visible))) {
+    for (const name2 of Object.keys(local))
+      if (Object.hasOwn(definitions.titles, name2) && !names.has(name2))
+        issue2(globalsInPlaceMessages.localNote, name2);
+    for (const name2 of names) {
       if (!Object.hasOwn(definitions.titles, name2)) continue;
       const body2 = lookup("titles", name2);
       if (body2 === void 0) continue;
-      const filled = variables(body2);
-      if (filled !== body2) {
-        for (const message of validateGlobalsInPlaceDefinition("titles", filled, definitions))
+      const substituted = variables(body2);
+      if (substituted !== body2) {
+        for (const message of validateGlobalsInPlaceDefinition("titles", substituted, definitions))
           issue2(message, name2);
-        if (variables(filled) !== filled) issue2(globalsInPlaceMessages.generatedReference);
       }
+      const filled = removeMarkupComments(substituted).replace(/<enhanced\/>|#\{e\}|#e(?![A-Za-z0-9])/g, arrow).trim();
       if (!Object.hasOwn(local, name2)) blocks.push(`title ${name2} (
 ${filled}
 )`);
-      else if (lowerConsumerMarkup(local[name2].trim()) !== removeMarkupComments(lowerConsumerMarkup(filled)).trim())
+      else if (lowerConsumerMarkup(local[name2].trim()) !== lowerConsumerMarkup(filled))
         issue2(globalsInPlaceMessages.localNote, name2);
     }
-    if (blocks.length) text += `
-
-${blocks.join("\n\n")}`;
+    if (blocks.length) {
+      if (visible.split("\n").reduce((depth, line) => blockDepth(line, depth), 0))
+        issue2(globalsInPlaceMessages.unclosedBlock);
+      text += `
+${blocks.join("\n")}`;
+    }
   }
-  if (text !== source2 && text.includes("{{") && scanBaseEnhanced(text).issues.length)
+  if (text !== source2 && text.includes("{{") && scanBaseEnhanced(removeMarkupComments(text)).issues.length)
     issue2(globalsInPlaceMessages.nativePair);
   return { text, issues: [...issues] };
 }
@@ -27011,7 +27051,7 @@ function resolveGlobalsInPlace(source2, language, options) {
 }
 function globalsInPlaceLibraryText(hash2) {
   if (hash2 === 1 || hash2 === 3) return "";
-  if (hash2 === 2) return "var e = \u{1F845}";
+  if (hash2 === 2) return `var e = ${arrow}`;
 }
 
 // packages/core/src/exportLegacy.ts
@@ -27143,9 +27183,17 @@ function exportLegacy(tooltips, now, catalog, aliases = {}, options) {
       const exported = englishFallback && english ? english : translation;
       const resolved = exported.text.includes("#{=") && english ? resolveNumberTokens(exported.text, numberValues(english, language)) : exported.text;
       if (libraryText === void 0) {
-        const text = lowerConsumerMarkup(
-          globals ? resolveGlobalsInPlace(resolved, language, globals) : resolved
-        );
+        let source2 = resolved;
+        if (globals) {
+          try {
+            source2 = resolveGlobalsInPlace(resolved, language, globals);
+            if (source2.includes("{{")) throw new Error(baseEnhancedPublishMessage);
+          } catch (cause) {
+            const message = cause instanceof Error ? cause.message : String(cause);
+            throw new Error(`Tooltip ${tooltip.hash} (${language}): ${message}`, { cause });
+          }
+        }
+        const text = lowerConsumerMarkup(source2);
         editor[language] = {
           main: text,
           secondary: text,
