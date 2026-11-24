@@ -771,22 +771,6 @@ function selectedRelease(
     if (kind === 'variables') names.add(from);
     if (kind === 'titles') titleNames.add(from);
   }
-  for (const entry of selected) {
-    if (entry.tombstone) continue;
-    for (const [lang, { body }] of Object.entries(entry.definitions)) {
-      const issue =
-        sharedVariableLabelIssue(body, names) ?? inPlaceReferenceIssue(body, names, titleNames);
-      if (issue) throw new Error(`${entry.name} (${lang}): ${issue}`);
-      for (const kind of ['exports', 'variables', 'titles'] as const) {
-        const unavailable = options.unavailable?.[kind];
-        if (!unavailable?.size) continue;
-        const reference = globalReferenceSpans(body, kind).find(({ name }) =>
-          unavailable.has(name),
-        );
-        if (reference) throw new Error(`Publish the shared change for ${reference.name} first.`);
-      }
-    }
-  }
   const rewritten = new Map<number, Tooltip>();
   const updatedDocs = liveDocs.map((prior) => {
     const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
@@ -813,6 +797,22 @@ function selectedRelease(
           options.definitions.variables,
           publishedNames,
         );
+  for (const entry of selected) {
+    if (entry.tombstone) continue;
+    for (const [lang, { body }] of Object.entries(entry.definitions)) {
+      const issue =
+        sharedVariableLabelIssue(body, names) ?? inPlaceReferenceIssue(body, names, titleNames);
+      if (issue) throw new Error(`${entry.name} (${lang}): ${issue}`);
+      for (const kind of ['exports', 'variables', 'titles'] as const) {
+        const unavailable = options.unavailable?.[kind];
+        if (!unavailable?.size) continue;
+        const reference = globalReferenceSpans(body, kind).find(({ name }) =>
+          unavailable.has(name),
+        );
+        if (reference) throw new Error(`Publish the shared change for ${reference.name} first.`);
+      }
+    }
+  }
   const publishedDocs = new Map(updatedDocs.map((doc) => [doc.hash, doc]));
   const source = (hash: number) => {
     const row = live.perks[hash];
