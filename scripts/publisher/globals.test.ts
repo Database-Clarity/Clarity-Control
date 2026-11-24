@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { inventoryGlobals, projectGlobals } from '../../packages/core/src/globals/projection.js';
 import {
   composeGlobalRelease,
@@ -884,6 +884,58 @@ describe('dependency-safe global release', () => {
     expect(git.tree(changed)).toEqual(git.tree(kicked));
     expect(pub['manualSourceAdvance'](source, changed, git.tree(changed), A)).toBe('blocked');
   });
+  it('skips only a complete idle sync and refreshes its fence with RECORD', async () => {
+    const f = await fixture();
+    f.change(
+      Object.fromEntries(
+        f.published.entries.map((entry) => [`globals/entries/${entry.id}.json`, entry]),
+      ),
+    );
+    await f.globals.drain();
+    const plan = vi.spyOn(f.globals, 'plan');
+    const head = f.git.head(D);
+    await f.globals.drain();
+    expect(f.git.head(D)).toBe(head);
+    expect(plan).not.toHaveBeenCalled();
+    const proof = 'globals/proofs/publication/converter-v2-test/42-en.json';
+    expect(f.current()[proof]).toBeDefined();
+    f.change({ [proof]: undefined });
+    await f.globals.drain();
+    expect(plan).toHaveBeenCalledTimes(1);
+    expect(f.current()[proof]).toBeDefined();
+    await f.request([42]);
+    await f.pub.operation(A);
+    const record = f.git.head(D);
+    expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+    await f.globals.drain();
+    expect(f.git.head(D)).toBe(record);
+    expect(plan).toHaveBeenCalledTimes(1);
+    f.change({ 'live/tooltips/40.json': tooltip(40, 'Corrupt published snapshot') });
+    await expect(f.globals.drain()).rejects.toThrow('Published snapshots differ');
+  });
+
+  it('reuses a release only for the same data and live commits', async () => {
+    const f = await fixture();
+    await f.globals.drain();
+    await f.request([42]);
+    const release = vi.spyOn(GlobalsPublisher.prototype, 'release');
+    try {
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+      expect(release).toHaveBeenCalledTimes(1);
+      const sibling = '01K95H00000000000000000002';
+      await f.request([42], sibling);
+      release.mockClear();
+      f.git.beforeAtomic = () =>
+        f.change({ [`publish/kicks/${sibling}-34567.json`]: { opId: sibling } });
+      await f.pub.operation(sibling);
+      expect(f.read(paths(sibling).log).result.status).toMatch(/done|unchanged/);
+      expect(release).toHaveBeenCalledTimes(2);
+    } finally {
+      release.mockRestore();
+    }
+  });
+
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();
     await f.globals.drain();

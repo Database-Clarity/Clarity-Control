@@ -2,6 +2,7 @@ import {
   buildLegacy,
   deployedLegacyPresets,
   type LegacyInput,
+  type LegacyPreset,
 } from '../../packages/export/src/legacy.js';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import {
@@ -89,6 +90,7 @@ import {
   bundleGlobals,
   GlobalsPublisher,
   hasGlobals,
+  type GlobalRelease,
   type GlobalReleaseReceipt,
 } from './globals.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
@@ -239,8 +241,11 @@ class ManualSourceAdvanced extends Error {
     super('The manual publish source kept changing. The request is still queued.');
   }
 }
+type EmptyOutputs = Map<LegacyPreset, Set<string>>;
 export class Publisher {
-  private readonly checkedOutputs = new Set<string>();
+  private checkedOutput?: { key: string; after: EmptyOutputs };
+  private candidateOutput?: { commit: string; pin: string; after: EmptyOutputs };
+  private reviewedRelease?: { key: string; release: GlobalRelease };
   constructor(
     readonly git: Repository,
     readonly options: Options,
@@ -624,46 +629,56 @@ export class Publisher {
     }
     const merged = { ...live, perks };
     const bytes = json(merged);
+    const { publisherSha, publisherDigest } = this.options;
+    const pin = JSON.stringify([publisherSha, publisherDigest]);
     const checkKey = createHash('sha256')
-      .update(tree['liveDescriptions.json'])
+      .update(JSON.stringify([parent, r.sourceCommit, pin]))
       .update(bytes)
       .digest('hex');
     // Run the actual consumer converter at both snapshots. Historical empty rows are tolerated;
     // newly empty rows stop candidate creation, including rebases and crash recovery.
-    if (!this.checkedOutputs.has(checkKey)) {
+    if (this.checkedOutput?.key !== checkKey) {
       const hasMoves = Object.keys(this.movesAt(this.git.tree(r.sourceCommit))).length > 0;
+      const candidate = this.candidateOutput;
+      const before =
+        candidate?.commit === parent && candidate.pin === pin ? candidate.after : undefined;
+      const after = new Map<LegacyPreset, Set<string>>();
       for (const preset of [
         ...deployedLegacyPresets,
         ...(hasMoves ? ['clarityV2' as const] : []),
       ]) {
-        const convert = (
-          input: unknown,
-        ): Record<string, { descriptions?: Record<string, unknown>; aliasOf?: number }> => {
+        const emptyRows = (input: unknown) => {
           try {
-            return JSON.parse(new TextDecoder().decode(buildLegacy(input as LegacyInput, preset)));
+            const rows = JSON.parse(
+              new TextDecoder().decode(buildLegacy(input as LegacyInput, preset)),
+            ) as Record<string, { descriptions?: Record<string, unknown>; aliasOf?: number }>;
+            return new Set(
+              Object.entries(rows).flatMap(([hash, row]) =>
+                row.aliasOf === undefined && Object.keys(row.descriptions ?? {}).length === 0
+                  ? [hash]
+                  : [],
+              ),
+            );
           } catch (error) {
             throw new ConsumerOutputRejected(`${preset} conversion failed: ${String(error)}`);
           }
         };
-        const before = convert(live);
-        let after: ReturnType<typeof convert>;
+        const beforeEmpty = before?.get(preset) ?? emptyRows(live);
+        let afterEmpty: Set<string>;
         try {
-          after = convert(merged);
+          afterEmpty = emptyRows(merged);
         } catch (error) {
           throw new ProposalOutputRejected(error instanceof Error ? error.message : String(error));
         }
-        for (const [hash, row] of Object.entries(after)) {
-          const empty = (entry: typeof row | undefined) =>
-            entry !== undefined &&
-            entry.aliasOf === undefined &&
-            Object.keys(entry.descriptions ?? {}).length === 0;
-          if (empty(row) && !empty(before[hash]))
+        for (const hash of afterEmpty) {
+          if (!beforeEmpty.has(hash))
             throw new TextlessConsumerOutput(
               `${preset} tooltip ${hash} has no descriptions; nothing published`,
             );
         }
+        after.set(preset, afterEmpty);
       }
-      this.checkedOutputs.add(checkKey);
+      this.checkedOutput = { key: checkKey, after };
     }
     return {
       bytes,
@@ -672,13 +687,28 @@ export class Publisher {
   }
   buildCandidate(parent: string, receipt: Receipt) {
     const { bytes, outcome } = this.merge(parent, receipt);
+    const after = this.checkedOutput?.after;
     const r = { ...receipt, liveParent: parent, outcome };
     const tree = {
       ...this.git.tree(parent),
       'liveDescriptions.json': this.git.writeBlob(bytes),
       [paths(r.opId).receipt]: this.git.writeBlob(json(r)),
     };
-    return this.git.commit(parent, tree, `Publish ${r.opId}`, this.credits(r.requestBlob, r.opId));
+    const candidate = this.git.commit(
+      parent,
+      tree,
+      `Publish ${r.opId}`,
+      this.credits(r.requestBlob, r.opId),
+    );
+    if (after) {
+      const { publisherSha, publisherDigest } = this.options;
+      this.candidateOutput = {
+        commit: candidate,
+        pin: JSON.stringify([publisherSha, publisherDigest]),
+        after,
+      };
+    }
+    return candidate;
   }
   private manualSourceAdvance(source: string, head: string, tree: Tree, opId: string) {
     if (!this.git.ancestor(source, head)) return 'blocked';
@@ -775,6 +805,10 @@ export class Publisher {
     }
     return rebuild ? 'rebuild' : 'bookkeeping';
   }
+  private releaseKey(opId: string, data: string, live: string) {
+    const { publisherSha, publisherDigest, generatorSha } = this.options;
+    return JSON.stringify([opId, data, live, publisherSha, publisherDigest, generatorSha]);
+  }
   async record(
     opId: string,
     receipt: Receipt | undefined,
@@ -831,13 +865,18 @@ export class Publisher {
           documents = plan.entries.map((entry) =>
             tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob))),
           );
-        } else
+        } else {
+          const reviewed = this.reviewedRelease;
           documents = await new GlobalsPublisher(this).validate(
             receipt.globals,
             tree,
             source,
             atomicLive.parent,
+            reviewed?.key === this.releaseKey(opId, h, atomicLive.parent)
+              ? reviewed.release
+              : undefined,
           );
+        }
         if (
           !documents ||
           stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots) ||
@@ -1213,6 +1252,10 @@ export class Publisher {
           try {
             const release = await new GlobalsPublisher(this).release(tree, s, payload.hashes, live);
             if (!release) throw new Error('Missing global release');
+            this.reviewedRelease = {
+              key: this.releaseKey(opId, s, live),
+              release: structuredClone(release),
+            };
             globals = release.receipt;
             tooltips.splice(0, tooltips.length, ...release.documents);
             entries.splice(

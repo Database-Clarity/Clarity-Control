@@ -47,6 +47,7 @@ import {
   selectedInactiveMoves,
 } from '../../packages/core/src/inactiveMoves.js';
 import { stableStringify } from '../../packages/core/src/contentHash.js';
+import { marksPath } from '../../packages/core/src/marks.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
 import { aliasesSchema, resolveAlias, type Aliases } from '../../packages/core/src/aliases.js';
 import type { GlobalImpactSnapshot } from '../../packages/core/src/globals/impactModel.js';
@@ -86,6 +87,7 @@ const currentSync = {
   causeEntries: {},
   lastFailure: null,
 };
+const syncFencePath = 'globals/proofs/publisher-sync.json';
 export const hasGlobals = (tree: Tree) =>
   Object.keys(tree).some((path) => path.startsWith('globals/'));
 
@@ -123,6 +125,10 @@ export interface GlobalReleaseReceipt {
   published: z.infer<typeof globalPublishedSchema>;
   /** Immutable signed scheduling source; never an Action-selected replacement pin. */
   batchSource?: string;
+}
+export interface GlobalRelease {
+  documents: Tooltip[];
+  receipt: GlobalReleaseReceipt;
 }
 
 function globalTreeEntries(tree: Tree, prefix: string, modes: Record<string, string> = {}) {
@@ -364,7 +370,14 @@ export class GlobalsPublisher {
       }
     }
     if (!tooltips[2] || !tooltips[3]) throw new Error('Missing last-published global library');
-    return { repository: this.options.repo, revision, aliases, types: liveTypes, tooltips, mode: 'live' };
+    return {
+      repository: this.options.repo,
+      revision,
+      aliases,
+      types: liveTypes,
+      tooltips,
+      mode: 'live',
+    };
   }
   capture(tree: Tree, revision: string, liveCommit: string, roots: Tooltip[] = []) {
     const published = globalPublishedSchema.parse(
@@ -386,7 +399,12 @@ export class GlobalsPublisher {
       { ...this.documents(tree, 'live/tooltips'), ...projectGlobals(published.store) },
       types,
     );
-    const exported = exportLegacy(Object.values(live.tooltips), 0, this.options.facts, live.aliases);
+    const exported = exportLegacy(
+      Object.values(live.tooltips),
+      0,
+      this.options.facts,
+      live.aliases,
+    );
     for (const [hash, value] of Object.entries(exported)) {
       if ('aliasOf' in value) continue;
       // V2 authors main only; secondary is derived by exportLegacy. Historical secondary
@@ -553,7 +571,7 @@ export class GlobalsPublisher {
     roots: number[],
     live: string,
     batch?: { source: string; documents: Tooltip[] },
-  ) {
+  ): Promise<GlobalRelease | undefined> {
     if (!hasGlobals(tree)) return undefined;
     const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
     const sources = await this.sources(tree, live, revision);
@@ -800,10 +818,11 @@ export class GlobalsPublisher {
     tree: Tree,
     head: string,
     live: string,
+    cached?: GlobalRelease,
   ) {
     if (!hasGlobals(tree) && !receipt) return undefined;
     if (!receipt || receipt.version !== 1) throw new Error('Global release receipt required');
-    const checked = await this.release(tree, head, receipt.roots, live);
+    const checked = cached ?? (await this.release(tree, head, receipt.roots, live));
     if (
       !checked ||
       checked.receipt.digest !== receipt.digest ||
@@ -917,6 +936,88 @@ export class GlobalsPublisher {
     }
     await this.proofs(tree, head, sources, live, components);
   }
+  private idleSync(tree: Tree, sync: z.infer<typeof syncSchema>) {
+    return (
+      stableStringify(sync) === stableStringify(currentSync) &&
+      !Object.keys(tree).some((path) => /^globals\/(?:causes|intents|retries|reviews)\//.test(path))
+    );
+  }
+  /** Sources exclude stored proof outputs and DATA's copies of published inputs. Bind both too. */
+  private syncFence(tree: Tree, head: string, live: string) {
+    const modes = this.git.treeModes?.(head) ?? {};
+    const inScope = (path: string) =>
+      path !== syncFencePath &&
+      (path !== marksPath || modes[path] === '40000') &&
+      /^(?:tooltips|globals|schedule|live|config|\.publisher)(?:\/|$)/.test(path);
+    const entries = Object.keys(tree)
+      .filter(inScope)
+      .sort()
+      .map((path) => [path, tree[path], modes[path] ?? '100644']);
+    const emptyTrees = Object.keys(modes)
+      .filter((path) => inScope(path) && modes[path] === '40000' && !Object.hasOwn(tree, path))
+      .sort();
+    const {
+      repo,
+      dataBranch,
+      liveBranch,
+      publisherSha,
+      publisherDigest,
+      generatorSha,
+      aliases,
+      facts,
+      aliasFacts,
+      sandboxConflicts,
+    } = this.options;
+    const digest = createHash('sha256')
+      .update(
+        JSON.stringify([
+          1,
+          live,
+          repo,
+          dataBranch,
+          liveBranch,
+          publisherSha,
+          publisherDigest,
+          generatorSha,
+          aliases,
+          facts,
+          aliasFacts,
+          sandboxConflicts,
+          entries,
+          emptyTrees,
+        ]),
+      )
+      .digest('hex');
+    return json({ version: 1, digest });
+  }
+  private async skipSync(tree: Tree, head: string, live: string) {
+    try {
+      const saved = sourcesSchema.safeParse(
+        this.read(tree, publicationSourcesPath(this.options.liveBranch)),
+      );
+      return (
+        saved.success &&
+        this.git.blob(tree[syncFencePath]) === this.syncFence(tree, head, live) &&
+        sameSources(saved.data, await this.sources(tree, live, head))
+      );
+    } catch {
+      // A missing or damaged certificate goes through the existing full materializer.
+      return false;
+    }
+  }
+  private async prepareSync(tree: Tree, head: string) {
+    this.causes(tree);
+    await this.intents(tree, head);
+    await this.releaseObsoleteClaims(tree);
+    const store = this.store(tree);
+    tree[globalsReleasePaths.layout] = this.git.writeBlob(
+      json(globalLayoutSchema.parse({ version: 1, aggregates: store.aggregates })),
+    );
+    for (const [hash, document] of Object.entries(projectGlobals(store)))
+      tree[`tooltips/${hash}.json`] = this.git.writeBlob(json(document));
+    for (const path of Object.keys(tree).filter((path) => path.startsWith('globals/projections/')))
+      delete tree[path];
+  }
   async record(tree: Tree, receipt: GlobalReleaseReceipt, head: string, live: string) {
     const path = globalsReleasePaths.published(this.options.liveBranch);
     const previous = globalPublishedSchema.parse(this.read(tree, path));
@@ -928,12 +1029,23 @@ export class GlobalsPublisher {
     }
     // Full offline baselines are not the bounded per-entry Worker metadata format.
     tree[path] = this.git.writeBlob(json(globalPublishedSchema.parse(receipt.published)));
-    if (syncSchema.parse(this.read(tree, globalsReleasePaths.sync)).status === 'current') {
+    const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
+    if (sync.status === 'current') {
       // Refresh remaining independent proofs in THIS transaction. GITHUB_TOKEN
       // commits do not need to start a second workflow to make the queue progress.
       await this.materialize(tree, head, live);
       for (const retry of Object.keys(tree).filter((path) => path.startsWith('globals/retries/')))
         delete tree[retry];
+      if (this.idleSync(tree, sync)) {
+        try {
+          const prepared = { ...tree };
+          await this.prepareSync(prepared, head);
+          if (stableStringify(prepared) === stableStringify(tree))
+            tree[syncFencePath] = this.git.writeBlob(this.syncFence(tree, head, live));
+        } catch {
+          // RECORD has materialized its proofs. Future runs must still drain once.
+        }
+      }
     }
   }
   async drain() {
@@ -945,33 +1057,30 @@ export class GlobalsPublisher {
       const tree = { ...original };
       try {
         const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
-        this.causes(tree); // Require the complete durable backlog before modifying anything.
-        await this.intents(tree, head);
-        await this.releaseObsoleteClaims(tree);
-        const store = this.store(tree);
-        tree[globalsReleasePaths.layout] = this.git.writeBlob(
-          json(globalLayoutSchema.parse({ version: 1, aggregates: store.aggregates })),
-        );
-        for (const [hash, document] of Object.entries(projectGlobals(store)))
-          tree[`tooltips/${hash}.json`] = this.git.writeBlob(json(document));
-        for (const path of Object.keys(tree).filter((path) =>
-          path.startsWith('globals/projections/'),
-        ))
-          delete tree[path];
+        if (tree[syncFencePath] && this.idleSync(tree, sync)) {
+          const live = this.publisher.head(this.options.liveBranch);
+          if (await this.skipSync(tree, head, live)) {
+            if (
+              this.publisher.head(this.options.liveBranch) !== live ||
+              this.publisher.head(this.options.dataBranch) !== head
+            )
+              throw new RefRace('Global sync inputs raced');
+            return;
+          }
+        }
+        await this.prepareSync(tree, head);
         const live = this.publisher.head(this.options.liveBranch);
         await this.materialize(tree, head, live);
         // All request removals and pending completion land with ALL authoritative outputs.
         for (const path of Object.keys(tree).filter((path) => path.startsWith('globals/retries/')))
           delete tree[path];
-        this.write(
-          tree,
-          globalsReleasePaths.sync,
-          syncSchema.parse(currentSync),
-          limits.entryBytes,
-        );
+        const completed = syncSchema.parse(currentSync);
+        this.write(tree, globalsReleasePaths.sync, completed, limits.entryBytes);
         if (this.publisher.head(this.options.liveBranch) !== live)
           throw new RefRace('Global live inputs raced');
         if (stableStringify(tree) === stableStringify(original)) return;
+        if (this.idleSync(tree, completed))
+          tree[syncFencePath] = this.git.writeBlob(this.syncFence(tree, head, live));
         const commit = this.git.commit(
           head,
           tree,
