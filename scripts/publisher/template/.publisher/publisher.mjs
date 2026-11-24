@@ -31108,7 +31108,6 @@ var pageSchema = external_exports.object({
   nextCursor: token.nullable()
 }).strict();
 var catalogSchema = external_exports.object({ version: external_exports.literal(1), lastPage: external_exports.number().int().min(0).max(99999) }).strict();
-var reviewPageSchema = external_exports.object({ ...proof, ids: external_exports.array(token).max(limits.page), nextCursor: token.nullable() }).strict();
 var expected = { expectedHead: oid4 };
 var existing = { id: globalIdSchema, revision: globalRevisionSchema };
 var definition = { lang: langSchema, body: external_exports.string().max(limits.body) };
@@ -31123,22 +31122,8 @@ var mutationSchema = external_exports.object({
     }).strict(),
     external_exports.object({ operation: external_exports.literal("edit"), ...existing, ...definition }).strict(),
     external_exports.object({ operation: external_exports.literal("rename"), ...existing, name: external_exports.string().min(1).max(128) }).strict(),
-    external_exports.object({ operation: external_exports.literal("remove"), ...existing, lang: langSchema.optional() }).strict(),
-    external_exports.object({
-      operation: external_exports.literal("acknowledge"),
-      id: globalIdSchema,
-      consumerId: token,
-      contentDigest: globalDigestSchema,
-      dependencyDigest: globalDigestSchema,
-      impactDigest: globalDigestSchema,
-      decision: external_exports.literal("no-text-change")
-    }).strict()
+    external_exports.object({ operation: external_exports.literal("remove"), ...existing, lang: langSchema.optional() }).strict()
   ])
-}).strict();
-var retrySchema = external_exports.object({
-  expectedHead: oid4,
-  id: globalIdSchema,
-  causeIds: external_exports.array(token).min(1).max(limits.causes).refine((v) => new Set(v).size === v.length, "Duplicate cause")
 }).strict();
 var paths = {
   sync: "globals/sync.json",
@@ -32616,9 +32601,47 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
       for (const cell of Object.values(tooltip.text))
         if (conflicts(cell.text))
           throw new Error(`Tooltip ${tooltip.custom?.name || tooltip.hash} ${reason}`);
-    for (const row of Object.values(live.perks))
-      if ("editor" in row && Object.values(row.editor).some((cell) => conflicts(cell.main) || conflicts(cell.secondary)))
+    const formerTitle = old?.kind === "titles" && old.nameHistory.some(({ name: name3 }) => name3 === to) && !published.store.entries.some(
+      (other) => other.kind === "titles" && other.name === to && !other.tombstone
+    );
+    const priorRename = [{ kind: "titles", from: old?.name ?? "", to }];
+    let priorOptions;
+    const priorDocument = (hash2) => {
+      const row = live.perks[hash2];
+      const doc = liveDocs.find((doc2) => doc2.hash === (row && "aliasOf" in row ? row.aliasOf : hash2));
+      if (doc) return rewriteTooltip(doc, priorRename);
+    };
+    for (const row of Object.values(live.perks)) {
+      if (!("editor" in row)) continue;
+      for (const lang of languages2) {
+        const cell = row.editor[lang];
+        if (!cell || !conflicts(cell.main) && !conflicts(cell.secondary)) continue;
+        const doc = formerTitle && priorDocument(row.hash);
+        if (doc && (!independentSecondary(cell) || !conflicts(cell.secondary))) {
+          priorOptions ??= withImportedGlobalsFallback(
+            {
+              definitions: globalsInPlaceDefinitions(
+                rewriteEntries(published.store.entries, priorRename)
+              )
+            },
+            (hash2) => {
+              const document = priorDocument(hash2);
+              if (document) return { document };
+            }
+          );
+          try {
+            const filled = exportLegacy([doc], 0, void 0, {}, { globalsInPlace: priorOptions })[doc.hash];
+            if (!isLegacyAliasStub(filled) && filled.editor[lang]?.main === cell.main) continue;
+          } catch {
+          }
+        }
+        if (formerTitle)
+          throw new Error(
+            `Tooltip ${row.name || row.hash} (${lang}) uses or declares ${to} in LIVE text that could not be reproduced from the published note. Republish the tooltip before renaming.`
+          );
         throw new Error(`Tooltip ${row.name || row.hash} ${reason}`);
+      }
+    }
     for (const publishedEntry of published.store.entries)
       if (!publishedEntry.tombstone && Object.values(publishedEntry.definitions).some(({ body: body2 }) => conflicts(body2)))
         throw new Error(`Shared definition ${publishedEntry.name} ${reason}`);
@@ -32840,6 +32863,24 @@ function planInPlaceRelease(pub, tree, live, selection2, maintainer, hasTooltipS
     if (!accepted.length && !hasTooltipSelection) throw error62;
     return { ...result, globals: accepted.map(({ id }) => id), refusals };
   }
+}
+function inPlacePublishError(error62, pub, tree, live, plan) {
+  const dependency = error62 instanceof Error ? error62.cause : void 0;
+  if (!(dependency instanceof UnpublishedGlobal)) return String(error62);
+  const { kind, globalName } = dependency;
+  const { published, saved } = stores(pub, tree);
+  const entry = saved.entries.find((entry2) => entry2.kind === kind && entry2.name === globalName);
+  const previous = entry && published.store.entries.find(({ id }) => id === entry.id);
+  if (!entry || !previous || previous.tombstone || previous.name === entry.name)
+    return String(error62);
+  const refused = plan.refusals.find(({ id }) => id === entry.id);
+  if (refused) return `The rename to ${globalName} cannot be published. ${refused.error}`;
+  try {
+    selectedRelease(pub, tree, live, [{ id: entry.id, expected: definitionDigest(entry) }], true);
+  } catch (reason) {
+    return `The rename to ${globalName} cannot be published. ${refusalMessage(reason)}`;
+  }
+  return String(error62);
 }
 function rewritePushed(pub, tree, pushed, rewritten) {
   if (!rewritten.size) return;
@@ -37163,7 +37204,11 @@ var Publisher = class _Publisher {
         );
       }
     } catch (error62) {
-      if (inPlace) return { error: String(error62), proposalRejected: true };
+      if (inPlace)
+        return {
+          error: inPlacePublishError(error62, this, tree, inPlace.baseline, inPlace),
+          proposalRejected: true
+        };
       throw new ConsumerOutputRejected(String(error62));
     }
     const unlowered = unloweredEntry(exported);
@@ -37199,6 +37244,7 @@ var Publisher = class _Publisher {
       );
       return {
         ...plan,
+        baseline: input2,
         live: { ...input2, perks: { ...input2.perks, ...plan.refills } }
       };
     } catch (error62) {

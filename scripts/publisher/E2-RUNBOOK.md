@@ -47,15 +47,15 @@ Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the ma
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.
 No installation, activation, or external data write is authorized by generating this template.
 
-Template source PIN: `ee4c8f1fe4790c420434e4e5463e85827018a247`.
-Expected publisher.mjs SHA-256: `b956f09c7e38dd7e8491b4c6e36c4d26de49b866f2970bc5db6f0e8b2d4345f5`.
+Template source PIN: `16bfa3a379cec3d2046986354dcf5b77339b1b41`.
+Expected publisher.mjs SHA-256: `fda6723f88dc1fc2e36e3105af583ea4a71e54ca01759a1baa475e71e7d0deb6`.
 
 ### In-place shared text dry run
 
-The installed runtime, Worker, and Review can be updated while
-`config/globals-in-place.json` is absent. Existing operations then use their
-original release and acknowledgement paths. Drain requests and candidates, and
-finish or unschedule any batches that can still publish before planning a switch.
+Before cut-over, drain old requests and candidates with the previously
+installed runtime. Finish or unschedule any batches that can still publish.
+The new Worker requires an active `config/globals-in-place.json` before it
+accepts publication or scheduling for a repository with a globals catalogue.
 
 Run `publisher.mjs --globals-migration-dry-run <local repository> <config.json>
 <artifact directory> <migration-inputs.json>` with the proposed runtime
