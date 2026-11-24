@@ -429,25 +429,27 @@ function StatusLines({
           {result.liveCommit && <> · live {result.liveCommit.slice(0, 8)}</>}
         </p>
       )}
-      {batch.status === 'draft' && result && (
-        <div className={styles.failed} data-status-line>
-          <p>
-            Last run failed: {resultLabel(result.status)}
-            {result.error ? `: ${result.error}` : ''}
-          </p>
-          {outcomeLines(result).length > 0 && (
-            <ul>
-              {outcomeLines(result).map((line) => {
-                const hash = Number(line.split(' ', 1)[0]);
-                return <li key={line}>{`${names(hash)} ${line}`}</li>;
-              })}
-            </ul>
-          )}
-          {result.status === 'stale' && (
-            <p>Rebase the stale tooltips below, then schedule again.</p>
-          )}
-        </div>
-      )}
+      {(batch.status === 'draft' || (batch.status === 'needs_attention' && !batch.preparation)) &&
+        result && (
+          <div className={styles.failed} data-status-line>
+            <p>
+              {batch.status === 'needs_attention'
+                ? result.error || resultLabel(result.status)
+                : `Last run failed: ${resultLabel(result.status)}${result.error ? `: ${result.error}` : ''}`}
+            </p>
+            {outcomeLines(result).length > 0 && (
+              <ul>
+                {outcomeLines(result).map((line) => {
+                  const hash = Number(line.split(' ', 1)[0]);
+                  return <li key={line}>{`${names(hash)} ${line}`}</li>;
+                })}
+              </ul>
+            )}
+            {batch.status === 'draft' && result.status === 'stale' && (
+              <p>Rebase the stale tooltips below, then schedule again.</p>
+            )}
+          </div>
+        )}
     </>
   );
 }
@@ -465,8 +467,8 @@ interface RequestRead {
  */
 function useBatchRequest(batch: Batch | undefined): RequestRead | null {
   const [read, setRead] = useState<RequestRead | null>(null);
-  const failure = batch && !isPreparation(batch.status) ? batch.lastPreparationFailure : null;
-  const active = Boolean(batch && (isPreparation(batch.status) || failure));
+  const failure = batch && !batch.preparation ? batch.lastPreparationFailure : null;
+  const active = Boolean(batch?.preparation || failure);
   const id = batch?.id;
   const revision = batch?.revision;
   const asked = failure?.requestId;
@@ -671,7 +673,8 @@ function TaskStrip({
 }) {
   const editable = batch.status === 'draft' || batch.status === 'scheduled';
   const preparation = isPreparation(batch.status) ? batch.preparation : null;
-  if (!editable && !overdue && !preparation) return null;
+  const publishRefused = batch.status === 'needs_attention' && !preparation;
+  if (!editable && !overdue && !preparation && !publishRefused) return null;
   const busy = (label: string, text: string) => (pending === label ? `${text}...` : text);
   const retry = retryable && (
     <button type="button" className={styles.primary} disabled={blocked} onClick={onRetry}>
@@ -721,8 +724,8 @@ function TaskStrip({
     );
   // Preparing / Needs attention: the request's own actions. Unschedule (a schedule, or a save to a
   // scheduled batch) and Edit (a draft save) both return the batch to draft; edits stay local.
-  if (preparation) {
-    const toDraft = preparation.returnStatus === 'scheduled' ? 'Unschedule' : 'Edit';
+  if (preparation || publishRefused) {
+    const toDraft = preparation?.returnStatus === 'scheduled' ? 'Unschedule' : 'Edit';
     return (
       <div className={styles.strip} role="group" aria-label="Request actions">
         {retry}
@@ -730,9 +733,11 @@ function TaskStrip({
           type="button"
           disabled={blocked}
           title={
-            toDraft === 'Edit'
-              ? 'Back to draft; your submitted edits stay as local drafts'
-              : 'Back to draft; nothing publishes until you schedule again'
+            publishRefused
+              ? 'Back to draft with the proposed changes'
+              : toDraft === 'Edit'
+                ? 'Back to draft; your submitted edits stay as local drafts'
+                : 'Back to draft; nothing publishes until you schedule again'
           }
           onClick={() => onEnd('unschedule')}
         >

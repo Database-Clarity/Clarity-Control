@@ -916,6 +916,22 @@ describe('claim refusals and status rules', () => {
       expect(response.body.error).toBe('Publishing started');
     }
   });
+  it('lets an editor reopen a refused publication and keeps its proposals and result', async () => {
+    const result = {
+      opId: newUlid(),
+      status: 'stale' as const,
+      recordedAt: new Date().toISOString(),
+      error: 'Current changes conflict with the scheduled changes for Thing.',
+    };
+    f.moveData({ [batchPath()]: draft({ status: 'needs_attention', result }) });
+    const member = stored(memberPath());
+    const action = `/batches/${ID}/unschedule`;
+    expect((await call(action, { revision: 2 }, TRANSLATOR)).status).toBe(403);
+    expect((await call(action, { revision: 1 }, EDITOR)).status).toBe(409);
+    expect((await call(action, { revision: 2 }, EDITOR)).status).toBe(200);
+    expect(storedBatch()).toMatchObject({ status: 'draft', result });
+    expect(stored(memberPath())).toEqual(member);
+  });
   it('kick: only overdue, claimed-but-not-terminal or scheduled batches, one per minute', async () => {
     expect((await call(`/batches/${ID}/kick`, {})).status).toBe(409); // draft
     claimed();

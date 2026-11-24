@@ -673,6 +673,19 @@ export function createBatchFixture(options: FixtureOptions) {
     kicks,
     conflicts,
     requests,
+    refusePublication(id: string, result: NonNullable<Batch['result']>) {
+      const batch = batches.get(id)!;
+      write(batch, 'stale', memberList(id), undefined, {
+        status: 'needs_attention',
+        claim: null,
+        opId: null,
+        notBefore: null,
+        zone: null,
+        scheduledContentRevision: null,
+        preparedRequestId: null,
+        result,
+      });
+    },
     /** The preparer lands a request: the save's members, or the schedule, in one commit. */
     completeRequest(requestId: string) {
       const found = requests.get(requestId)!;

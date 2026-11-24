@@ -770,6 +770,26 @@ describe('Review → Batches: prepared requests (scheduling off the Worker)', ()
     await view.unmount();
   });
 
+  it('shows the refused tooltip in Needs attention and reopens the saved proposals with Edit', async () => {
+    const batch = await seed();
+    fixture.refusePublication(batch.id, {
+      opId: requestId,
+      status: 'stale',
+      error: 'Current changes conflict with the scheduled changes for Rampage.',
+      outcomes: [{ hash: 10, status: 'stale', fields: ['text.en'] }],
+    });
+    const view = await mount('maintainer');
+    await view.settle(() => Boolean(view.button('Edit')));
+    expect(view.detail()?.dataset.status).toBe('needs_attention');
+    expect(view.text()).toContain('scheduled changes for Rampage');
+    expect(view.button('Retry')).toBeUndefined();
+    await view.click('Edit');
+    await view.settle(() => view.detail()?.dataset.status === 'draft');
+    expect(view.button('Schedule…')).toBeDefined();
+    expect(fixture.members.get(batch.id)?.get(10)?.proposed.text.en?.text).toBe('Ten, upcoming');
+    await view.unmount();
+  });
+
   it('retries an infrastructure failure with the same request, then shows Scheduled', async () => {
     const batch = await seed();
     await requestSchedule(batch.id, 2);

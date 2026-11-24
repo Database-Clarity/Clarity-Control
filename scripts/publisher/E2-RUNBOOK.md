@@ -38,6 +38,10 @@ existing capability. Root performs this installation in the authorized globals g
 sequence. Pinned global edits and owed reviews move affected batches to Needs attention;
 return them to draft and schedule again after review. Never rewrite their signed source
 to adopt newer definitions. Both claim and atomic LIVE/RECORD recheck the closure.
+For the scheduled save-race fix, deploy the compatible Worker and web builds before
+installing the publisher PIN. They read both preparation failures and refused claims in
+Needs attention. Keep both readers in place while refused-claim records exist. Older
+open tabs retain the batch in the list and need a reload to read the new detail.
 The Action prepares intents before Globals, bundles, and drains publication in the same run.
 Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the manual fallback
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.

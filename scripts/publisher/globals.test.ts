@@ -1806,7 +1806,7 @@ describe('dependency-safe global release', () => {
       { ...git.tree(source), [`publish/kicks/${sibling}-12345.json`]: git.writeBlob('{}') },
       'Kick sibling publish',
     );
-    expect(pub['manualSourceAdvance'](source, kicked, git.tree(kicked), A)).toBe('bookkeeping');
+    expect(pub['sourceAdvance'](source, kicked, git.tree(kicked), A)).toBe('bookkeeping');
 
     const empty = git.git(['mktree'], '').trim();
     const config = git.git(['rev-parse', `${kicked}:config`]).trim();
@@ -1820,7 +1820,7 @@ describe('dependency-safe global release', () => {
       .git(['commit-tree', changedRoot, '-p', source], 'Kick and change config identity')
       .trim();
     expect(git.tree(changed)).toEqual(git.tree(kicked));
-    expect(pub['manualSourceAdvance'](source, changed, git.tree(changed), A)).toBe('blocked');
+    expect(pub['sourceAdvance'](source, changed, git.tree(changed), A)).toBe('blocked');
   });
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();

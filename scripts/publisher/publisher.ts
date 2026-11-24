@@ -39,6 +39,7 @@ import {
   type AliasItems,
   sandboxPointersPath,
   sandboxPointersSchema,
+  currentSaveStagePaths,
   type PublishPayload,
   type PublishRequestPayload,
   type Aliases,
@@ -161,7 +162,7 @@ export interface Receipt {
   changed: number[];
   requester: PublishPayload['requester'];
   intentDigest: string;
-  /** Batch operations only (spec "Data model"); sourceCommit is then the claim commit S'. */
+  /** Batch operations only; sourceCommit is the claim or a revalidated snapshot after it. */
   batchId?: string;
   contentRevision?: number;
   globals?: GlobalReleaseReceipt;
@@ -171,10 +172,11 @@ export interface Landing {
   at: number;
   source: 'cas' | 'observed';
 }
+type BatchOutcome = { hash: number; status: string; fields?: string[]; reason?: string };
 type Failure = {
   status: 'stale' | 'rejected' | 'superseded';
   error?: string;
-  outcomes?: unknown;
+  outcomes?: BatchOutcome[];
   /** Known authored-content refusal; never inferred from a generic repository error. */
   proposalRejected?: true;
   retryable?: true;
@@ -232,15 +234,20 @@ export class TextlessConsumerOutput extends ProposalOutputRejected {
     this.name = 'TextlessConsumerOutput';
   }
 }
-class ManualSourceAdvanced extends Error {
+class SourceAdvanced extends Error {
   constructor(
     readonly candidate: string,
     readonly requestBlob: string,
     readonly source: string,
     readonly head: string,
     readonly hashes: readonly number[],
+    readonly batch = false,
   ) {
-    super('The manual publish source kept changing. The request is still queued.');
+    super(
+      batch
+        ? 'The scheduled publish source kept changing. The batch is still due.'
+        : 'The manual publish source kept changing. The request is still queued.',
+    );
   }
 }
 class NamedPartRefusal extends ConsumerOutputRejected {
@@ -693,7 +700,7 @@ export class Publisher {
     };
     return this.git.commit(parent, tree, `Publish ${r.opId}`, this.credits(r.requestBlob, r.opId));
   }
-  private manualSourceAdvance(source: string, head: string, tree: Tree, opId: string) {
+  private sourceAdvance(source: string, head: string, tree: Tree, opId: string, batch = false) {
     if (!this.git.ancestor(source, head)) return 'blocked';
     const reviewed = this.git.tree(source);
     const reviewedModes = this.git.treeModes?.(source);
@@ -720,6 +727,16 @@ export class Publisher {
         (Object.hasOwn(tree, path) && !regular(currentModes, path))
       )
         return false;
+      // A concurrent staged Current save consumes its kick with the staged parts.
+      if (batch && !tree[path]) {
+        const staged = /^publish\/kicks\/current-save-([^/]+)\.json$/.exec(path)?.[1];
+        if (
+          staged &&
+          publishOpIdSchema.safeParse(staged).success &&
+          reviewed[currentSaveStagePaths.record(staged)]
+        )
+          return true;
+      }
       const localized = /^(?:glossary|snippets)\/([^/]+)\.json$/.exec(path)?.[1];
       if (
         path === marksPath ||
@@ -844,6 +861,7 @@ export class Publisher {
       const members = batchMembers(this, frozen, signed.batchId);
       if (
         signed.batchId !== receipt.batchId ||
+        signed.contentRevision !== receipt.contentRevision ||
         stableStringify(members.map(({ hash }) => hash)) !== stableStringify(signed.hashes) ||
         (await approvedDigest(members)) !== signed.approvedDigest
       )
@@ -933,6 +951,7 @@ export class Publisher {
     requestBlob?: string,
     landing?: Landing,
     atomicLive?: { parent: string; candidate: string },
+    failureHead?: string,
   ) {
     const p = paths(opId);
     if (receipt) await this.verifyReceiptDigests(receipt, atomicLive !== undefined);
@@ -940,6 +959,7 @@ export class Publisher {
       const h = this.head(this.options.dataBranch),
         tree = this.git.tree(h);
       if (tree[p.log]) return;
+      if (failureHead && failureHead !== h) throw new RefRace('Batch refusal source moved');
       // An admitted save keeps the publication opId but withdraws its ready envelope.
       // A late rejection must never tombstone it or remove the preparation's due kick.
       if (
@@ -953,23 +973,43 @@ export class Publisher {
       )
         return;
       if (atomicLive) {
+        if (receipt?.batchId && !this.git.casMany)
+          throw new Error('Atomic scheduled publication is unavailable');
         if (!receipt || !this.git.casMany)
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
-        const signed = await this.verifyRequest(receipt.requestBlob, opId, tree);
         const source = receipt.sourceCommit;
-        if (source !== h) {
-          const advance =
-            signed.kind === 'batch' ? 'blocked' : this.manualSourceAdvance(source, h, tree, opId);
-          if (advance === 'rebuild')
-            throw new ManualSourceAdvanced(
+        if (receipt.batchId) {
+          const path = schedulePaths.batch(receipt.batchId);
+          if (tree[p.request] !== receipt.requestBlob) return;
+          if (tree[path] !== this.git.tree(source)[path]) {
+            const batch = batchSchema.safeParse(this.read(tree, path)).data;
+            if (batch?.opId !== opId) throw new ConsumerOutputRejected(supersededMessage);
+            throw new ConsumerOutputRejected('The batch changed after publishing started.');
+          }
+        }
+        const signed = await this.verifyRequest(receipt.requestBlob, opId, tree).catch((error) => {
+          if (receipt.batchId) throw new ConsumerOutputRejected(String(error));
+          throw error;
+        });
+        const liveMoved =
+          signed.kind === 'batch' &&
+          i > 0 &&
+          this.head(this.options.liveBranch) !== atomicLive.parent;
+        if (source !== h || liveMoved) {
+          const advance = this.sourceAdvance(source, h, tree, opId, signed.kind === 'batch');
+          if (advance === 'blocked' && signed.kind === 'batch')
+            throw new RefRace('Claimed batch source no longer matches its publication fence');
+          if (advance === 'blocked')
+            throw new ConsumerOutputRejected('Global receipt identity mismatch');
+          if (advance === 'rebuild' || liveMoved)
+            throw new SourceAdvanced(
               atomicLive.candidate,
               receipt.requestBlob,
               source,
               h,
               signed.hashes,
+              signed.kind === 'batch',
             );
-          if (advance === 'blocked')
-            throw new ConsumerOutputRejected('Global receipt identity mismatch');
         }
         let documents: Tooltip[] | undefined;
         let entryOnlyAggregates: number[] = [];
@@ -978,12 +1018,12 @@ export class Publisher {
             tree,
             signed,
             this.aliasesAt(tree),
-            h,
+            source,
             atomicLive.parent,
           );
           if (
             'failure' in plan ||
-            stableStringify(plan.globals) !== stableStringify(receipt.globals)
+            stableStringify(plan.globals ?? null) !== stableStringify(receipt.globals ?? null)
           )
             throw new ConsumerOutputRejected('Scheduled global receipt identity mismatch');
           documents = plan.entries.map((entry) =>
@@ -1001,7 +1041,8 @@ export class Publisher {
         }
         if (
           !documents ||
-          stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots) ||
+          ((signed.kind === 'push' || receipt.globals) &&
+            stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots)) ||
           stableStringify(signed.requester) !== stableStringify(receipt.requester) ||
           receipt.publisherSha !== this.options.publisherSha ||
           receipt.generatorSha !== this.options.generatorSha
@@ -1033,7 +1074,11 @@ export class Publisher {
           stableStringify(exported) !== stableStringify(receipt.exported) ||
           documents.length !== receipt.entries.length
         )
-          throw new ConsumerOutputRejected('Global receipt export mismatch');
+          throw new ConsumerOutputRejected(
+            receipt.globals
+              ? 'Global receipt export mismatch'
+              : 'Publication receipt export mismatch',
+          );
         for (const document of documents) {
           const entry = receipt.entries.find((entry) => entry.hash === document.hash);
           if (
@@ -1071,9 +1116,17 @@ export class Publisher {
         /* rejected malformed envelope */
       }
       // Batch requests: activation, conflict files, and the batch/due/index updates join THIS
-      // commit (spec "Publication path" 6), recomputed from S' and this head on every attempt.
+      // commit (spec "Publication path" 6), computed from the receipt and this RECORD snapshot.
       const batchTimes = batchPayload
-        ? this.recordBatch(tree, opId, batchPayload, receipt, candidate, result, landing)
+        ? this.recordBatch(
+            tree,
+            opId,
+            batchPayload,
+            receipt,
+            candidate,
+            result,
+            atomicLive ? { at: this.options.now(), source: 'cas' } : landing,
+          )
         : undefined;
       if (receipt) {
         const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
@@ -1200,16 +1253,17 @@ export class Publisher {
   }
   async operation(opId: string): Promise<void> {
     const p = paths(opId);
-    let rebuilding: ManualSourceAdvanced | undefined;
+    let rebuilding: SourceAdvanced | undefined;
     for (let attempt = 0; ; attempt++) {
       let s = this.head(this.options.dataBranch);
       let tree = this.git.tree(s);
       try {
         if (rebuilding && !tree[p.log]) {
+          if (rebuilding.batch && !tree[p.request]) return;
           if (
             tree[p.request] !== rebuilding.requestBlob ||
             (s !== rebuilding.head &&
-              this.manualSourceAdvance(rebuilding.head, s, tree, opId) === 'blocked')
+              this.sourceAdvance(rebuilding.head, s, tree, opId, rebuilding.batch) === 'blocked')
           )
             throw new RefRace('Manual publish source no longer matches the retry fence');
           const checked = await new GlobalsPublisher(this).drain(s);
@@ -1235,13 +1289,13 @@ export class Publisher {
           if (
             s !== checked &&
             !tree[p.log] &&
-            this.manualSourceAdvance(checked, s, tree, opId) !== 'bookkeeping'
+            this.sourceAdvance(checked, s, tree, opId, rebuilding.batch) !== 'bookkeeping'
           )
             throw new RefRace('Manual publish source moved after sync');
         }
         return await this.publishOperation(opId, s, tree, rebuilding);
       } catch (error) {
-        if (error instanceof ManualSourceAdvanced && attempt < 2) {
+        if (error instanceof SourceAdvanced && attempt < 2) {
           rebuilding = error;
           continue;
         }
@@ -1275,6 +1329,9 @@ export class Publisher {
               }
             : { status: 'rejected', error: String(error) },
           tree[p.request],
+          undefined,
+          undefined,
+          rebuilding?.batch ? s : undefined,
         );
         try {
           if (pending) this.git.cas(p.candidate, pending, undefined);
@@ -1302,7 +1359,7 @@ export class Publisher {
     opId: string,
     s: string,
     tree: Tree,
-    rebuilding?: ManualSourceAdvanced,
+    rebuilding?: SourceAdvanced,
   ): Promise<void> {
     const p = paths(opId);
     if (tree[p.log]) {
@@ -1323,7 +1380,7 @@ export class Publisher {
     }
     const blob = tree[p.request];
     let candidate = this.candidate(opId, blob);
-    if (rebuilding && !candidate) throw new RefRace('Manual publish candidate moved');
+    if (rebuilding && !candidate) throw new RefRace('Publish candidate moved');
     if (!candidate || candidate.c === rebuilding?.candidate) {
       let payload: PublishRequestPayload;
       try {
@@ -1356,8 +1413,17 @@ export class Publisher {
       }
       if (payload.kind === 'batch') {
         const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
-        if (!r) return;
-        candidate = this.createCandidate(opId, blob, live, r);
+        if (!r) {
+          if (candidate && this.git.tree(this.head(this.options.dataBranch))[p.log]) {
+            try {
+              this.git.cas(p.candidate, candidate.c, undefined);
+            } catch {
+              /* The terminal log owns the result. */
+            }
+          }
+          return;
+        }
+        candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
       } else {
         const moves = this.movesAt(tree);
         const entries: Entry[] = [],
@@ -1527,7 +1593,11 @@ export class Publisher {
           throw new ConsumerOutputRejected(
             'stored candidate differs from its checked receipt; nothing published',
           );
-        if (r.globals || hasGlobals(this.git.tree(this.head(this.options.dataBranch)))) {
+        if (
+          r.batchId ||
+          r.globals ||
+          hasGlobals(this.git.tree(this.head(this.options.dataBranch)))
+        ) {
           try {
             await this.record(
               opId,
@@ -1540,8 +1610,9 @@ export class Publisher {
             );
           } catch (error) {
             if (
+              r.batchId ||
               error instanceof RefRace ||
-              error instanceof ManualSourceAdvanced ||
+              error instanceof SourceAdvanced ||
               error instanceof ConsumerOutputRejected
             )
               throw error;
@@ -1577,6 +1648,13 @@ export class Publisher {
           return;
         }
       } else {
+        if (r.batchId && r.globals) {
+          const head = this.head(this.options.dataBranch);
+          if (
+            this.sourceAdvance(r.sourceCommit, head, this.git.tree(head), opId, true) !== 'blocked'
+          )
+            throw new SourceAdvanced(c, blob, r.sourceCommit, head, r.globals.roots, true);
+        }
         if (r.globals || hasGlobals(this.git.tree(this.head(this.options.dataBranch))))
           throw new ConsumerOutputRejected('Global live inputs changed; review publication again');
         if (++rebases > 3) throw new Error('Rebase limit');
@@ -1713,7 +1791,7 @@ export class Publisher {
     } catch (e) {
       return { failure: { status: 'rejected', error: `Invalid live/pushed.json: ${String(e)}` } };
     }
-    const outcomes: { hash: number; status: string; fields?: string[]; reason?: string }[] = [];
+    const outcomes: BatchOutcome[] = [];
     const tooltips: Tooltip[] = [];
     const moves = this.movesAt(tree);
     for (const m of members) {
@@ -1742,7 +1820,12 @@ export class Publisher {
       // Non-translation merge3 against current (translations follow Q4 and never block).
       const activation = activate({ base: m.base, current, proposed: m.proposed });
       if (!activation.ok) {
-        outcomes.push({ hash: m.hash, status: 'stale', fields: activation.fields });
+        outcomes.push({
+          hash: m.hash,
+          status: 'stale',
+          fields: activation.fields,
+          ...(activation.reason ? { reason: activation.reason } : {}),
+        });
         continue;
       }
       const composed = this.composeMember(m, snapshot, current, pushed[m.hash] !== undefined);
@@ -1880,11 +1963,11 @@ export class Publisher {
     return { ...result, tooltip: boundTranslationSources(tooltip) };
   }
   /** S' for a batch this opId already claimed: the oldest commit of the head's claimed run. */
-  claimCommit(batchId: string, opId: string): string {
+  claimCommit(batchId: string, opId: string, head = this.head(this.options.dataBranch)): string {
     // Only the claim commit sets `claim` (opIds are unique) and it stays until RECORD ends the
     // operation, so the commits claimed by this opId are one suffix of first-parent history:
     // binary search finds its first commit in O(log n) tree reads, however long the outage.
-    const commits = this.git.history(dataRef(this.options.dataBranch));
+    const commits = this.git.history(head);
     const claimedAt = (i: number) =>
       batchSchema.safeParse(
         this.read<unknown>(this.git.tree(commits[i]), schedulePaths.batch(batchId)),
@@ -1918,19 +2001,30 @@ export class Publisher {
     payload: BatchPublishPayload,
     aliases: Aliases,
   ): Promise<Receipt | undefined> {
-    const fail = async (failure: Failure) => {
-      const { status, error, outcomes } = failure;
-      await this.record(opId, undefined, undefined, { status, error, outcomes }, blob);
-      return undefined;
-    };
     const path = schedulePaths.batch(payload.batchId);
     const parsed = batchSchema.safeParse(this.read<unknown>(tree, path));
+    const claimed =
+      parsed.data?.status === 'publishing' &&
+      parsed.data.opId === opId &&
+      parsed.data.claim?.opId === opId;
+    const fail = async (failure: Failure) => {
+      const { status, error, outcomes } = failure;
+      await this.record(
+        opId,
+        undefined,
+        undefined,
+        { status, error, outcomes },
+        blob,
+        undefined,
+        undefined,
+        claimed ? s : undefined,
+      );
+      return undefined;
+    };
     if (!parsed.success)
       return fail({ status: 'rejected', error: 'Missing or invalid batch.json' });
     const batch = parsed.data;
     if (batch.opId === opId && ['preparing', 'needs_attention'].includes(batch.status)) return;
-    const claimed =
-      batch.status === 'publishing' && batch.opId === opId && batch.claim?.opId === opId;
     if (
       batch.opId !== opId ||
       (batch.status !== 'scheduled' && !claimed) ||
@@ -1982,19 +2076,23 @@ export class Publisher {
         return fail({ status: 'rejected', error: String(error) });
       }
     }
-    const source = claimed ? this.claimCommit(payload.batchId, opId) : s;
-    const at = claimed ? this.git.tree(source) : tree;
-    let frozenAliases = aliases;
-    if (claimed)
-      try {
-        frozenAliases = this.aliasesAt(at);
-      } catch (e) {
-        return fail({
-          status: 'rejected',
-          error: `Invalid alias configuration (${sandboxPointersPath}, ${aliasGroupsPath}): ${String(e)}`,
-        });
-      }
-    const plan = await this.batchPlan(at, payload, frozenAliases, source, live);
+    const claim = claimed ? this.claimCommit(payload.batchId, opId, s) : s;
+    if (claim !== s) {
+      if (this.sourceAdvance(claim, s, tree, opId, true) === 'blocked')
+        throw new RefRace('Claimed batch source no longer matches its publication fence');
+      const frozen = this.git.tree(claim);
+      const prefix = `schedule/batches/${batch.id}/tooltips/`;
+      if (
+        tree[path] !== frozen[path] ||
+        blob !== frozen[paths(opId).request] ||
+        Object.keys(frozen).some(
+          (name) => name.startsWith(prefix) && tree[name] !== frozen[name],
+        ) ||
+        Object.keys(tree).some((name) => name.startsWith(prefix) && !frozen[name])
+      )
+        return fail({ status: 'rejected', error: 'The batch changed after publishing started.' });
+    }
+    const plan = await this.batchPlan(tree, payload, aliases, s, live);
     if ('failure' in plan) {
       if (plan.failure.globals && !claimed && batch.preparedRequestId) {
         await new SchedulePreparer(this).drain(true);
@@ -2003,12 +2101,25 @@ export class Publisher {
         );
         if (latest.opId === opId && latest.status === 'needs_attention') return;
       }
-      return fail(plan.failure);
+      const { failure } = plan;
+      if (claimed && failure.status === 'stale' && failure.outcomes?.length) {
+        const affected = failure.outcomes.filter(({ status }) => status !== 'accepted');
+        const names = this.partNames(
+          this.git.tree(claim),
+          affected.map(({ hash }) => hash),
+          batchMembers(this, tree, payload.batchId).map(({ proposed }) => proposed),
+        );
+        return fail({
+          ...failure,
+          error: `Current changes conflict with the scheduled changes for ${names}. Edit the batch before scheduling again.`,
+        });
+      }
+      return fail(failure);
     }
     const receipt: Receipt = {
       opId,
       requestBlob: blob,
-      sourceCommit: source,
+      sourceCommit: s,
       liveParent: live,
       now: plan.now,
       publisherSha: this.options.publisherSha,
@@ -2026,7 +2137,7 @@ export class Publisher {
     };
     // A refused batch must not leave even a claim commit behind.
     this.merge(live, receipt);
-    let sourceCommit = source;
+    let sourceCommit = s;
     if (!claimed) {
       const next = { ...tree };
       const claimedAt = iso(this.options.now());
@@ -2058,13 +2169,13 @@ export class Publisher {
         return undefined;
       }
     }
-    if (receipt.globals && sourceCommit !== source) {
+    if (receipt.globals && sourceCommit !== s) {
       // CLAIM changes only scheduling metadata. Rebind the head-bound release certificate
       // to S' while preserving the immutable signed dependency pin.
       const frozen = await this.batchPlan(
         this.git.tree(sourceCommit),
         payload,
-        frozenAliases,
+        aliases,
         sourceCommit,
         live,
       );
@@ -2076,9 +2187,9 @@ export class Publisher {
   }
   /**
    * The batch part of RECORD at head `tree` (edited in place). With a landed receipt: activation
-   * per member (base and proposed from S' = receipt.sourceCommit, current from this head),
-   * conflict files, and the published batch. Without one (stale, rejected, superseded): the batch
-   * returns to draft, but only while it is still this opId's (R15). Returns the log's extra times.
+   * per member (base and proposed from the receipt's snapshot, current from this head),
+   * conflict files for legacy landed receipts, and the published batch. A refused claim needs
+   * attention. An unclaimed refusal still returns to draft while this opId owns it (R15).
    */
   recordBatch(
     tree: Tree,
@@ -2106,12 +2217,13 @@ export class Publisher {
         );
         if (!status) throw new Error(`Unexpected batch result ${result?.status}`);
         const outcomes = Array.isArray(result?.outcomes) ? result.outcomes : undefined;
+        const attention = batch.status === 'publishing' && status !== 'superseded';
         const updated = withEvent(
           this,
           tree,
           batch,
           {
-            status: 'draft',
+            status: attention ? 'needs_attention' : 'draft',
             preparedRequestId: null,
             opId: null,
             scheduledContentRevision: null,

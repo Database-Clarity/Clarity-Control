@@ -330,9 +330,10 @@ export async function endSchedule(
     if (batch.preparation) return endBatchRequest(pendingRequest, github, user, batchId, action);
     const [indexFile] = await github.files([schedulePaths.index], state.head);
     state.index = indexFile ? parseIndex(indexFile.value) : { batches: [] };
-    refuseClaimed(batch);
+    // A refused publication has released its claim and has no preparation to cancel.
+    if (batch.status !== 'needs_attention') refuseClaimed(batch);
     refuseRevision(batch, input.revision);
-    if (action === 'unschedule' && batch.status !== 'scheduled')
+    if (action === 'unschedule' && !['scheduled', 'needs_attention'].includes(batch.status))
       throw new HttpError(409, 'This batch is not scheduled');
     if (action === 'unschedule') refuseOpenCap(state.index, batchId);
     const operation = await scheduledOperation(github, state, batch);

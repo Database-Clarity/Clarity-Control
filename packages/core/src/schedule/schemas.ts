@@ -238,8 +238,22 @@ export const batchSchema = z
     if (succeeded && batch.status !== 'published')
       issue('Only a published batch carries a successful result');
     switch (batch.status) {
-      case 'preparing':
       case 'needs_attention':
+        if (!batch.preparation) {
+          if (
+            !batch.result ||
+            !['stale', 'rejected'].includes(batch.result.status) ||
+            batch.claim !== null ||
+            batch.opId !== null ||
+            batch.scheduledContentRevision !== null ||
+            batch.notBefore !== null ||
+            batch.zone !== null
+          )
+            issue('Publication needs attention after a refused claim');
+          break;
+        }
+      // Falls through for a failed preparation.
+      case 'preparing':
         if (!batch.preparation || batch.claim !== null || batch.preparedRequestId != null)
           issue('Preparation requires an outstanding request, no claim, and no ready fence');
         if (batch.preparation?.returnStatus === 'scheduled' && (!batch.notBefore || !batch.opId))

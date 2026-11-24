@@ -100,7 +100,7 @@ class Memory implements Repository {
   }
   history(ref: string) {
     const result: string[] = [];
-    let h = this.head(ref);
+    let h = this.commits.has(ref) ? ref : this.head(ref);
     while (h) {
       result.unshift(h);
       h = this.commits.get(h)?.parent;
@@ -2008,3 +2008,36 @@ describe('offline schedule preparation', () => {
     }
   }, 300_000);
 });
+it('rebuilds a scheduledGlobalsV1 candidate without replacing its signed dependency pin', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'scheduled-globals-save-'));
+  try {
+    execFileSync('git', ['init', '--bare', root], { stdio: 'pipe' });
+    execFileSync('git', ['--git-dir', root, 'config', 'publisher.simulator', 'true']);
+    const git = new LocalRepository(root);
+    const f = await fixture(git);
+    await withGlobals(f);
+    f.admit('schedule');
+    await f.prep.drain();
+    const { sourceCommit } = JSON.parse(f.request().envelope.payload) as ScheduleIntent;
+    const atomic = git.casMany.bind(git);
+    let saved = false;
+    const other = { ...tip('concurrent unrelated Current edit'), hash: 124 };
+    git.casMany = (updates) => {
+      if (!saved) {
+        saved = true;
+        f.change({ 'tooltips/124.json': other });
+      }
+      atomic(updates);
+    };
+    await f.pub.run();
+    expect(saved).toBe(true);
+    expect(f.batch().status).toBe('published');
+    const receipt = f.pub.receipt(f.pub.head('converter-v2-test'), R)!;
+    expect(receipt.globals?.batchSource).toBe(sourceCommit);
+    expect(receipt.sourceCommit).not.toBe(sourceCommit);
+    expect(f.read('tooltips/124.json')).toEqual(other);
+    expect(git.additions(f.pub.head('converter-v2-test'), paths(R).receipt)).toHaveLength(1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 300_000);

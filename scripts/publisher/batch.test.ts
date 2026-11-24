@@ -30,6 +30,8 @@ import {
   publishableHash,
   inactivePublishableHash,
   inactiveRemovalHash,
+  currentSaveStagePaths,
+  currentSaveStagingCapability,
   stableStringify,
   type PublishPayload,
   type Tooltip,
@@ -37,6 +39,7 @@ import {
 import { LocalRepository, RefRace, type Tree } from './git.js';
 import { RemoteRepository } from './remote.js';
 import { Publisher, paths, type Options } from './publisher.js';
+import { drainCurrentSaves } from './currentSave.js';
 import { maxBuffer } from './childProcess.mjs';
 import { eventsArchive, resolveActivationMessage, supersededMessage } from './batch.js';
 
@@ -341,6 +344,7 @@ async function setup(transport: 'simulator' | 'remote' = 'simulator') {
   const live = () =>
     pub.read<{ perks: Record<string, unknown> }>(git.tree(git.head(L)!), 'liveDescriptions.json')!;
   return {
+    root,
     git,
     pub,
     options,
@@ -351,6 +355,7 @@ async function setup(transport: 'simulator' | 'remote' = 'simulator') {
     translationSave,
     unscheduleCommit,
     signedBatch,
+    signEnvelope,
     memberFiles,
     batchFile,
     batchAt,
@@ -546,24 +551,18 @@ describe.each(['simulator', 'remote'] as const)('%s: scheduled batch core path',
     expect(log.times).toMatchObject({ landedAtSource: 'cas', recordedAt: expect.any(String) });
   });
 
-  it('crash after the live write: the next run alone records it once with observed landedAt', async () => {
+  it('recovers a legacy split LIVE write once with observed landedAt', async () => {
     const f = await setup(transport);
     await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
-    const cas = f.git.cas.bind(f.git);
-    f.git.cas = (ref, old, next) => {
-      if (ref === L) {
-        cas(ref, old, next);
-        throw new Error('disconnect');
-      }
-      cas(ref, old, next);
-    };
-    f.options.backoff = async () => {
+    const atomic = f.git.casMany.bind(f.git);
+    f.git.casMany = (updates) => {
+      const live = updates.find(({ ref }) => ref === L)!;
+      f.git.cas(L, live.old, live.next);
       throw new Error('runner crash');
     };
     await expect(f.pub.run()).rejects.toThrow('runner crash');
     expect(f.read<Due>('schedule/due.json')!.entries[0].claimed).toBe(true);
-    f.git.cas = cas;
-    f.options.backoff = async () => {};
+    f.git.casMany = atomic;
     f.clock.now = START + 600_000;
     await f.pub.run();
     const { batch } = assertPublished(f);
@@ -575,6 +574,176 @@ describe.each(['simulator', 'remote'] as const)('%s: scheduled batch core path',
 });
 
 describe('scheduled batches (simulator)', () => {
+  it.each([
+    ['tooltips/124.json', true],
+    ['config/marks.json', false],
+    ['config/marks.json', false, { compendium: { 123: { kind: 'no-match' } } }],
+    ['glossary/de.json', false],
+    ['snippets/de.json', false],
+    ['config/snippets.json', true],
+  ] as const)('publishes in the same run after a save to %s', async (path, rebuild, save?) => {
+    const f = await setup();
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    const atomic = f.git.casMany.bind(f.git);
+    let saved: string | undefined;
+    const value = save ?? (path.startsWith('tooltips/') ? tip({}, 124) : {});
+    f.git.casMany = (updates) => {
+      if (!saved) {
+        f.change(D, { [path]: value });
+        saved = f.head();
+      }
+      atomic(updates);
+    };
+    await f.pub.run();
+    const { receipt } = assertPublished(f);
+    expect(f.read(path)).toEqual(value);
+    expect(receipt.sourceCommit === saved).toBe(rebuild);
+    expect(f.git.head(paths(OP).candidate)).toBeUndefined();
+  });
+
+  it('rebuilds when a signed staged Current save consumes its kick during RECORD', async () => {
+    const f = await setup();
+    const id = PUSH2;
+    const staged = currentSaveStagePaths;
+    const at = new Date(START).toISOString();
+    const upload = { requester: alice, parts: 1, updatedAt: at };
+    const base = tip({}, 124);
+    const next = tip({ text: { en: entry('Saved from a staged upload', at) } }, 124);
+    const bytes = Buffer.from(
+      JSON.stringify({
+        changes: [{ hash: 124, base, next }],
+        message: 'Save other tooltip',
+      }),
+    );
+    f.options.publisherDigest = 'e'.repeat(64);
+    f.change(D, {
+      'tooltips/124.json': base,
+      '.publisher/PIN': {
+        sourceSha: f.options.publisherSha,
+        sha256: f.options.publisherDigest,
+        capabilities: [currentSaveStagingCapability],
+      },
+      [staged.record(id)]: { ...upload, status: 'uploading' },
+      [staged.part(id, 0)]: bytes.toString('base64'),
+    });
+    const envelope = f.signEnvelope({
+      version: 1,
+      requestId: id,
+      repo: f.options.repo,
+      branch: f.options.dataBranch,
+      sourceCommit: f.head(),
+      requester: alice,
+      parts: 1,
+      digest: createHash('sha256').update(bytes).digest('hex'),
+    });
+    f.change(D, {
+      [staged.record(id)]: { ...upload, status: 'queued', envelope },
+      [staged.kick(id)]: { requestId: id },
+    });
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    const record = f.pub.record.bind(f.pub);
+    const peer = new Publisher(new LocalRepository(f.root), f.options);
+    let afterSave: string | undefined;
+    f.pub.record = async (...args) => {
+      if (args[6] && !afterSave) {
+        await drainCurrentSaves(peer);
+        afterSave = f.head();
+      }
+      return record(...args);
+    };
+    await f.pub.run(false);
+    expect(assertPublished(f).receipt.sourceCommit).toBe(afterSave);
+    expect(f.read(staged.record(id))).toMatchObject({ status: 'saved' });
+    expect(f.read(staged.kick(id))).toBeUndefined();
+    expect(f.read<Tooltip>('tooltips/124.json')?.text.en?.text).toBe(next.text.en?.text);
+  });
+
+  it('uses two rebuilds, leaves a claimed due entry, and publishes once on a later run', async () => {
+    const f = await setup();
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    const live = f.git.head(L);
+    const atomic = f.git.casMany.bind(f.git);
+    let saves = 0;
+    f.git.casMany = (updates) => {
+      f.change(D, { 'tooltips/124.json': tip({ text: { en: entry(`Save ${++saves}`) } }, 124) });
+      atomic(updates);
+    };
+    await expect(f.pub.run()).rejects.toThrow('The batch is still due');
+    expect(saves).toBe(3);
+    expect(f.batchFile()).toMatchObject({ status: 'publishing', opId: OP });
+    expect(f.read<Due>('schedule/due.json')?.entries).toEqual([
+      { batchId: BATCH, opId: OP, notBefore: DUE, claimed: true },
+    ]);
+    expect(f.read(paths(OP).log)).toBeUndefined();
+    expect(f.git.head(L)).toBe(live);
+    f.git.casMany = atomic;
+    f.clock.now = START + 600_000;
+    await new Publisher(new LocalRepository(f.root), f.options).run();
+    const { batch } = assertPublished(f);
+    expect(batch.events.filter((event) => event.action === 'claim')).toHaveLength(1);
+    expect(batch.result?.landedAt).toBe(new Date(f.clock.now).toISOString());
+  });
+
+  it('a peer with the same stale RECORD lease reconciles a single receipt', async () => {
+    const f = await setup();
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    const plan = f.pub.batchPlan.bind(f.pub);
+    const peer = new Publisher(new LocalRepository(f.root), f.options);
+    let raced = false;
+    f.pub.batchPlan = async (...args) => {
+      if (f.batchFile().status === 'publishing' && !raced) {
+        raced = true;
+        await peer.operation(OP);
+      }
+      return plan(...args);
+    };
+    await f.pub.run();
+    expect(raced).toBe(true);
+    expect(
+      assertPublished(f).batch.events.filter((event) => event.action === 'claim'),
+    ).toHaveLength(1);
+  });
+
+  it('a ready reschedule committed before claim RECORD keeps its new due date', async () => {
+    const f = await setup();
+    const members = [{ hash: 123, base: tip(), proposed: proposedEn() }];
+    await f.schedule(members);
+    const live = f.git.head(L);
+    const record = f.pub.record.bind(f.pub);
+    f.pub.record = async (...args) => {
+      if (args[6] && f.batchFile().opId === OP) {
+        const request = await f.signedBatch(OP2, members, LATER, 1, new Date(START).toISOString());
+        f.change(
+          D,
+          {
+            [paths(OP2).request]: request,
+            [`schedule/batches/${BATCH}/batch.json`]: {
+              ...f.batchFile(),
+              opId: OP2,
+              claim: null,
+              status: 'scheduled',
+              notBefore: LATER,
+            },
+            'schedule/due.json': {
+              entries: [{ batchId: BATCH, opId: OP2, notBefore: LATER, claimed: false }],
+            },
+          },
+          [paths(OP).request],
+        );
+      }
+      return record(...args);
+    };
+    await f.pub.run();
+    expect(f.git.head(L)).toBe(live);
+    expect(f.git.head(paths(OP).candidate)).toBeUndefined();
+    expect(f.batchFile()).toMatchObject({ status: 'scheduled', opId: OP2, notBefore: LATER });
+    expect(f.read<Due>('schedule/due.json')?.entries[0].opId).toBe(OP2);
+    f.clock.now = Date.parse(LATER);
+    await f.pub.run();
+    assertPublished(f, OP2);
+    expect(f.receipts(OP)).toHaveLength(0);
+  });
+
   it('a batch not yet due is neither drained nor pending; it publishes once due', async () => {
     const f = await setup();
     await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }], { notBefore: LATER });
@@ -734,15 +903,16 @@ describe('scheduled batches (simulator)', () => {
     const preClaim = f.head();
     const late = f.unscheduleCommit(preClaim);
     const cas = f.git.cas.bind(f.git);
+    const atomic = f.git.casMany.bind(f.git);
     let refused = false;
-    f.git.cas = (ref, old, next) => {
-      if (ref === L && !refused) {
+    f.git.casMany = (updates) => {
+      if (!refused) {
         expect(() => cas(D, preClaim, late)).toThrow(RefRace);
         // The Worker re-reads the head: the batch is claimed, so it refuses (409).
         expect(() => f.unscheduleCommit(f.head())).toThrow('Publishing started');
         refused = true;
       }
-      cas(ref, old, next);
+      atomic(updates);
     };
     await f.pub.run();
     expect(refused).toBe(true);
@@ -755,31 +925,36 @@ describe('scheduled batches (simulator)', () => {
       const f = await setup();
       await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
       const cas = f.git.cas.bind(f.git);
-      let dataWrites = 0;
+      const atomic = f.git.casMany.bind(f.git);
       f.git.cas = (ref, old, next) => {
         if (when === 'after the claim' && ref === paths(OP).candidate) throw new Error('crash');
-        if (when === 'after the candidate' && ref === L) throw new Error('crash');
-        if (when === 'mid-RECORD' && ref === D && ++dataWrites === 2)
-          throw new Error('record unavailable');
         cas(ref, old, next);
       };
-      f.options.backoff = async () => {
+      f.git.casMany = (updates) => {
+        if (when === 'mid-RECORD') {
+          atomic(updates);
+          throw new Error('acknowledgement lost');
+        }
         throw new Error('runner crash');
       };
       await expect(f.pub.run()).rejects.toThrow();
       const batch = f.batchFile();
-      expect(batch.status).toBe('publishing');
-      expect(f.read<Due>('schedule/due.json')!.entries).toEqual([
-        { batchId: BATCH, opId: OP, notBefore: DUE, claimed: true },
-      ]);
+      if (when === 'mid-RECORD') assertPublished(f);
+      else {
+        expect(batch.status).toBe('publishing');
+        expect(f.receipts()).toHaveLength(0);
+        expect(f.read<Due>('schedule/due.json')!.entries).toEqual([
+          { batchId: BATCH, opId: OP, notBefore: DUE, claimed: true },
+        ]);
+      }
       expect(f.git.head(paths(OP).candidate) !== undefined).toBe(when !== 'after the claim');
       f.git.cas = cas;
-      f.options.backoff = async () => {};
+      f.git.casMany = atomic;
       f.clock.now = START + 600_000;
       await f.pub.run();
       const { batch: done, receipt } = assertPublished(f);
       expect(done.events.filter((e) => e.action === 'claim')).toHaveLength(1);
-      expect(done.result!.landedAtSource).toBe(when === 'mid-RECORD' ? 'observed' : 'cas');
+      expect(done.result!.landedAtSource).toBe('cas');
       // The resumed run used S' (the original claim commit), never a later head.
       expect(receipt.sourceCommit).toBe(
         f.git.history(D).find((c) => f.batchAt(c)?.status === 'publishing'),
@@ -894,6 +1069,7 @@ describe('scheduled batches (simulator)', () => {
     const pending = f.head();
     f.git.cas(D, pending, unsigned);
     const cas = f.git.cas.bind(f.git);
+    const atomic = f.git.casMany.bind(f.git);
     let raced = false,
       recordFailed = false;
     f.git.cas = (ref, old, next) => {
@@ -904,17 +1080,21 @@ describe('scheduled batches (simulator)', () => {
           [paths(PUSH1).request]: f.read(paths(PUSH1).request, f.git.tree(pending)),
         });
       }
-      if (ref === D && !recordFailed && f.pub.receipt(f.git.head(L)!, OP)) {
+      cas(ref, old, next);
+    };
+    f.git.casMany = (updates) => {
+      if (!recordFailed) {
         recordFailed = true;
         throw new Error('record unavailable');
       }
-      cas(ref, old, next);
+      atomic(updates);
     };
     await expect(f.pub.run()).rejects.toThrow('record unavailable');
     expect(raced).toBe(true);
     expect(f.batchFile().status).toBe('publishing');
     expect(f.pub.queue(f.head())[0]).toBe(OP);
     f.git.cas = cas;
+    f.git.casMany = atomic;
     await f.pub.run();
     assertPublished(f);
     const history = f.git.history(L);
@@ -940,7 +1120,7 @@ describe('scheduled batches (simulator)', () => {
     // 1,500 later claimed commits (a long outage with saves), without building them.
     const long = [...real, ...Array<string>(1500).fill(real.at(-1)!)];
     const history = f.git.history.bind(f.git);
-    f.git.history = (ref) => (ref === D ? long : history(ref));
+    f.git.history = (ref) => (ref === f.head() ? long : history(ref));
     expect(f.pub.claimCommit(BATCH, OP)).toBe(claim);
     await f.pub.run();
     f.git.history = history;
@@ -1083,28 +1263,36 @@ describe('scheduled batches (simulator)', () => {
     });
   });
 
-  it('R14: a tooltip created after the claim publishes and records an $exists conflict file', async () => {
+  it.each([
+    { hash: 123, base: tip(), field: 'text.en', name: 'Thing' },
+    { hash: 125, base: null, field: '$exists', name: 'New' },
+  ])('an edit after claim conflicting on $field needs attention without a receipt', async ({
+    hash, base, field, name,
+  }) => {
     const f = await setup();
-    const created = tip({ text: { en: entry('brand new') } }, 125);
-    const theirs = tip({ text: { en: entry('someone else') } }, 125);
-    await f.schedule([{ hash: 125, base: null, proposed: created }]);
-    const cas = f.git.cas.bind(f.git);
+    const path = `tooltips/${hash}.json`;
+    const proposed = tip({ text: { en: entry('batch text') } }, hash);
+    const theirs = tip({ text: { en: entry('someone else') } }, hash);
+    await f.schedule([{ hash, base, proposed }]);
+    const atomic = f.git.casMany.bind(f.git);
     let saved = false;
-    f.git.cas = (ref, old, next) => {
-      if (ref === L && !saved) {
+    f.git.casMany = (updates) => {
+      if (!saved) {
         saved = true;
-        f.change(D, { 'tooltips/125.json': theirs });
+        f.change(D, { [path]: theirs });
       }
-      cas(ref, old, next);
+      atomic(updates);
     };
     await f.pub.run();
-    assertPublished(f);
-    expect(f.read<Tooltip>('tooltips/125.json')).toEqual(theirs);
-    expect(f.read<Tooltip>('live/tooltips/125.json')).toEqual(created);
-    expect(f.read<ActivationConflict>('schedule/activation-conflicts/125.json')).toMatchObject({
-      fields: ['$exists'],
-      base: null,
-      currentAtRecord: theirs,
+    expect(f.read<Tooltip>(path)).toEqual(theirs);
+    expect(f.read(`live/${path}`)).toEqual(base ?? undefined);
+    expect(f.receipts()).toHaveLength(0);
+    expect(f.batchFile()).toMatchObject({
+      status: 'needs_attention',
+      result: {
+        error: expect.stringContaining(`for ${name}`),
+        outcomes: [{ hash, fields: [field] }],
+      },
     });
   });
 
@@ -1122,6 +1310,9 @@ describe('scheduled batches (simulator)', () => {
       status: 'draft',
       result: { status: 'stale', outcomes: [{ hash: 123, status: 'stale', fields: ['text.en'] }] },
     });
+    const oldDraft = f.head();
+    await f.pub.run();
+    expect(f.head()).toBe(oldDraft);
     // Rebase (base = current) and schedule again with a new opId.
     const members = [{ hash: 123, base: moved, proposed: proposedEn() }];
     const draft = f.batchFile();
@@ -1145,7 +1336,7 @@ describe('scheduled batches (simulator)', () => {
     expect(f.read<{ result: { status: string } }>(paths(OP).log)!.result.status).toBe('stale');
   });
 
-  it('R3 + R12: a RECORD conflict blocks a manual request queued behind the batch until resolved', async () => {
+  it('R3 + R12: a legacy landed receipt still records and resolves an activation conflict', async () => {
     const f = await setup();
     const base = tip({ text: { en: entry('reviewed'), de: entry('alt') } });
     f.change(D, {
@@ -1166,15 +1357,19 @@ describe('scheduled batches (simulator)', () => {
     });
     const cas = f.git.cas.bind(f.git);
     let saved = false;
-    f.git.cas = (ref, old, next) => {
-      if (ref === L && !saved) {
+    const atomic = f.git.casMany.bind(f.git);
+    f.git.casMany = (updates) => {
+      if (!saved) {
         saved = true;
         f.change(D, { 'tooltips/123.json': theirs });
+        const live = updates.find(({ ref }) => ref === L)!;
+        cas(L, live.old, live.next);
+        throw new RefRace('Legacy LIVE landed by itself');
       }
-      cas(ref, old, next);
+      atomic(updates);
     };
     await f.pub.run();
-    f.git.cas = cas;
+    f.git.casMany = atomic;
     assertPublished(f);
     expect(f.read<Tooltip>('tooltips/123.json')).toEqual(theirs);
     const conflict = f.read<ActivationConflict>('schedule/activation-conflicts/123.json')!;
@@ -1308,7 +1503,7 @@ describe('scheduled batches (simulator)', () => {
       });
   });
 
-  it('Q4: an upcoming translation replaces a newer current edit at activation', async () => {
+  it('Q4: an upcoming translation wins a current edit saved after claim in the due second', async () => {
     const f = await setup();
     await f.schedule([
       {
@@ -1317,12 +1512,22 @@ describe('scheduled batches (simulator)', () => {
         proposed: tip({ text: { en: entry('reviewed'), fr: entry('à venir') } }),
       },
     ]);
-    f.change(D, {
-      'tooltips/123.json': tip({ text: { en: entry('reviewed'), fr: entry('courant') } }),
-    });
+    f.clock.now = Date.parse(DUE);
+    const atomic = f.git.casMany.bind(f.git);
+    let saved = false;
+    f.git.casMany = (updates) => {
+      if (!saved) {
+        saved = true;
+        f.change(D, {
+          'tooltips/123.json': tip({ text: { en: entry('reviewed'), fr: entry('courant', DUE) } }),
+        });
+      }
+      atomic(updates);
+    };
     await f.pub.run();
     assertPublished(f);
     expect(f.read<Tooltip>('tooltips/123.json')!.text.fr!.text).toBe('à venir');
+    expect(f.read<Tooltip>('live/tooltips/123.json')!.text.fr!.text).toBe('à venir');
     expect(f.read('schedule/activation-conflicts/123.json')).toBeUndefined();
   });
 
