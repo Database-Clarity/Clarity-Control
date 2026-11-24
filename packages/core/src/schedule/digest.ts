@@ -89,7 +89,6 @@ export const batchPublishPayloadSchema = z
         'Hashes must be sorted and unique',
       ),
     approvedDigest: digestSchema,
-    globalsRevision: pushShape.globalsRevision,
     intentDigest: digestSchema,
   })
   .strict();
@@ -114,7 +113,6 @@ export function batchIntentDigest(value: BatchPublishIntent): Promise<string> {
       notBefore: value.notBefore,
       hashes: [...value.hashes].sort((a, b) => a - b),
       approvedDigest: value.approvedDigest,
-      ...(value.globalsRevision === undefined ? {} : { globalsRevision: value.globalsRevision }),
     }),
   );
 }
