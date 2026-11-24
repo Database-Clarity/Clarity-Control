@@ -677,7 +677,7 @@ describe('withdrawing a global read by a historical tooltip revision', () => {
     }
     await port.acknowledge(history, delta.id);
     await f.globals.drain();
-    expect(rows().find(({ id }) => id === history.id)?.review.acknowledgement.by).toBe('alice');
+    expect(rows().find(({ id }) => id === history.id)?.review.acknowledgement?.by).toBe('alice');
     if (publishedReader) {
       await publish([44, 45], 7);
       expect(JSON.stringify(liveReader())).toBe(JSON.stringify(beforeRemoval));
