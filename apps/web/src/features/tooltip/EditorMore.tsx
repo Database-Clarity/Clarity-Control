@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 import { Popover } from '../../ui/Popover';
 import { scaledPx } from '../../ui/scale';
 import type { GroupedPerk } from './grouping';
-import type { OverrideTarget } from './EditorPaneHeader';
+import { groupedLabel, groupedTitle } from './GroupedPerks';
+import { editLabel, type OverrideTarget } from './variants';
 import styles from './EditorMore.module.scss';
 
 /** The way back from queue mode to its list (the phone's More sheet). */
@@ -43,7 +44,7 @@ export function EditorMore({
   saving: boolean;
   onDiscard(): void;
   grouped?: GroupedPerk[];
-  /** The enhanced overrides to open (empty while one is open: its way back stays in the row). */
+  /** The versions with text of their own to open (empty while one is open: its way back stays in the row). */
   overrides: OverrideTarget[];
   onEditOverride(hash: number): void;
   /** Queue mode: the way back to the queue's list and what it shows. */
@@ -68,6 +69,7 @@ export function EditorMore({
       className={styles.trigger}
       flush
       contain
+      width={grouped && scaledPx(640)}
       triggerLabel="More editor tools"
       triggerTitle="More editor tools"
       trigger={<span className={styles.dots} aria-hidden="true" />}
@@ -115,10 +117,10 @@ export function EditorMore({
                 <button
                   type="button"
                   aria-expanded={groupedOpen}
-                  title="Which manifest perks open this editor entry, and how each joined (maintainers)"
+                  title={groupedTitle}
                   onClick={() => setGroupedOpen((value) => !value)}
                 >
-                  <span>Grouped manifest perks</span>
+                  <span>{groupedLabel}</span>
                   <small>
                     {grouped.length} <span aria-hidden="true">{groupedOpen ? '▾' : '›'}</span>
                   </small>
@@ -135,7 +137,7 @@ export function EditorMore({
                     close();
                   }}
                 >
-                  Edit override{overrides.length > 1 ? `: ${target.name}` : ''}
+                  {editLabel(target, overrides.length > 1)}
                 </button>
               </li>
             ))}
@@ -351,7 +353,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
     ...(grouped ? [{ id: 'grouped' as const, label: `Grouped ${grouped.length}` }] : []),
     ...overrides.map((target) => ({
       id: `override:${target.hash}` as const,
-      label: `Edit override${overrides.length > 1 ? `: ${target.name}` : ''}`,
+      label: editLabel(target, overrides.length > 1),
     })),
   ];
   const tools = all.filter((tool) => tool.id !== 'discard' || draft || props.reserveDraft);
@@ -493,11 +495,11 @@ function InlineTool({ tool, ...props }: { tool: Tool } & MoreProps) {
   if (tool.id === 'grouped' && grouped)
     return (
       <Popover
-        label="Grouped manifest perks"
+        label={groupedLabel}
         className={styles.tool}
         contain
         trigger={tool.label}
-        triggerTitle="Which manifest perks open this editor entry, and how each joined (maintainers)"
+        triggerTitle={groupedTitle}
       >
         {renderGrouped(grouped)}
       </Popover>

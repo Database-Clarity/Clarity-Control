@@ -13,7 +13,7 @@ import { Dialog } from '../../ui/Dialog';
 import { itemFor } from './catalog';
 import { DraftList, draftRows } from './DraftList';
 import { ShellOverlay } from './ShellOverlay';
-import { tooltipPath } from './stepping';
+import { editorPath } from '../queue/editorPath';
 import styles from './DraftButton.module.scss';
 
 /** Drafts whose hash now shares another tooltip: kept, never deleted, until the user decides. */
@@ -104,7 +104,7 @@ export function DraftsContent({ onClose }: { onClose(): void }) {
     (hash: number) => {
       // Close first, then go: the leave guard may answer with its own prompt, which then owns focus.
       onClose();
-      navigate(tooltipPath(data ? resolveAlias(hash, data.aliases) : hash, ''));
+      navigate(data ? editorPath(resolveAlias(hash, data.aliases), data) : `/t/${hash}`);
     },
     [onClose, navigate, data],
   );

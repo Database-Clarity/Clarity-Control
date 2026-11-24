@@ -8,7 +8,7 @@ import { Popover } from '../../ui/Popover';
 import styles from './InactiveMoveControl.module.scss';
 
 /**
- * Maintainers take one non-canonical member out of its accepted group, with an in-place confirm.
+ * Maintainers take one member out of its accepted group (never the main entry), with an in-place confirm.
  * A member whose sandbox perk another inventory item shares stays grouped (owner 2026-11-23);
  * the row says so instead of offering the action, and the Worker refuses it the same way.
  */
@@ -66,8 +66,8 @@ export function GroupRemoveControl({
   );
   if (shared.length)
     return (
-      <span title={`Sandbox perk ${shared.join(', ')} is shared with another inventory item`}>
-        Stays grouped: shared sandbox perk
+      <span title={`Another item also uses perk effect ${shared.join(', ')}`}>
+        Can't remove: shared perk effect
       </span>
     );
   const save = async () => {
@@ -120,7 +120,7 @@ export function GroupRemoveControl({
           <strong>Remove {name.trim() || `Tooltip ${hash}`} from the group?</strong>
           <p>
             It becomes its own entry and starts with a copy of the group's text in every language.
-            Its sandbox perks stay with it. Automatic grouping will not add it back.
+            Its perk effects stay with it. Automatic grouping will not add it back.
           </p>
           {error && (
             <p role="alert" className={styles.error}>

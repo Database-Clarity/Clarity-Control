@@ -73,24 +73,30 @@ export function variantMatchesBase(
   return rendered(own, globals) === rendered(inherited, globals);
 }
 
-const forms = new WeakMap<EditorData, Map<string, VariantForm>>();
+const matches = new WeakMap<EditorData, Map<string, boolean>>();
 
 /** Memoised per data bundle: the page and the preview ask on every render. */
-export function variantForm(base: number, variant: number, data: EditorData): VariantForm {
-  let cache = forms.get(data);
-  if (!cache) forms.set(data, (cache = new Map()));
+function matchesBase(base: number, variant: number, data: EditorData): boolean {
+  let cache = matches.get(data);
+  if (!cache) matches.set(data, (cache = new Map()));
   const key = `${base}:${variant}`;
-  let form = cache.get(key);
-  if (!form) {
-    form = languages.every((lang) => variantMatchesBase(base, variant, lang, data))
-      ? 'derived'
-      : 'override';
-    cache.set(key, form);
+  let same = cache.get(key);
+  if (same === undefined) {
+    same = languages.every((lang) => variantMatchesBase(base, variant, lang, data));
+    cache.set(key, same);
   }
-  return form;
+  return same;
 }
 
-/** The variants of `base` that keep text of their own ("Edit override"), in catalog order. */
+export function variantForm(base: number, variant: number, data: EditorData): VariantForm {
+  return !isRemoved(variant, data) && matchesBase(base, variant, data) ? 'derived' : 'override';
+}
+
+/** A maintainer took it out of its group: its text is its own, even while it reads like the base. */
+const isRemoved = (variant: number, data: EditorData) =>
+  Boolean(data.bundle.aliasGroups?.removed?.[variant]);
+
+/** The variants of `base` that keep text of their own ("Edit enhanced"), in catalog order. */
 export function overrideVariants(base: number, data: EditorData): number[] {
   return enhancedVariants(base, data).filter(
     (variant) => variantForm(base, variant, data) === 'override',
@@ -186,10 +192,31 @@ export function isBlankCopy(base: number, variant: number, data: EditorData): bo
   return blank && languages.some((lang) => baseText(base, lang, data).trim() !== '');
 }
 
-/** Variants with text of their own that an "Edit override" can open; blank copies are left out. */
-export function editableOverrides(base: number, data: EditorData): number[] {
-  return overrideVariants(base, data).filter((variant) => !isBlankCopy(base, variant, data));
+/**
+ * Variants with text of their own that "Edit enhanced" can open; blank copies are left out. One
+ * removed from its group opens for maintainers while its text still reads like the base's, so they
+ * can make it differ; after that it opens like any other.
+ */
+export function editableOverrides(base: number, data: EditorData, maintainer = false): number[] {
+  return overrideVariants(base, data).filter((variant) =>
+    isRemoved(variant, data)
+      ? maintainer || !matchesBase(base, variant, data)
+      : !isBlankCopy(base, variant, data),
+  );
 }
+
+export interface OverrideTarget {
+  hash: number;
+  name: string;
+  /** A real enhanced version of the base; otherwise another copy with text of its own. */
+  enhanced: boolean;
+}
+
+/** The button that opens a version with text of its own. */
+export const editLabel = (target: OverrideTarget, several: boolean) =>
+  target.enhanced
+    ? `Edit enhanced${several ? `: ${target.name}` : ''}`
+    : `Edit separately: ${target.name}`;
 
 /** What the page previews next to the base: real enhanced pairs and editable overrides. */
 export function previewedVariants(base: number, data: EditorData): number[] {

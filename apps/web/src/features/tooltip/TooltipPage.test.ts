@@ -392,7 +392,7 @@ describe('tooltip screen composition', () => {
       '<enhanced Edited base />',
     ]);
     expect(previews[1].globals.type).toBe('Weapon Frame Enhanced');
-    expect(markup).not.toContain('Edit override');
+    expect(markup).not.toContain('Edit enhanced');
   });
   it('offers no override for a blank copy, and the grouped perks only to maintainers', () => {
     const blank = tooltip(11, '');
@@ -412,9 +412,9 @@ describe('tooltip screen composition', () => {
         },
       });
       const markup = render();
-      expect(markup.includes('Edit override')).toBe(edit);
+      expect(markup.includes('Edit enhanced')).toBe(edit);
       expect(markup.includes('Stored form')).toBe(false);
-      expect(markup.includes('manifest perks open this editor entry')).toBe(grouped);
+      expect(markup.includes('Which items and perk effects share this text')).toBe(grouped);
     }
   });
   it('composes one frame editor and projects shared imports into both editor and preview', () => {

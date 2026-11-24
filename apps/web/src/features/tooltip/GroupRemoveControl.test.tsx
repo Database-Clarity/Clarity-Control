@@ -212,8 +212,6 @@ it('says a refusal plainly, and asks to retry only when that can help', async ()
 it('shows the refusal instead of the action for a shared sandbox perk', async () => {
   seed({ 901: [42, 43] });
   await render();
-  expect(host.textContent).toBe('Stays grouped: shared sandbox perk');
-  expect(host.querySelector('span')?.title).toBe(
-    'Sandbox perk 901 is shared with another inventory item',
-  );
+  expect(host.textContent).toBe("Can't remove: shared perk effect");
+  expect(host.querySelector('span')?.title).toBe('Another item also uses perk effect 901');
 });

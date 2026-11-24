@@ -1,35 +1,24 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { Popover } from '../../ui/Popover';
-import { InactiveMoveControl } from './InactiveMoveControl';
-import { GroupRemoveControl } from './GroupRemoveControl';
-import { applyInactiveMoves, useDataStore } from '../../stores/data';
+import { scaledPx } from '../../ui/scale';
+import { GroupedPerks, groupedLabel, groupedTitle } from './GroupedPerks';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { DiscardConfirm, EditorMore, PhoneTools, type QueueBack, type ToolId } from './EditorMore';
-import {
-  loadSandboxPerkText,
-  sandboxPerkName,
-  sandboxPerkTextFailed,
-  useSandboxPerkText,
-} from '../manifest/manifestText';
 import type { GroupedPerk } from './grouping';
+import { editLabel, type OverrideTarget } from './variants';
 import styles from './TooltipPage.module.scss';
 import { MarksControl } from '../marks/MarksControl';
-
-export interface OverrideTarget {
-  hash: number;
-  name: string;
-}
 
 /** "Read-only: sign in to edit." -> "Read-only". */
 export const shortReason = (reason: string) => reason.split(':')[0].trim();
 
 /**
  * The 28px header above the editor: language, draft state, read-only reason, and the actions for
- * the enhanced version ("Edit override" where it keeps text of its own), and for maintainers the
- * manifest perks grouped into this entry. Everything is one line; flexible text ellipsises.
+ * the enhanced version ("Edit enhanced" where it keeps text of its own), and for maintainers the
+ * items and perk effects that share this entry. Everything is one line; flexible text ellipsises.
  */
 export function EditorPaneHeader({
   lang,
@@ -71,7 +60,7 @@ export function EditorPaneHeader({
   activeOverride: OverrideTarget | undefined;
   onEditOverride(hash: number): void;
   onBack(): void;
-  /** Maintainers only: the manifest perks this editor entry covers; undefined hides the control. */
+  /** Maintainers only: what shares this entry; undefined hides the control. */
   grouped?: GroupedPerk[];
   /** Shows and hides the markup row; undefined where the text is read-only. */
   markup?: { open: boolean; toggle(): void };
@@ -316,14 +305,16 @@ function DesktopToolRow({
   inactiveMenuControl,
   inactiveHash,
   markHash,
-  reserveDraft = false,
+  reserveDraft: reserve = false,
 }: Parameters<typeof EditorPaneHeader>[0]) {
+  // With a version open the line is at its fullest: the first edit must not move the text.
+  const reserveDraft = reserve || !!activeOverride;
   const right = useRef<HTMLSpanElement>(null);
   const present: Record<SpillTool, boolean> = {
     grouped: !!grouped,
     inactive: !!inactiveControl,
     worklist: !!worklistControl,
-    // Edit override goes last; an open override's Back to base always stays on the line.
+    // Edit enhanced goes last; an open override's Back to base always stays on the line.
     overrides: !activeOverride && overrides.length > 0,
   };
   const tools = spillOrder.filter((tool) => present[tool]);
@@ -349,8 +340,9 @@ function DesktopToolRow({
   const inMore = new Set(tools.slice(0, fit.moved));
   const groupedControl = grouped && (
     <Popover
-      label="Grouped manifest perks"
-      triggerLabel="Grouped manifest perks"
+      label={groupedLabel}
+      width={scaledPx(640)}
+      triggerLabel={`Grouped ${grouped.length}: ${groupedLabel.toLowerCase()}`}
       className={styles.ghost}
       trigger={
         <>
@@ -359,7 +351,7 @@ function DesktopToolRow({
           {grouped.length}
         </>
       }
-      triggerTitle="Which manifest perks open this editor entry, and how each joined (maintainers)"
+      triggerTitle={groupedTitle}
     >
       <GroupedPerks perks={grouped} currentHash={inactiveHash} />
     </Popover>
@@ -384,22 +376,7 @@ function DesktopToolRow({
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
       {destination}
-      {activeOverride && (
-        // A narrow line says "↑ Override" (the arrow already means enhanced), then ellipsises.
-        <span
-          className={styles.overrideTag}
-          title={`Enhanced override${overrides.length > 1 ? `: ${activeOverride.name}` : ''}`}
-        >
-          <EnhancedArrow />
-          <span className={styles.ell}>
-            <span className={styles.overrideLong}>Enhanced override</span>
-            <span className={styles.overrideShort} aria-hidden="true">
-              Override
-            </span>
-            {overrides.length > 1 && `: ${activeOverride.name}`}
-          </span>
-        </span>
-      )}
+      {activeOverride && <OverrideTag target={activeOverride} several={overrides.length > 1} />}
       {!draft && !reserveDraft && (
         // Holds the place of the draft dot and Discard on a phone, where this row wraps, so the
         // first edit does not push the text down. It takes no space elsewhere.
@@ -473,7 +450,7 @@ function DesktopToolRow({
                   className={styles.ghost}
                   onClick={() => onEditOverride(target.hash)}
                 >
-                  Edit override{overrides.length > 1 ? `: ${target.name}` : ''}
+                  {editLabel(target, overrides.length > 1)}
                 </button>
               ))}
             </span>
@@ -509,6 +486,23 @@ function DesktopToolRow({
         )}
       </span>
     </>
+  );
+}
+
+/** Which version the editor holds while one with text of its own is open. */
+function OverrideTag({ target, several }: { target: OverrideTarget; several: boolean }) {
+  if (!target.enhanced)
+    return (
+      <span className={styles.overrideTag} data-plain title={`Separate text: ${target.name}`}>
+        <span className={styles.ell}>{target.name}</span>
+      </span>
+    );
+  const name = several ? `: ${target.name}` : '';
+  return (
+    <span className={styles.overrideTag} title={`Enhanced version${name}`}>
+      <EnhancedArrow />
+      <span className={styles.ell}>Enhanced{name}</span>
+    </span>
   );
 }
 
@@ -607,92 +601,12 @@ function PhoneToolRow({
       )}
       {activeOverride && (
         <span className={styles.overrideLine}>
-          <span className={styles.overrideTag}>
-            <EnhancedArrow /> Enhanced override
-            {overrides.length > 1 && <span>: {activeOverride.name}</span>}
-          </span>
+          <OverrideTag target={activeOverride} several={overrides.length > 1} />
           <button type="button" className={styles.ghost} onClick={onBack}>
             Back to base
           </button>
         </span>
       )}
     </>
-  );
-}
-
-/** The maintainer's read-only list: hash, in-game name, base or enhanced, and how it joined. */
-export function GroupedPerks({
-  perks,
-  currentHash,
-}: {
-  perks: GroupedPerk[];
-  currentHash?: number;
-}) {
-  const moves = useDataStore((state) => state.data?.bundle.inactiveMoves);
-  // Sandbox perks are not in the item catalog: their names come from the bundled sandbox perk
-  // text, loaded once when this list first opens.
-  const sandbox = useSandboxPerkText();
-  const unnamed = perks.some((perk) => !perk.name);
-  useEffect(() => {
-    if (unnamed) void loadSandboxPerkText();
-  }, [unnamed]);
-  const nameOf = (perk: GroupedPerk) => {
-    if (perk.name) return perk.name;
-    if (!sandbox) return <em>Loading name…</em>;
-    // A failed load leaves the text empty: that says nothing about the perk itself.
-    if (sandboxPerkTextFailed()) return <em>Name unavailable</em>;
-    // A sandbox alias comes from the manifest by construction; some definitions are blank.
-    const name = sandboxPerkName(perk.hash, sandbox);
-    if (name) return name;
-    if (name === undefined && perk.reason !== 'sandbox')
-      return <em>Not in the manifest catalog</em>;
-    return <em>Unnamed sandbox perk</em>;
-  };
-  return (
-    <ul className={styles.grouped}>
-      {perks.map((perk) => (
-        <li key={perk.hash} data-grouped={perk.hash}>
-          <code className={styles.groupedHash}>{perk.hash}</code>
-          <span className={styles.groupedName}>{nameOf(perk)}</span>
-          <span className={perk.enhanced ? styles.groupedEnhanced : styles.groupedBase}>
-            {perk.enhanced ? (
-              <>
-                <EnhancedArrow /> Enhanced
-              </>
-            ) : (
-              'Base'
-            )}
-          </span>
-          <span className={styles.groupedHow}>
-            <span>
-              {perk.how}
-              {perk.sharedBy && (
-                <span title={perk.sharedBy.join(', ')}>
-                  {' · '}shared by {perk.sharedBy.length} owners
-                </span>
-              )}
-            </span>
-            <span className={styles.groupedActions}>
-              {perk.reason !== 'sandbox' && (
-                <GroupRemoveControl hash={perk.hash} name={perk.name} className={styles.ghost} />
-              )}
-              {currentHash !== undefined && perk.hash !== currentHash && (
-                <InactiveMoveControl
-                  hash={perk.hash}
-                  name={
-                    perk.name ||
-                    (sandbox && sandboxPerkName(perk.hash, sandbox)) ||
-                    `Tooltip ${perk.hash}`
-                  }
-                  moves={moves}
-                  onSaved={applyInactiveMoves}
-                  className={styles.ghost}
-                />
-              )}
-            </span>
-          </span>
-        </li>
-      ))}
-    </ul>
   );
 }

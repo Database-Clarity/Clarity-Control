@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   composeAliases,
   type SandboxConflicts,
@@ -74,9 +74,11 @@ export function SandboxPerksPage() {
   const [conflicts, setConflicts] = useState<SandboxConflicts | null>(null);
   const [saved, setSaved] = useState<LoadedSandboxPointers | null>(null);
   const [staged, setStaged] = useState<Staged>({});
-  const [status, setStatus] = useState<StatusFilter>('open');
+  // ?perk=<hash> (the editor's grouped list) opens on that row, decided or not.
+  const [linked] = useState(useSearchParams()[0].get('perk') ?? '');
+  const [status, setStatus] = useState<StatusFilter>(linked ? 'all' : 'open');
   const [kind, setKind] = useState<Kind | ''>('');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(linked);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);

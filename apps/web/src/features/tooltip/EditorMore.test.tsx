@@ -61,15 +61,13 @@ async function mount(
           onDiscard={spies.onDiscard}
           reason={null}
           onSwitch={spies.onSwitch}
-          overrides={[{ hash: 5, name: 'Adagio Enhanced' }]}
+          overrides={[{ hash: 5, name: 'Adagio Enhanced', enhanced: true }]}
           activeOverride={undefined}
           onEditOverride={spies.onEditOverride}
           onBack={spies.onBack}
           inactiveControl={props.inactive ? <button>Move to Inactive</button> : undefined}
           worklistControl={props.worklist ? <button>Add to worklist</button> : undefined}
-          grouped={
-            [{ hash: 9, name: 'Nine', enhanced: false, how: 'same name', reason: 'name' }] as never
-          }
+          grouped={[{ hash: 9, name: 'Nine', enhanced: false, reason: 'canonical' }]}
           markup={{ open: true, toggle: spies.toggle }}
           queue={<span data-queue />}
           queueBack={{ to: '/translations?lang=de', label: 'German, all categories' }}
@@ -110,7 +108,7 @@ describe('More (phone tool row)', () => {
     await mount(handlers());
     expect(button('Markup tools')).toBeUndefined();
     expect(button('Discard')).toBeUndefined();
-    expect(button('Edit override')).toBeUndefined();
+    expect(button('Edit enhanced')).toBeUndefined();
     expect(q('select[aria-label="Language"]')).not.toBeNull();
     expect(q('[aria-label="Unsaved draft"]')).not.toBeNull();
     const more = q('button[aria-label="More editor tools"]')!;
@@ -133,8 +131,8 @@ describe('More (phone tool row)', () => {
     ).toEqual([
       'Markup barOn',
       'Discard draft',
-      'Grouped manifest perks1 ›',
-      'Edit override',
+      'Items and perk effects1 ›',
+      'Edit enhanced',
       'Back to queueGerman, all categories',
     ]);
     await click(button('Markup bar'));
@@ -155,9 +153,9 @@ describe('More (phone tool row)', () => {
     expect(spies.onDiscard).toHaveBeenCalledTimes(1);
     expect(q('[role="dialog"]')).toBeNull();
     await openMore();
-    await click(button('Grouped manifest perks'));
+    await click(button('Items and perk effects'));
     expect(q('[role="dialog"] [data-grouped="9"]')).not.toBeNull();
-    await click(button('Edit override'));
+    await click(button('Edit enhanced'));
     expect(spies.onEditOverride).toHaveBeenCalledWith(5);
     await openMore();
     await click(button('Back to queue'));
@@ -188,7 +186,7 @@ describe('More (phone tool row)', () => {
     expect(q('button[aria-label="More editor tools"]')).toBeNull();
     expect(button('Markup tools')).toBeDefined();
     expect(button('Discard this draft')).toBeDefined();
-    expect(button('Edit override')).toBeDefined();
+    expect(button('Edit enhanced')).toBeDefined();
   });
 });
 
@@ -261,7 +259,7 @@ describe('inline tools (phone tool row)', () => {
     expect(q('button[aria-label="More editor tools"]')).toBeNull();
     await click(button('Markup bar'));
     expect(spies.toggle).toHaveBeenCalledTimes(1);
-    await click(button('Edit override'));
+    await click(button('Edit enhanced'));
     expect(spies.onEditOverride).toHaveBeenCalledWith(5);
     // Inline Discard still asks first; Cancel discards nothing.
     await click(button('Discard this draft'));
@@ -280,14 +278,14 @@ describe('inline tools (phone tool row)', () => {
     const shortcuts = () => workspaceShortcutsBlocked(new KeyboardEvent('keydown'));
     expect(shortcuts()).toBe(false);
     await click(button('Grouped'));
-    expect(q('[role="dialog"][aria-label="Grouped manifest perks"]')).not.toBeNull();
+    expect(q('[role="dialog"][aria-label="Items and perk effects"]')).not.toBeNull();
     expect(shortcuts()).toBe(true);
     await act(
       async () =>
         void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
     );
     expect(shortcuts()).toBe(false);
-    // Room for two tools beside More: the other two (Grouped, Edit override) move into More.
+    // Room for two tools beside More: the other two (Grouped, Edit enhanced) move into More.
     room = 2 * 60 + 6 + 60 + 6;
     await act(async () => callback?.());
     expect(button('Markup bar')).toBeDefined();
@@ -298,8 +296,8 @@ describe('inline tools (phone tool row)', () => {
         (row) => row.textContent,
       ),
     ).toEqual([
-      'Grouped manifest perks1 ›',
-      'Edit override',
+      'Items and perk effects1 ›',
+      'Edit enhanced',
       'Back to queueGerman, all categories',
     ]);
     rect.mockRestore();

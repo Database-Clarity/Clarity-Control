@@ -186,7 +186,7 @@ it('moves in and out from the mounted editor without changing its text or edit a
 let navigateRoute: ReturnType<typeof useNavigate>;
 it('offers only one move action for the open item when its grouped list is open', async () => {
   await render();
-  await act(async () => button('Grouped manifest perks')!.click());
+  await act(async () => button('Grouped 4')!.click());
   const moves = document.querySelectorAll('button[aria-label="Move to Inactive"]');
   // One header action, then only the other three grouped hashes.
   expect(moves).toHaveLength(4);
@@ -395,20 +395,14 @@ describe('editor page composition', () => {
   it('keeps the base editor mounted, and its node, while an override is open', async () => {
     await render();
     const base = editors()[0];
-    expect(button('Edit override')).toBeDefined();
-    await act(async () => button('Edit override')!.click());
+    expect(button('Edit enhanced')).toBeDefined();
+    await act(async () => button('Edit enhanced')!.click());
     expect(editors().map((node) => node.dataset.editor)).toEqual(['10', '12']);
     expect(editors()[0]).toBe(base);
     expect(base.closest('[hidden]')).not.toBeNull();
     expect(editors()[1].closest('[hidden]')).toBeNull();
-    expect(host.textContent).toContain('Enhanced override');
-    // A narrow header shows "Override" instead; screen readers hear the full name only once.
-    const tag = host.querySelector('[title="Enhanced override"]')!;
-    expect(tag).not.toBeNull();
-    expect(
-      [...tag.querySelectorAll('[aria-hidden="true"]')].map((node) => node.textContent?.trim()),
-    ).toContain('Override');
-    expect(button('Edit override')).toBeUndefined();
+    expect(host.querySelector('[title="Enhanced version"]')?.textContent).toBe('Enhanced');
+    expect(button('Edit enhanced')).toBeUndefined();
     await act(async () => button('Back to base')!.click());
     expect(editors().map((node) => node.dataset.editor)).toEqual(['10']);
     expect(editors()[0]).toBe(base);
@@ -418,7 +412,7 @@ describe('editor page composition', () => {
   it('follows the editor in the rows: associations and history belong to the open text', async () => {
     await render();
     expect(host.querySelector('[data-history]')?.getAttribute('data-history')).toBe('10');
-    await act(async () => button('Edit override')!.click());
+    await act(async () => button('Edit enhanced')!.click());
     expect(host.querySelector('[data-history]')?.getAttribute('data-history')).toBe('12');
   });
 
@@ -496,7 +490,7 @@ describe('editor page composition', () => {
     expect(history.textContent).toContain('Legacy tooltip upload');
   });
 
-  it('shows maintainers the grouped manifest perks in a popover; Stored form is gone', async () => {
+  it('shows maintainers what shares the text in a popover; Stored form is gone', async () => {
     await render();
     expect(button('Stored form')).toBeUndefined();
     const trigger = button('Grouped 4')!;
@@ -504,12 +498,10 @@ describe('editor page composition', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     await act(async () => trigger.click());
     const popover = document.querySelector('[role="dialog"]')!;
-    expect(popover.getAttribute('aria-label')).toBe('Grouped manifest perks');
+    expect(popover.getAttribute('aria-label')).toBe('Items and perk effects');
     const rows = [...popover.querySelectorAll<HTMLElement>('[data-grouped]')];
     expect(rows.map((row) => row.dataset.grouped)).toEqual(['10', '11', '12', '13']);
-    expect(rows[0].textContent).toContain('Canonical');
-    expect(rows[1].textContent).toContain('Enhanced pair');
-    expect(rows[3].textContent).toContain('Base pointer');
+    expect(rows[0].textContent).toContain('Text is here');
     // Escape closes it and returns focus to the trigger.
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

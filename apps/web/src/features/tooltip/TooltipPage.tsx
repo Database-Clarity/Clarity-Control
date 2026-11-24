@@ -96,6 +96,7 @@ import {
   editableOverrides,
   enhancedRender,
   enhancedVariants,
+  isEnhancedPair,
   previewedVariants,
 } from './variants';
 import { groupedPerks } from './grouping';
@@ -128,7 +129,7 @@ const StableWorkspace = memo(TooltipWorkspace);
 /**
  * The editor page (variant model D): ONE base editor per item, whatever the role. Enhanced
  * versions are derived from the base text and shown in the preview; the few that keep text of
- * their own open in the same editor slot through "Edit override" (the base editor stays mounted
+ * their own open in the same editor slot through "Edit enhanced" (the base editor stays mounted
  * underneath, so its caret and undo history survive the round trip).
  */
 export function TooltipPage(props: Parameters<typeof TooltipPageContent>[0]) {
@@ -542,7 +543,11 @@ function TooltipWorkspace({
   const previewed = readOnly ? others : previewedVariants(hash, data);
   const overrides = readOnly
     ? []
-    : editableOverrides(hash, batchEditing ? (futureData ?? data) : data);
+    : editableOverrides(
+        hash,
+        batchEditing ? (futureData ?? data) : data,
+        user?.role === 'maintainer',
+      );
   const grouped = !readOnly && user?.role === 'maintainer' ? groupedPerks(hash, data) : undefined;
   // A canonical redirect drops line/variant highlights, just like tooltipPath.
   const requested = requestedHash === hash ? Number(search.get('variant')) : NaN;
@@ -765,7 +770,12 @@ function TooltipWorkspace({
           ),
         }
       : undefined;
-  const overrideTargets = overrides.map((variant) => ({ hash: variant, name: nameOf(variant) }));
+  const overrideTarget = (variant: number) => ({
+    hash: variant,
+    name: nameOf(variant),
+    enhanced: isEnhancedPair(hash, variant, data),
+  });
+  const overrideTargets = overrides.map(overrideTarget);
   const editing = (variant: number, base: Tooltip) => (
     <ClarityEditor
       key={batchDestination ? `batch:${batchDestination.batchId}` : 'current'}
@@ -861,11 +871,7 @@ function TooltipWorkspace({
           switchTo={access.switchTo}
           onSwitch={changeLanguage}
           overrides={overrideTargets}
-          activeOverride={
-            activeVariant === null
-              ? undefined
-              : { hash: activeVariant, name: nameOf(activeVariant) }
-          }
+          activeOverride={activeVariant === null ? undefined : overrideTarget(activeVariant)}
           markup={
             access.reason === null || pausedForOther
               ? { open: markupRow.open, toggle: markupRow.toggle }

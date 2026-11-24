@@ -10,7 +10,7 @@ import { collectPageErrors, knownDefectSummary } from './known-defects.mjs';
 // The editor page (overhaul P2 step 2) in the real shell on synthetic data, both themes, at 390 /
 // 768 / 1280 (+1440, and 800 for the Compendium/English toggle): one editor, the 28px pane header,
 // the left column's pinned rows, no horizontal overflow, no clipped or wrapping controls, and
-// editor text that never moves except for what the user asked for (Edit override / Back).
+// editor text that never moves except for what the user asked for (Edit enhanced / Back).
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shots = process.argv[2] ?? resolve(web, '../../.agents/reports/overhaul-p2s2-shots');
 await mkdir(shots, { recursive: true });
@@ -203,18 +203,18 @@ try {
             `${label}: Grouped 2 (${buttons})`,
           );
           assert.ok(
-            !buttons.some((text) => text.includes('Edit override')),
+            !buttons.some((text) => text.includes('Edit enhanced')),
             `${label}: no override`,
           );
         }
         if (name === 'override')
           assert.ok(
-            buttons.some((text) => text.includes('Edit override')),
+            buttons.some((text) => text.includes('Edit enhanced')),
             `${label}: override`,
           );
         if (name === 'blank') {
           assert.ok(
-            !buttons.some((text) => text.includes('Edit override')),
+            !buttons.some((text) => text.includes('Edit enhanced')),
             `${label}: blank copy`,
           );
         }
@@ -289,11 +289,11 @@ try {
         'false',
         `${label}: History closes`,
       );
-      await page.getByRole('button', { name: 'Edit override' }).click();
+      await page.getByRole('button', { name: 'Edit enhanced' }).click();
       assert.equal(await page.locator('.cm-editor').count(), 2, `${label}: base stays mounted`);
       assert.match(
         await page.locator('[role="group"][aria-label="Editor tools"]').innerText(),
-        /Enhanced override/,
+        /Enhanced/,
       );
       assert.match(await page.locator('.cm-content').nth(1).innerText(), /Enhanced override text/);
       await page.screenshot({ path: out('override-open-1280') });
@@ -312,7 +312,7 @@ try {
       await page.locator('.cm-content').first().waitFor();
       const groupedBefore = await firstLine(page);
       await page.getByRole('button', { name: /Grouped/ }).click();
-      const grouped = page.getByRole('dialog', { name: 'Grouped manifest perks' });
+      const grouped = page.getByRole('dialog', { name: 'Items and perk effects' });
       await grouped.waitFor();
       const groupedText = await grouped.innerText();
       assert.match(groupedText, /1000/, `${label}: grouped lists the base`);
