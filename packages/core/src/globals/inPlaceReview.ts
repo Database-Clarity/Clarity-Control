@@ -32,6 +32,8 @@ export const globalsPendingSchema = z.array(
       z.object({
         before: z.string().nullable(),
         after: z.string().nullable(),
+        beforeAvailable: z.boolean().optional(),
+        afterAvailable: z.boolean().optional(),
       }),
     ),
     affected: z.array(hashSchema),

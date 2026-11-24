@@ -11,6 +11,7 @@ import { validateNumberTooltip } from './validation/numbers.js';
 import {
   globalsInPlaceLibraryText,
   MissingGlobalTranslation,
+  protectCommentedGlobalImports,
   resolveGlobalsInPlace,
   type GlobalsInPlaceOptions,
 } from './globals/inPlace.js';
@@ -242,6 +243,10 @@ export function exportLegacy(
           try {
             try {
               source = resolveGlobalsInPlace(resolved, language, globals);
+              if (language !== 'en' && !englishFallback) {
+                const imported = globals.importFallback?.(source, language);
+                if (imported) throw imported;
+              }
             } catch (cause) {
               if (
                 !(cause instanceof MissingGlobalTranslation) ||
@@ -258,7 +263,8 @@ export function exportLegacy(
               options?.onGlobalsFallback?.(tooltip.hash, cause);
             }
             if (source.includes('{{')) throw new Error(baseEnhancedPublishMessage);
-            if (options?.preserveGlobalReferencesForProof) source = resolved;
+            if (options?.preserveGlobalReferencesForProof)
+              source = protectCommentedGlobalImports(resolved);
           } catch (cause) {
             const message = cause instanceof Error ? cause.message : String(cause);
             throw new Error(`Tooltip ${tooltip.hash} (${language}): ${message}`, { cause });

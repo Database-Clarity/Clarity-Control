@@ -45,7 +45,7 @@ test('inlines exact variables, notes and nested named imports per cell', () => {
       'Energy: 4.5, 4.5x; ok; #e.',
       '<link Data [https://example.com/x] /> <link Fragment [https://example.org/Energy] />',
       '<title Read 4.5 [Help] />',
-      '// Keep this comment Energy',
+      '// Keep this comment #Name',
       'Result ${1+4.5}. <title Read [Help] />',
       'import main from 100',
     ].join('\n'),

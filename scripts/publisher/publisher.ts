@@ -6,6 +6,7 @@ import {
 } from '../../packages/export/src/legacy.js';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import {
+  activeAliases,
   stableStringify,
   baseEnhancedPublishMessage,
   isHeldSetBonus,
@@ -50,7 +51,6 @@ import {
   type SandboxConflicts,
   type LegacyCatalog,
   type Tooltip,
-  type GlobalsInPlaceOptions,
 } from '../../packages/core/src/index.js';
 import {
   activate,
@@ -104,8 +104,10 @@ import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import { drainCurrentSaves } from './currentSave.js';
 import {
   assertInPlaceDocuments,
+  assertScheduledGlobalNames,
   assertInPlaceLibraries,
   assertInPlaceRoots,
+  authoredInPlaceOptions,
   bundleInPlaceReview,
   globalsFence,
   liveGlobalsInput,
@@ -998,16 +1000,23 @@ export class Publisher {
         aliases,
       );
       const inPlace = this.inPlaceOptions(frozen, signed, receipt.liveParent);
-      if (inPlace) assertInPlaceDocuments(documents, inPlace.options);
+      const active = inPlace
+        ? documents.filter(({ hash }) => !isMovedInactive(hash, selected))
+        : documents;
+      const globalsInPlace = inPlace && authoredInPlaceOptions(
+        this, frozen, inPlace.live, inPlace, active, activeAliases(aliases, selected),
+      );
+      if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
+      if (inPlace && signed.kind === 'batch') assertScheduledGlobalNames(active, inPlace);
       const exported = exportWithInactiveMoves(
         documents,
         receipt.now,
         options.facts,
         aliases,
         selected,
-        inPlace && { globalsInPlace: inPlace.options },
+        globalsInPlace && { globalsInPlace },
       );
-      if (inPlace && documents.length)
+      if (inPlace && globalsInPlace && documents.length)
         provePublication(
           this,
           frozen,
@@ -1017,7 +1026,7 @@ export class Publisher {
           selected,
           receipt.now,
           exported,
-          inPlace.options,
+          globalsInPlace,
         );
       if (
         stableStringify({ ...inPlace?.refills, ...exported }) !==
@@ -1252,6 +1261,8 @@ export class Publisher {
         tree['live/pushed.json'] = this.git.writeBlob(json(pushed));
         if (receipt.globals) {
           await new GlobalsPublisher(this).record(tree, receipt.globals, h, candidate!);
+        } else if (inPlace) {
+          await new GlobalsPublisher(this).recordInPlaceProofs(tree, h, candidate!);
         }
       }
       if (tree[p.request] && tree[p.request] !== blob) {
@@ -1884,7 +1895,7 @@ export class Publisher {
     tree: Tree,
     tooltips: Tooltip[],
     aliases: Aliases,
-    inPlace?: { live: LegacyInput; options: GlobalsInPlaceOptions },
+    inPlace?: ReturnType<Publisher['inPlaceOptions']>,
   ):
     | { error: string; proposalRejected?: true; retryable?: true }
     | { now: number; exported: ReturnType<typeof exportLegacy> } {
@@ -1918,16 +1929,19 @@ export class Publisher {
     const now = this.options.now();
     let exported: ReturnType<typeof exportLegacy>;
     try {
-      if (inPlace) assertInPlaceDocuments(active, inPlace.options);
+      const globalsInPlace = inPlace && authoredInPlaceOptions(
+        this, tree, inPlace.live, inPlace, active, activeAliases(aliases, moves),
+      );
+      if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
       exported = exportWithInactiveMoves(
         tooltips,
         now,
         this.options.facts,
         aliases,
         moves,
-        inPlace && { globalsInPlace: inPlace.options },
+        globalsInPlace && { globalsInPlace },
       );
-      if (inPlace && tooltips.length)
+      if (inPlace && globalsInPlace && tooltips.length)
         provePublication(
           this,
           tree,
@@ -1937,7 +1951,7 @@ export class Publisher {
           moves,
           now,
           exported,
-          inPlace.options,
+          globalsInPlace,
         );
     } catch (error) {
       if (inPlace) return { error: String(error), proposalRejected: true };
@@ -1971,7 +1985,14 @@ export class Publisher {
       const role = permissionsSchema.parse(this.read(tree, 'config/permissions.json')).users[
         payload.requester.id
       ]?.role;
-      const plan = planInPlaceRelease(this, tree, input, selection, role === 'maintainer');
+      const plan = planInPlaceRelease(
+        this,
+        tree,
+        input,
+        selection,
+        role === 'maintainer',
+        payload.hashes.length > 0,
+      );
       return {
         ...plan,
         live: { ...input, perks: { ...input.perks, ...plan.refills } as LegacyInput['perks'] },
@@ -2168,6 +2189,7 @@ export class Publisher {
     let inPlace;
     try {
       inPlace = this.inPlaceOptions(tree, payload, live);
+      if (inPlace) assertScheduledGlobalNames(documents, inPlace);
     } catch (error) {
       return { failure: { status: 'rejected', error: String(error) } };
     }

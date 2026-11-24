@@ -20,6 +20,7 @@ import { calculateGlobalImpact } from '../../packages/core/src/globals/impact.js
 import {
   globalsInPlaceCapability,
   globalsInPlacePath,
+  type GlobalsPending,
 } from '../../packages/core/src/globals/inPlaceReview.js';
 import {
   inactivePublishableHash,
@@ -35,6 +36,7 @@ import {
 import { globalFileBytes, rowSchema, syncSchema } from '../../apps/worker/src/globals/model.js';
 import { GlobalsPublisher, globalTreeOid } from './globals.js';
 import { migrateInPlace } from './globalsInPlace.js';
+import { dryRunGlobalsMigration } from './globalsMigration.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { LocalRepository, RefRace, type Repository, type Tree } from './git.js';
@@ -342,15 +344,14 @@ async function inPlaceFixture(titleSource = '', exports = false) {
 }
 
 describe('in-place shared text publication', () => {
-  type Pending = { id: string; name: string; digest: string; affected: number[]; refusal?: string };
-  const pending = (f: Awaited<ReturnType<typeof inPlaceFixture>>): Pending[] => {
+  const pending = (f: Awaited<ReturnType<typeof inPlaceFixture>>): GlobalsPending => {
     f.pub.bundle();
-    return f.pub.read<{ globalsPending: Pending[] }>(
+    return f.pub.read<{ globalsPending: GlobalsPending }>(
       f.git.tree(f.pub.head('editor-data-bundle')),
       'bundle.json',
     )!.globalsPending;
   };
-  const selection = (row: Pending) => [{ id: row.id, expected: row.digest }];
+  const selection = (row: GlobalsPending[number]) => [{ id: row.id, expected: row.digest }];
   const live = (f: Awaited<ReturnType<typeof inPlaceFixture>>) =>
     f.pub.read<LegacyInput>(f.git.tree(f.pub.head(f.options.liveBranch)), 'liveDescriptions.json')!;
 
@@ -364,6 +365,12 @@ describe('in-place shared text publication', () => {
     const published = f.read('live/tooltips/141.json');
     const row = pending(f).find(({ name }) => name === 'Beta')!;
     expect(row.affected).toEqual([141]);
+    expect(row.languages.de).toEqual({
+      before: '80',
+      after: '80',
+      beforeAvailable: true,
+      afterAvailable: false,
+    });
     await f.request([], A, selection(row));
     await f.pub.run(false);
     const result = f.read(paths(A).log).result;
@@ -386,7 +393,14 @@ describe('in-place shared text publication', () => {
     f.entry.definitions.de!.sourceUpdatedAt = f.entry.definitions.en!.updatedAt;
     f.change({ [f.entryPath]: f.entry });
     const restored = A.replace(/1$/, '2');
-    await f.request([], restored, selection(pending(f).find(({ name }) => name === 'Beta')!));
+    const restoration = pending(f).find(({ name }) => name === 'Beta')!;
+    expect(restoration.languages.de).toEqual({
+      before: '80',
+      after: '80',
+      beforeAvailable: false,
+      afterAvailable: true,
+    });
+    await f.request([], restored, selection(restoration));
     await f.pub.run(false);
     const localized = live(f).perks[141];
     expect('editor' in localized && localized.editor.de).toEqual({ main: '80', secondary: '80' });
@@ -581,11 +595,343 @@ describe('in-place shared text publication', () => {
     const before = live(f);
     await f.request([2]);
     await f.pub.run(false);
-    expect(f.read(paths(A).log).result.error).toContain('affected tooltip');
+    expect(f.read(paths(A).log).result.error).toContain('Review → Globals');
     expect(live(f)).toEqual(before);
   });
+
+  it('publishes an independent tooltip when a selected global cannot be removed', async () => {
+    const f = await inPlaceFixture();
+    const before = live(f);
+    const doc = tooltip(140, 'Approved edit');
+    f.change({
+      'tooltips/140.json': doc,
+      [f.entryPath]: { ...f.entry, tombstone: { at: new Date(now).toISOString(), by: 'alice' } },
+    });
+    const beta = pending(f).find(({ id }) => id === f.entry.id)!;
+    await f.request([140], A, selection(beta));
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'done',
+      globalRefusals: [{ id: beta.id, error: expect.stringContaining('still uses Beta') }],
+    });
+    expect(live(f).perks[140]).toMatchObject({ editor: { en: { main: 'Approved edit' } } });
+    expect(live(f).perks[141]).toEqual(before.perks[141]);
+  });
+
+  it('ignores unpublished global names in inline and block comments', async () => {
+    const f = await inPlaceFixture('', true);
+    const extra = { ...structuredClone(f.entry), id: 'g_newfixture000', name: 'Extra' };
+    const named = {
+      ...extra,
+      id: 'g_namedfixture00',
+      kind: 'exports',
+      definitions: { en: { ...extra.definitions.en!, provenance: undefined } },
+    };
+    const doc = tooltip(140, 'Approved text // #Extra\n/*\nimport Extra from global\n*/');
+    f.change({
+      'tooltips/140.json': doc,
+      [`globals/entries/${extra.id}.json`]: extra,
+      [`globals/entries/${named.id}.json`]: named,
+    });
+    await f.request([140]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    const before = live(f);
+    const beta = pending(f).find(({ id }) => id === f.entry.id)!;
+    expect(beta.refusal).toBeUndefined();
+    const op = A.replace(/1$/, '2');
+    await f.request([], op, selection(beta));
+    await f.pub.run(false);
+    expect(f.read(paths(op).log).result.status).toBe('done');
+    expect(live(f).perks[140]).toEqual(before.perks[140]);
+  });
+
+  it('refills existing published text independently of unrelated saved-only names', async () => {
+    const f = await inPlaceFixture();
+    f.change({ 'tooltips/140.json': tooltip(140, 'Literal #Extra') });
+    await f.request([140]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    const extra = { ...structuredClone(f.entry), id: 'g_newfixture000', name: 'Extra' };
+    f.change({ [`globals/entries/${extra.id}.json`]: extra });
+    const before = live(f).perks[140];
+    const beta = pending(f).find(({ id }) => id === f.entry.id)!;
+    expect(beta.refusal).toBeUndefined();
+    const op = A.replace(/1$/, '2');
+    await f.request([], op, selection(beta));
+    await f.pub.run(false);
+    expect(f.read(paths(op).log).result.status).toBe('done');
+    expect(live(f).perks[140]).toEqual(before);
+  });
+
+  it('falls back and restores the whole importing tooltip with its shared translation', async () => {
+    const f = await inPlaceFixture();
+    const source = tooltip(140, 'English source\nexport Info (\nEnglish info #Beta\n)');
+    source.text.de = cell('Deutsche Quelle\nexport Info (\nDeutsche Info #Beta\n)');
+    const reader = tooltip(142, 'English introduction\nimport Info from 140');
+    reader.text.de = cell('Deutsche Einleitung\nimport Info from 140');
+    f.change({ 'tooltips/140.json': source, 'tooltips/142.json': reader });
+    await f.request([140, 142]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+
+    const original = f.published.entries.find(({ id }) => id === f.entry.id)!;
+    const withdrawn = structuredClone(original);
+    delete withdrawn.definitions.de;
+    f.change({ [f.entryPath]: withdrawn });
+    const row = pending(f).find(({ id }) => id === original.id)!;
+    expect(row.affected).toContain(142);
+    const withdraw = A.replace(/1$/, '2');
+    await f.request([], withdraw, selection(row));
+    await f.pub.run(false);
+    expect(f.read(paths(withdraw).log).result.status).toBe('done');
+    expect(live(f).perks[142]).toMatchObject({
+      editor: {
+        de: {
+          main: 'English introduction\nimport Info from 140',
+          englishFallback: true,
+        },
+      },
+    });
+
+    reader.text.en!.text = 'Updated English introduction\nimport Info from 140';
+    f.change({ 'tooltips/142.json': reader });
+    const republish = A.replace(/1$/, '3');
+    await f.request([142], republish);
+    await f.pub.run(false);
+    expect(f.read(paths(republish).log).result.status).toBe('done');
+    expect(live(f).perks[142]).toMatchObject({
+      editor: {
+        de: {
+          main: 'Updated English introduction\nimport Info from 140',
+          englishFallback: true,
+        },
+      },
+    });
+    f.change({ [f.entryPath]: original });
+    const restore = A.replace(/1$/, '4');
+    await f.request([], restore, selection(pending(f).find(({ id }) => id === original.id)!));
+    await f.pub.run(false);
+    expect(f.read(paths(restore).log).result.status).toBe('done');
+    const restored = live(f).perks[142];
+    expect('editor' in restored && restored.editor.de).toEqual({
+      main: 'Deutsche Einleitung\nimport Info from 140',
+      secondary: 'Deutsche Einleitung\nimport Info from 140',
+    });
+  });
+
+  it('validates inactive removal without reading its discarded markup', async () => {
+    const f = await inPlaceFixture();
+    f.change({
+      'config/inactive.json': { 141: { by: 1, at: new Date(now).toISOString() } },
+      'tooltips/141.json': tooltip(141, 'import main from 2'),
+    });
+    await f.request([141]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    expect(live(f).perks[141]).toBeUndefined();
+  });
+
+  it('lets authorized translators withdraw and restore only their own translations', async () => {
+    const f = await inPlaceFixture();
+    const original = f.published.entries.find(({ id }) => id === f.entry.id)!;
+    const port = await mutationPort(f, {
+      role: 'translator',
+      login: 'translator',
+      languages: ['de'],
+    });
+    const remove = (lang?: string) =>
+      port.post(`/${original.id}/remove`, {
+        operation: 'remove',
+        id: original.id,
+        revision: f.read(f.entryPath).revision,
+        lang,
+      });
+    const draft = f.read('tooltips/141.json') as Tooltip;
+    draft.text.en!.text = 'English 6.5 #Beta';
+    draft.text.de!.text = 'Unveröffentlicht 6,5 #Beta';
+    f.change({ [f.entryPath]: original, 'tooltips/141.json': draft });
+    const before = live(f);
+    for (const lang of ['fr', 'en', undefined]) expect((await remove(lang)).status).toBe(403);
+    expect((await remove('de')).status).toBe(200);
+    expect(live(f)).toEqual(before);
+    expect(pending(f).find(({ id }) => id === original.id)?.languages.de?.after).toBeNull();
+    const originalTranslation = original.definitions.de!.body;
+    await f.globals.drain();
+    expect((await port.edit(original.id, originalTranslation, 'de')).status).toBe(200);
+    expect(pending(f).find(({ id }) => id === original.id)).toBeUndefined();
+
+    expect((await remove('de')).status).toBe(200);
+    await f.request([], A, selection(pending(f).find(({ id }) => id === original.id)!));
+    await f.pub.run();
+    expect(live(f).perks[141]).toMatchObject({
+      editor: { en: { main: '20' }, de: { main: '20', englishFallback: true } },
+    });
+    expect(f.read('tooltips/141.json')).toEqual(draft);
+    const publishDraft = A.replace(/1$/, '2');
+    await f.request([141], publishDraft);
+    await f.pub.run(false);
+    expect(live(f).perks[141]).toMatchObject({
+      editor: { de: { main: 'English 6.5 20', englishFallback: true } },
+    });
+
+    expect((await port.edit(original.id, originalTranslation, 'de')).status).toBe(200);
+    const restore = A.replace(/1$/, '3');
+    await f.request([], restore, selection(pending(f).find(({ id }) => id === original.id)!));
+    await f.pub.run(false);
+    const restored = live(f).perks[141];
+    expect('editor' in restored && restored.editor.de).toEqual({
+      main: 'Unveröffentlicht 6,5 80',
+      secondary: 'Unveröffentlicht 6,5 80',
+    });
+  });
+
+  it('keeps proof and role checks for whole removals and for withdrawals before activation', async () => {
+    const f = await inPlaceFixture();
+    const translator = await mutationPort(f, {
+      role: 'translator',
+      login: 'translator',
+      languages: ['de'],
+    });
+    const maintainer = await mutationPort(f);
+    const id = f.entry.id;
+    const withdraw = (port: typeof maintainer, lang?: string) =>
+      port.post(`/${id}/remove`, {
+        operation: 'remove',
+        id,
+        revision: f.read(f.entryPath).revision,
+        lang,
+      });
+    expect((await withdraw(maintainer)).status).toBe(503);
+    expect((await withdraw(maintainer, 'en')).status).toBe(503);
+    f.change({ [globalsInPlacePath]: undefined });
+    expect((await withdraw(translator, 'de')).status).toBe(403);
+    expect((await withdraw(maintainer, 'de')).status).toBe(503);
+  });
+
+  it('rechecks use of a withdrawn English definition when its global is approved', async () => {
+    const f = await inPlaceFixture();
+    const before = live(f);
+    delete f.entry.definitions.en;
+    f.change({ [f.entryPath]: f.entry });
+    const beta = pending(f).find(({ id }) => id === f.entry.id)!;
+    expect(beta.refusal).toContain('still uses Beta');
+    await f.request([], A, selection(beta));
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('rejected');
+    expect(live(f)).toEqual(before);
+  });
+
+  it('rejects a released catalogue that disagrees with legacy LIVE before writing the hold', async () => {
+    const f = await fixture('', false, true, 100);
+    const published = structuredClone(f.published);
+    published.entries.find(({ name }) => name === 'Beta')!.definitions.en!.body = '999';
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(globalsInPlaceCapability);
+    f.change({
+      '.publisher/PIN': pin,
+      'globals/live/converter-v2-test.json': {
+        version: 1,
+        destination: f.options.liveBranch,
+        store: published,
+      },
+    });
+    mkdirSync('.agents', { recursive: true });
+    const root = mkdtempSync(resolve('.agents/globals-in-place-migration-'));
+    execFileSync('git', ['init', '--bare', root], { stdio: 'pipe' });
+    execFileSync('git', ['--git-dir', root, 'config', 'publisher.simulator', 'true']);
+    const git = new LocalRepository(root);
+    const copy = (ref: string) =>
+      git.commit(
+        undefined,
+        Object.fromEntries(
+          Object.entries(f.git.tree(f.git.head(ref)!)).map(([path, blob]) => [
+            path,
+            git.writeBlob(f.git.blob(blob)),
+          ]),
+        ),
+        'Legacy fixture',
+      );
+    const data = copy(D),
+      currentLive = copy(L);
+    git.cas(D, undefined, data);
+    git.cas(L, undefined, currentLive);
+    const inputs = {
+      catalog: { items: {}, categories: [] },
+      inventoryItems: {},
+      sandboxPerks: {},
+    };
+    const publisher = new Publisher(git, f.options);
+    await expect(dryRunGlobalsMigration(publisher, inputs)).rejects.toThrow(
+      'Published snapshots differ from actual live inputs',
+    );
+    expect(git.head(D)).toBe(data);
+    expect(git.head(L)).toBe(currentLive);
+
+    const aligned = git.commit(
+      data,
+      {
+        ...git.tree(data),
+        'globals/live/converter-v2-test.json': git.writeBlob(
+          encode({
+            version: 1,
+            destination: f.options.liveBranch,
+            store: f.published,
+          }),
+        ),
+      },
+      'Use the aligned catalogue',
+    );
+    git.cas(D, data, aligned);
+    const legacy = publisher.read<LegacyInput>(git.tree(currentLive), 'liveDescriptions.json')!;
+    const library = legacy.perks[2];
+    if (!('editor' in library) || !library.editor.en) throw new Error('Missing variable library');
+    library.editor.en.secondary = 'var Beta = 999';
+    const overriding = git.commit(
+      currentLive,
+      {
+        ...git.tree(currentLive),
+        'liveDescriptions.json': git.writeBlob(encode(legacy)),
+      },
+      'Secondary library overrides the catalogue',
+    );
+    git.cas(L, currentLive, overriding);
+    await expect(dryRunGlobalsMigration(publisher, inputs)).rejects.toThrow(
+      'Published definitions differ from the effective LIVE libraries',
+    );
+    expect(git.head(D)).toBe(aligned);
+    expect(git.head(L)).toBe(overriding);
+
+    const stale = structuredClone(f.published);
+    stale.entries.find(({ name }) => name === 'Beta')!.definitions.en!.updatedAt =
+      '2026-06-01T00:00:00Z';
+    const staleCatalogue = git.commit(
+      aligned,
+      {
+        ...git.tree(aligned),
+        'globals/live/converter-v2-test.json': git.writeBlob(
+          encode({
+            version: 1,
+            destination: f.options.liveBranch,
+            store: stale,
+          }),
+        ),
+      },
+      'Keep legacy output while recording stale German shared text',
+    );
+    git.cas(D, aligned, staleCatalogue);
+    git.cas(L, overriding, currentLive);
+    await expect(dryRunGlobalsMigration(publisher, inputs)).rejects.toThrow(
+      'Published availability for Beta (de) differs from LIVE',
+    );
+    expect(git.head(D)).toBe(staleCatalogue);
+    expect(git.head(L)).toBe(currentLive);
+  });
 });
-async function mutationPort(f: Awaited<ReturnType<typeof fixture>>) {
+async function mutationPort(
+  f: Awaited<ReturnType<typeof fixture>>,
+  access: GlobalsContext['access'] = { role: 'maintainer', login: 'alice' },
+) {
   for (const entry of f.saved.entries)
     f.change({
       [(await namePaths(entry.kind, entry.name)).claim]: {
@@ -613,8 +959,8 @@ async function mutationPort(f: Awaited<ReturnType<typeof fixture>>) {
     storage,
     head: f.git.head(D)!,
     sources: await f.globals.sources(f.current(), f.git.head(L)!),
-    access: { role: 'maintainer', login: 'alice' },
-    user: { id: 1, login: 'alice' },
+    access,
+    user: { id: access.login === 'alice' ? 1 : 2, login: access.login },
     repository: f.options.repo,
     destinations: [f.options.liveBranch],
   });

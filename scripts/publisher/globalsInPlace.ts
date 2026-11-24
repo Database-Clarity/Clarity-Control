@@ -18,10 +18,13 @@ import {
   languages,
   legacyGlobalsInPlaceDefinitions,
   lowerConsumerMarkup,
+  MissingGlobalTranslation,
   publishableHashInput,
+  protectCommentedGlobalImports,
   pushedSchema,
   reconcileGlobalStore,
   rewriteGlobalReferences,
+  resolveAlias,
   resolveGlobalsInPlace,
   stableStringify,
   type Aliases,
@@ -37,6 +40,7 @@ import {
   type Lang,
   type Tooltip,
 } from '../../packages/core/src/index.js';
+import { markupImports } from '../../packages/core/src/markup/prepare.js';
 import { provesInPlace, type LegacyInput } from '../../packages/export/src/index.js';
 import { createHash } from 'node:crypto';
 import { type Tree } from './git.js';
@@ -61,9 +65,7 @@ export function requireGlobalsMode(pub: Publisher, tree: Tree, globals = false) 
 
 export function assertInPlaceRoots(hashes: readonly number[]) {
   if (hashes.some((hash) => globalsInPlaceLibraryText(hash) !== undefined))
-    throw new Error(
-      'Shared definitions publish with their tooltips. Review the affected tooltip instead.',
-    );
+    throw new Error('Publish shared definitions in Review → Globals.');
 }
 
 export function liveGlobalsInput(pub: Publisher, live: string): LegacyInput {
@@ -152,7 +154,7 @@ function proofLibraries(live: LegacyInput, options: GlobalsInPlaceOptions, engli
         if (kind === 'variables' && name === 'e') return [];
         const selected = globalsInPlaceDefinition(entry, english?.has(lang) ? 'en' : lang);
         if (!selected) return [];
-        const { body } = selected;
+        const body = protectCommentedGlobalImports(selected.body);
         if (kind === 'variables') return [`var ${name} = ${body.trim() || 'empty'}`];
         return [`${kind === 'exports' ? 'export' : 'title'} ${name} (\n${body}\n)`];
       });
@@ -370,6 +372,108 @@ function releaseOptions(published: GlobalStore, saved: GlobalStore): GlobalsInPl
   return { definitions, unavailable };
 }
 
+function withImportedFallback(
+  options: GlobalsInPlaceOptions,
+  source: (hash: number) => { document: Tooltip; draft?: boolean } | undefined,
+): GlobalsInPlaceOptions {
+  const cache = new Map<
+    number,
+    { editor?: LegacyEntry['editor']; causes: Map<Lang, MissingGlobalTranslation> }
+  >();
+  const inspect = (hash: number) => {
+    const cached = cache.get(hash);
+    if (cached) return cached;
+    const input = source(hash);
+    const causes = new Map<Lang, MissingGlobalTranslation>();
+    const row =
+      input &&
+      exportLegacy(
+        [input.document],
+        0,
+        undefined,
+        {},
+        {
+          globalsInPlace: input.draft ? options : { definitions: options.definitions },
+          onGlobalsFallback: (_hash, cause) => causes.set(cause.language, cause),
+        },
+      )[input.document.hash];
+    const inspected = { editor: row && !isLegacyAliasStub(row) ? row.editor : undefined, causes };
+    cache.set(hash, inspected);
+    return inspected;
+  };
+  const inherited = (
+    text: string,
+    lang: Lang,
+    visited: Set<number>,
+  ): MissingGlobalTranslation | undefined => {
+    for (const line of markupImports(text)) {
+      const target = / from (\d+) *$/.exec(line)?.[1];
+      if (!target || visited.has(Number(target))) continue;
+      const hash = Number(target);
+      visited.add(hash);
+      const { editor, causes } = inspect(hash);
+      const local = editor?.[lang];
+      const cause =
+        causes.get(lang) ??
+        (local && !local.englishFallback
+          ? inherited(`${local.main}\n${local.secondary}`, lang, visited)
+          : undefined);
+      if (cause) return cause;
+    }
+  };
+  return {
+    ...options,
+    importFallback: (text, lang) =>
+      text.includes('import ') ? inherited(text, lang, new Set()) : undefined,
+  };
+}
+
+export function authoredInPlaceOptions(
+  pub: Publisher,
+  tree: Tree,
+  live: LegacyInput,
+  plan: Pick<ReturnType<typeof planInPlaceRelease>, 'options' | 'rewritten'>,
+  documents: readonly Tooltip[],
+  aliases: Aliases,
+) {
+  const drafts = new Map(documents.map((doc) => [doc.hash, doc]));
+  return withImportedFallback(plan.options, (hash) => {
+    const canonical = resolveAlias(hash, aliases);
+    const draft = drafts.get(canonical);
+    if (draft) return { document: draft, draft: true };
+    const row = live.perks[hash];
+    if (!row) return;
+    const published = 'aliasOf' in row ? row.aliasOf : hash;
+    const document =
+      plan.rewritten.get(published) ?? pub.read<Tooltip>(tree, `live/tooltips/${published}.json`);
+    if (document) return { document };
+  });
+}
+
+export function assertScheduledGlobalNames(
+  documents: readonly Tooltip[],
+  plan: ReturnType<typeof planInPlaceRelease>,
+) {
+  for (const entry of plan.published.store.entries) {
+    const retired = new Set(
+      entry.nameHistory
+        .map(({ name }) => name)
+        .filter((name) => !Object.hasOwn(plan.options.definitions[entry.kind] ?? {}, name)),
+    );
+    if (!retired.size) continue;
+    for (const tooltip of documents)
+      for (const cell of Object.values(tooltip.text)) {
+        const reference = globalReferenceSpans(cell.text, entry.kind).find(({ name }) =>
+          retired.has(name),
+        );
+        if (reference)
+          throw new Error(
+            `Tooltip ${tooltip.hash} uses the former shared name ${reference.name}. Return the batch to draft and schedule it again with ${entry.name}.`,
+          );
+      }
+  }
+}
+
 function renamesOf(published: GlobalStore, selected: readonly GlobalRecord[]): Rename[] {
   return selected.flatMap((entry) => {
     const previous = published.entries.find(({ id }) => id === entry.id);
@@ -455,6 +559,10 @@ function publishedDocuments(pub: Publisher, tree: Tree, live: LegacyInput): Tool
   });
 }
 
+function withdrawsEnglish(entry: GlobalRecord, previous: GlobalRecord | undefined) {
+  return !!entry.tombstone || (!!previous?.definitions.en && !entry.definitions.en);
+}
+
 function assertWithdrawal(
   selected: GlobalRecord,
   previous: GlobalRecord | undefined,
@@ -462,7 +570,7 @@ function assertWithdrawal(
   published: GlobalStore,
   documents: readonly Tooltip[],
 ) {
-  if (!selected.tombstone || !previous || previous.tombstone) return;
+  if (!previous || previous.tombstone) return;
   const names = new Set([selected.name, previous.name]);
   const reads = (text: string) =>
     globalReferenceSpans(text, selected.kind).some(({ name }) => names.has(name));
@@ -493,31 +601,27 @@ function selectedRelease(
       refills: {},
       rewritten: new Map<number, Tooltip>(),
     };
+  const previous = new Map(published.store.entries.map((entry) => [entry.id, entry]));
   const selected = selection.map(({ id, expected }) => {
     const entry = saved.entries.find((candidate) => candidate.id === id);
     if (!entry || definitionDigest(entry) !== expected)
       throw new Error(`Shared definition ${entry?.name || id} changed. Review it again.`);
-    if (entry.tombstone && !maintainer)
+    if (withdrawsEnglish(entry, previous.get(id)) && !maintainer)
       throw new Error(`Only a maintainer can publish the removal of ${entry.name}.`);
     return entry;
   });
   const liveDocs = publishedDocuments(pub, tree, live);
   const globals = new GlobalsPublisher(pub);
-  const removalDocs = selected.some((entry) => entry.tombstone)
+  const withdrawals = selected.filter((entry) => withdrawsEnglish(entry, previous.get(entry.id)));
+  const removalDocs = withdrawals.length
     ? [
         ...liveDocs,
         ...Object.values(globals.documents(tree, 'tooltips')),
         ...globals.upcoming(tree).flatMap(Object.values),
       ]
     : [];
-  for (const entry of selected)
-    assertWithdrawal(
-      entry,
-      published.store.entries.find(({ id }) => id === entry.id),
-      saved,
-      published.store,
-      removalDocs,
-    );
+  for (const entry of withdrawals)
+    assertWithdrawal(entry, previous.get(entry.id), saved, published.store, removalDocs);
 
   const renames = renamesOf(published.store, selected);
   const beforeEntries = rewriteEntries(published.store.entries, renames);
@@ -537,17 +641,32 @@ function selectedRelease(
     saved,
     selected.map(({ id }) => id),
   );
-  const oldOptions = { definitions: globalsInPlaceDefinitions(before.entries) };
   const options = releaseOptions(next, saved);
   const rewritten = new Map<number, Tooltip>();
+  const updatedDocs = liveDocs.map((prior) => {
+    const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
+    if (doc !== prior) rewritten.set(doc.hash, doc);
+    return doc;
+  });
+  const publishedDocs = new Map(updatedDocs.map((doc) => [doc.hash, doc]));
+  const source = (hash: number) => {
+    const row = live.perks[hash];
+    const document = publishedDocs.get(row && 'aliasOf' in row ? row.aliasOf : hash);
+    if (document) return { document };
+  };
+  const oldOptions = withImportedFallback(
+    { definitions: globalsInPlaceDefinitions(before.entries) },
+    source,
+  );
+  const publishedOptions = withImportedFallback({ definitions: options.definitions }, source);
   const affected: Tooltip[] = [];
   const changedLanguages = new Map<number, Lang[]>();
   const refills: Receipt['exported'] = {};
-  for (const prior of liveDocs) {
-    const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
-    if (doc !== prior) rewritten.set(doc.hash, doc);
+  for (const doc of updatedDocs) {
     const old = exportLegacy([doc], 0, undefined, {}, { globalsInPlace: oldOptions })[doc.hash];
-    const filled = exportLegacy([doc], 0, undefined, {}, { globalsInPlace: options })[doc.hash];
+    const filled = exportLegacy([doc], 0, undefined, {}, { globalsInPlace: publishedOptions })[
+      doc.hash
+    ];
     if (
       isLegacyAliasStub(old) ||
       isLegacyAliasStub(filled) ||
@@ -566,8 +685,8 @@ function selectedRelease(
     refills[doc.hash] = { ...perk, editor };
   }
   if (affected.length) {
-    assertInPlaceDocuments(affected, options);
-    const { raw, fallbacks } = exportGlobalsProof(affected, 0, undefined, {}, {}, options);
+    assertInPlaceDocuments(affected, publishedOptions);
+    const { raw, fallbacks } = exportGlobalsProof(affected, 0, undefined, {}, {}, publishedOptions);
     const rawPerks = { ...live.perks };
     for (const { hash } of affected) {
       const existing = rawPerks[hash],
@@ -588,7 +707,7 @@ function selectedRelease(
       live,
       { ...live, perks: rawPerks },
       { ...live, perks: { ...live.perks, ...refills } as LegacyInput['perks'] },
-      options,
+      publishedOptions,
       affected.map(({ hash }) => hash),
       fallbacks,
     );
@@ -602,13 +721,14 @@ export function planInPlaceRelease(
   live: LegacyInput,
   selection: Selection,
   maintainer: boolean,
+  hasTooltipSelection = false,
 ) {
   const plan = (items: Selection) => selectedRelease(pub, tree, live, items, maintainer);
   const refusals: { id: string; error: string }[] = [];
   try {
     return { ...plan(selection), globals: selection.map(({ id }) => id), refusals };
   } catch (error) {
-    if (selection.length < 2) throw error;
+    if (selection.length < 2 && !hasTooltipSelection) throw error;
     // A failed choice cannot stop independent definitions in the same signed part.
     const accepted: Selection = [];
     let result = plan(accepted);
@@ -623,7 +743,7 @@ export function planInPlaceRelease(
         });
       }
     }
-    if (!accepted.length) throw error;
+    if (!accepted.length && !hasTooltipSelection) throw error;
     return { ...result, globals: accepted.map(({ id }) => id), refusals };
   }
 }
@@ -694,7 +814,18 @@ export function bundleInPlaceReview(pub: Publisher, tree: Tree, fence: GlobalsIn
           return before !== after ||
             beforeAvailable !== afterAvailable ||
             (previous?.name !== entry.name && (before !== null || after !== null))
-            ? [[lang, { before, after }]]
+            ? [
+                [
+                  lang,
+                  {
+                    before,
+                    after,
+                    ...((before !== null && !beforeAvailable) || (after !== null && !afterAvailable)
+                      ? { beforeAvailable, afterAvailable }
+                      : {}),
+                  },
+                ],
+              ]
             : [];
         }),
       ),
