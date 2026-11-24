@@ -257,11 +257,12 @@
 }
 
 // The list's action names itself in full where the header has room, in one word where it does not
-// (the editor's narrowest widths), so the queue never pushes the pane's own buttons out.
+// (the editor's narrowest widths, and the narrowest line the queue shares with an open version),
+// so the queue never pushes the pane's own buttons out.
 .short {
   display: none;
 }
-@container pane-header (max-width: 26rem) {
+@container pane-header (max-width: 26rem) or ((min-width: 38.51rem) and (max-width: 43.5rem)) {
   .long {
     display: none;
   }

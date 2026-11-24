@@ -173,7 +173,7 @@ export function nextFit(
   // The line with every tool inline: what is in More now comes back, More itself goes.
   const all = need + sum(moved) - moreAt(moved);
   for (let count = 0; count <= widths.length; count++)
-    if (all - sum(count) + moreAt(count) <= room + (count < moved ? -0.5 : 0.5))
+    if (all - sum(count) + moreAt(count) <= room - (count < moved ? 1 : 0))
       return { moved: count, wrap: false };
   return { moved: widths.length, wrap: true };
 }
