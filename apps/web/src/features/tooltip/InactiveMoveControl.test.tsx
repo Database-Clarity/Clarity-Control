@@ -115,6 +115,31 @@ it('keeps a containing tools menu mounted when the pointer confirms its nested m
   expect(saved).toHaveBeenCalledWith(moved);
 });
 
+it('closes one popover per Escape, the nested confirm before the menu around it', async () => {
+  await act(async () =>
+    root.render(
+      <Popover label="Tools" trigger="Tools" contain>
+        <InactiveMoveControl hash={42} name="Test perk" onSaved={saved} />
+      </Popover>,
+    ),
+  );
+  await click('Tools');
+  await click('Move to Inactive');
+  const escape = () =>
+    act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+  await escape();
+  expect(
+    [...document.querySelectorAll('[role=dialog]')].map((dialog) =>
+      dialog.getAttribute('aria-label'),
+    ),
+  ).toEqual(['Tools']);
+  expect(document.activeElement?.textContent).toContain('Move to Inactive');
+  await escape();
+  expect(document.querySelector('[role=dialog]')).toBeNull();
+});
+
 it.each(['Escape', 'Back', 'Cancel'])(
   'cancels with %s, and resets confirmation on reopen',
   async (action) => {

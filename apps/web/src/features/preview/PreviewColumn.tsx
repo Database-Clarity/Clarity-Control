@@ -29,6 +29,26 @@ export interface EnhancedView {
   derived: boolean;
 }
 
+/**
+ * The version picker's labels: names, except that versions sharing one (a member taken out of its
+ * group keeps its name) say whether they read the base's text or their own, with the hash if that
+ * is shared too.
+ */
+export function versionLabels(
+  enhanced: readonly Pick<EnhancedView, 'hash' | 'name' | 'derived'>[],
+): string[] {
+  const shared = (list: readonly string[], label: string) =>
+    list.indexOf(label) !== list.lastIndexOf(label);
+  const names = enhanced.map(({ name }) => name);
+  const labels = enhanced.map(({ name, derived }) => {
+    if (!shared(names, name)) return name;
+    return derived ? 'Base text' : 'Own text';
+  });
+  return labels.map((label, index) =>
+    shared(labels, label) ? `${label} ${enhanced[index].hash}` : label,
+  );
+}
+
 export interface PreviewColumnProps {
   hash: number;
   lang: Lang;
@@ -181,6 +201,7 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
   // The row is always there, so stepping onto an item with no enhanced version moves nothing: the
   // views it lacks are dimmed, the chosen view is kept by the page and returns on the next item
   // that has one.
+  const versions = versionLabels(enhanced);
   const bar = (
     <div className={styles.bar}>
       <VersionSwitch
@@ -193,12 +214,13 @@ const PreviewColumnBody = memo(function PreviewColumnBody({
         <select
           className={styles.versions}
           aria-label="Enhanced version"
+          title={`${selected.name} · ${selected.hash}`}
           value={selected.hash}
           onChange={(event) => onVariant(Number(event.target.value))}
         >
-          {enhanced.map((entry) => (
-            <option key={entry.hash} value={entry.hash}>
-              {entry.name}
+          {versions.map((label, index) => (
+            <option key={enhanced[index].hash} value={enhanced[index].hash}>
+              {label}
             </option>
           ))}
         </select>

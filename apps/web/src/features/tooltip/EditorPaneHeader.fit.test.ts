@@ -31,6 +31,18 @@ describe('desktop tool line fit', () => {
     expect(nextFit(509, 560, tools, 2, more)).toEqual(fit(1));
     expect(nextFit(509, 580, tools, 2, more)).toEqual(fit(0));
   });
+  it('does not flip at an exact fit when scrollWidth rounds one of the two layouts', () => {
+    // Full Auto Trigger System in a 625px line: the same width measures 625.64, then 625.2.
+    const spare = [66.59375, 45.5, 127.046875, 70.34375];
+    expect(nextFit(625.640625, 625, spare, 3, 37.5)).toEqual(fit(4));
+    expect(nextFit(554.859375, 625, spare, 4, 37.5)).toEqual(fit(4));
+  });
+  it('counts no More while only the marks have become a count', () => {
+    expect(nextFit(600, 513, [100, 102], 0, more, 1)).toEqual(fit(1));
+    expect(nextFit(500, 513, [100, 102], 1, more, 1)).toEqual(fit(1));
+    expect(nextFit(500, 605, [100, 102], 1, more, 1)).toEqual(fit(0));
+    expect(nextFit(680, 513, [100, 102], 0, more, 1)).toEqual(fit(2));
+  });
   it('is stable: an answer never flips on the measurement it produces', () => {
     for (const inline of [520, 560, 620, 700]) {
       const first = nextFit(inline, 513, tools, 0, more);

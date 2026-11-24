@@ -291,6 +291,8 @@ export function Popover({
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || innerPopupOwnsEscape(event.target, surface.current)) return;
+      // An open child (its trigger is inside us) closes first; the next Escape closes this one.
+      if (surface.current?.querySelector('[aria-haspopup="dialog"][aria-controls]')) return;
       event.stopPropagation();
       if (openOnHover) dismissed.current = true;
       close(!openOnHover || returnFocus.current);

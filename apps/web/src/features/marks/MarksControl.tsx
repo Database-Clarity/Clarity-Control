@@ -8,6 +8,16 @@ import { When } from '../../ui/When';
 import { noEntryMarks, useMarksStore } from './store';
 import styles from './marks.module.scss';
 
+/** Whether the header shows the entry's marks: for who can mark it, or if it has any. */
+export function useMarksShown(hash: number | undefined): boolean {
+  const role = useAuthStore((state) => state.user?.role);
+  const marked = useMarksStore(
+    (state) => !!state.error || (hash !== undefined && !!state.index.get(hash)?.length),
+  );
+  const allowed = !!apiUrl && (role === 'editor' || role === 'maintainer');
+  return hash !== undefined && (allowed || marked);
+}
+
 /** Mark details and editing for the current entry in the editor header. */
 export function MarksControl({
   hash,
@@ -107,8 +117,7 @@ export function MarksControl({
             </span>
             {entry.note && <p>{entry.note}</p>}
             <small>
-              {accounts?.[entry.by]?.login ?? `GitHub user ${entry.by}`} ·{' '}
-              <When value={entry.at} />
+              {accounts?.[entry.by]?.login ?? `GitHub user ${entry.by}`} · <When value={entry.at} />
             </small>
             {allowed && (
               <button type="button" disabled={busy || !writable} onClick={() => select(entry.type)}>

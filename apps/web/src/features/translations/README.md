@@ -53,6 +53,12 @@ finder, or a copied link is an ordinary visit (the control shows the queue pause
 row for an enhanced version with text of its own opens on its base's page with `variant=` (a plain
 link would redirect to the base's text).
 
+In translate mode one line above the editor says when the open translation needs updating
+(`TranslationBanner`, `pendingState.ts`): behind English, with the changed words once counted, or
+published in English. It judges the draft as it would be saved (the save's own stamping, then the
+rule above), so it goes while typing and comes back on Discard or undo. The line keeps its height
+without a banner and holds "Start from English" while the translation is empty.
+
 On a non-English tooltip, outdated translations show English changes in the Source panel. A
 single toggle switches to current English and remembers the choice locally. Translators do not
 see Compendium panels. For other roles the desktop right pane shows English OR the Compendium

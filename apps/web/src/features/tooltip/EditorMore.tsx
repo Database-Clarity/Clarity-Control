@@ -388,8 +388,11 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
       let room = rowWidth;
       for (const item of header.children) {
         if (item === group) break;
-        const width = item.getBoundingClientRect().width;
+        let width = item.getBoundingClientRect().width;
         if (!width) continue;
+        // The draft dot's margins.
+        const { marginLeft, marginRight } = getComputedStyle(item);
+        width += (parseFloat(marginLeft) || 0) + (parseFloat(marginRight) || 0);
         // Without a queue the tools can join the last line, even if an earlier item wrapped.
         if (!hasQueue && width > room) room = rowWidth;
         room -= width + headerGap;

@@ -87,6 +87,8 @@ import { queueSources } from '../queue/sources';
 import { useWorkThrough } from '../queue/useQueue';
 import { englishDiffFor } from '../translations/source';
 
+import { TranslationBanner } from './TranslationBanner';
+import bannerStyles from './TranslationBanner.module.scss';
 import { TranslationSource } from './TranslationSource';
 import { VariantWorkspace } from './VariantWorkspace';
 import { CompendiumPanel } from '../compendium/CompendiumPanel';
@@ -1008,9 +1010,26 @@ function TooltipWorkspace({
             aria-label={`${heading} editor (${languageLabel(lang)})`}
             className={styles.editorSection}
           >
-            {lang !== 'en' && !loading && access.reason === null && !textOf(activeHash) && (
-              <div className={styles.numberStartBar}>
-                <StartEnglishLoader hash={activeHash} />
+            {lang !== 'en' && !readOnly && (
+              <div className={bannerStyles.row} data-translation-row>
+                {!loading && access.reason === null && !textOf(activeHash) && (
+                  <StartEnglishLoader hash={activeHash} />
+                )}
+                <div className={bannerStyles.status} role="status">
+                  {!loading && (
+                    <TranslationBanner
+                      saved={activeBase}
+                      // A batch draft is judged against the batch's own future text.
+                      base={batchEditing ? activeBase : drafts[activeHash]?.base}
+                      next={
+                        batchEditing?.conflicted(activeHash) ? undefined : drafts[activeHash]?.next
+                      }
+                      lang={lang}
+                      data={data}
+                      suspended={suspended}
+                    />
+                  )}
+                </div>
               </div>
             )}
             {batchEditing?.notice && (

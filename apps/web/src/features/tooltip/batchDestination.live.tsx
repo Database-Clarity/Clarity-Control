@@ -5,12 +5,14 @@ import styles from './BatchDestination.module.scss';
 import {
   isMarkupOnly,
   languages,
+  merge3,
   stableStringify,
   type Lang,
   type Tooltip,
   type MarkupGlobals,
 } from '@clarity/core';
 import {
+  batchDraftKey,
   discardBatchDraft,
   draftsOfBatch,
   updateBatchDrafts,
@@ -52,6 +54,13 @@ export function drafts(source: Drafts, batchId: string): Drafts {
     }),
     data,
   ).overlay;
+}
+/** Whether the batch moved under the local draft, so saving it would report a conflict. */
+export function conflicted(source: Drafts, batchId: string, hash: number): boolean {
+  const load = upcomingStore().getState().loads[batchId];
+  const draft = source[batchDraftKey(batchId, hash)];
+  const proposed = load?.state === 'ready' && load.upcoming.members[hash]?.proposed;
+  return !!draft && !!proposed && !merge3(draft.base, proposed, draft.next).ok;
 }
 export const discard = discardBatchDraft;
 /** Keep the proposal as the merge base, but attribute translation text to the future English. */
