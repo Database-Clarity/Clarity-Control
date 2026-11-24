@@ -1,6 +1,8 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import {
+  globalsInPlaceCapability,
+  globalsInPlacePath,
   inactiveRemovalHash,
   publicationSyncPendingCode,
   publishableHash,
@@ -9,6 +11,7 @@ import {
 import { Fixture, makePrivateKey, tooltip } from './fixture.js';
 import { GitHub } from '../src/github.js';
 import { publish } from '../src/publish.js';
+import { refuseInPlaceSave } from '../src/globals/inPlace.js';
 
 vi.mock('../../../config/publisher.json', () => ({ default: { enabled: true } }));
 let key: string;
@@ -37,6 +40,51 @@ async function fixture() {
   };
   return { f, value };
 }
+
+it('admits shared definitions only with the active fence and a capable publisher', async () => {
+  const { f, value } = await fixture();
+  const selected = {
+    ...value,
+    hashes: [],
+    expected: {},
+    globals: [{ id: 'g_fixture2000', expected: 'a'.repeat(64) }],
+  };
+  const fence = {
+    destination: f.env.LIVE_BRANCH,
+    legacyData: 'a'.repeat(40),
+    legacyLive: 'b'.repeat(40),
+    migratedLive: 'c'.repeat(40),
+  };
+  expect((await f.request('/publish', 'POST', selected, 2)).status).toBe(409);
+  f.moveData({ [globalsInPlacePath]: { ...fence, state: 'hold' } });
+  expect((await f.request('/publish', 'POST', selected, 2)).status).toBe(409);
+  f.moveData({
+    [globalsInPlacePath]: { ...fence, state: 'active' },
+    '.publisher/PIN': { capabilities: [] },
+  });
+  expect((await f.request('/publish', 'POST', selected, 2)).status).toBe(409);
+  f.moveData({ '.publisher/PIN': { capabilities: [globalsInPlaceCapability] } });
+  expect(
+    (
+      await f.request(
+        '/publish',
+        'POST',
+        { ...value, hashes: [2], expected: { 2: 'a'.repeat(64) } },
+        2,
+      )
+    ).status,
+  ).toBe(422);
+  expect((await f.request('/publish', 'POST', selected, 2)).status).toBe(202);
+  expect(f.current()[`publish/requests/${opId}.json`]).toBeDefined();
+});
+
+it('allows a named global import in an authored save and refuses a raw library root', () => {
+  const document = tooltip();
+  document.text.en!.text = 'import Barrier from global';
+  expect(() => refuseInPlaceSave(document)).not.toThrow();
+  document.text.en!.text = 'import main from 2';
+  expect(() => refuseInPlaceSave(document)).toThrow('Use a shared export by name');
+});
 it.each([
   'globals/sync.json',
   'globals/layout.json',

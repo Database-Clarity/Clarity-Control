@@ -31,8 +31,6 @@ import {
   selectedInactiveMoves,
   type InactiveMoves,
   mergeLivePerks,
-  findElementTags,
-  enhancedArrowMarkup,
   isTextlessDescription,
   tooltipSchema,
   permissionsSchema,
@@ -102,6 +100,7 @@ import {
 } from './globals.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import { drainCurrentSaves } from './currentSave.js';
+import { unloweredEntry } from './consumerOutput.js';
 import {
   assertInPlaceDocuments,
   assertScheduledGlobalNames,
@@ -111,8 +110,10 @@ import {
   bundleInPlaceReview,
   globalsFence,
   liveGlobalsInput,
+  neutralRenameHashes,
   provePublication,
   planInPlaceRelease,
+  refillImportedTooltips,
   requireGlobalsMode,
   rewritePushed,
 } from './globalsInPlace.js';
@@ -128,28 +129,7 @@ export const publishBackoff = () => setTimeout(30_000);
 
 const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
 
-/**
- * The first exported hash whose strings still hold an authoring form that exportLegacy lowers: an
- * element-tagged span or a preview marker, or a delimited variable or the arrow symbol (`#{`,
- * `<enhanced/>`; capability markupBraces). Fail closed: today's apps would drop the text or print
- * the markup. Any `#{` counts, braced name or not (real data has none).
- */
-export function unloweredEntry(entries: Record<string, unknown>): string | undefined {
-  const strings = (value: unknown): string[] =>
-    typeof value === 'string'
-      ? [value]
-      : value && typeof value === 'object'
-        ? Object.values(value).flatMap(strings)
-        : [];
-  const unlowered = (text: string) =>
-    /[\uE000\uE001]/.test(text) ||
-    findElementTags(text).length > 0 ||
-    text.includes('#{') ||
-    text.includes(enhancedArrowMarkup);
-  for (const [hash, entry] of Object.entries(entries))
-    if (strings(entry).some(unlowered)) return hash;
-  return undefined;
-}
+export { unloweredEntry };
 const dataRef = (branch: string) => `refs/heads/${branch}`;
 export const paths = (id: string) => {
   publishOpIdSchema.parse(id);
@@ -994,40 +974,40 @@ export class Publisher {
         }
         documents.push(document);
       }
-      const selected = selectedInactiveMoves(
-        moves,
-        documents.map(({ hash }) => hash),
-        aliases,
-      );
       const inPlace = this.inPlaceOptions(frozen, signed, receipt.liveParent);
+      const neutral = inPlace && neutralRenameHashes(this, frozen, receipt.entries, inPlace.rewritten);
+      const publishable = neutral?.size ? documents.filter(({ hash }) => !neutral.has(hash)) : documents;
+      const selected = selectedInactiveMoves(moves, publishable.map(({ hash }) => hash), aliases);
       const active = inPlace
-        ? documents.filter(({ hash }) => !isMovedInactive(hash, selected))
-        : documents;
+        ? publishable.filter(({ hash }) => !isMovedInactive(hash, selected))
+        : publishable;
       const globalsInPlace = inPlace && authoredInPlaceOptions(
         this, frozen, inPlace.live, inPlace, active, activeAliases(aliases, selected),
       );
       if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
       if (inPlace && signed.kind === 'batch') assertScheduledGlobalNames(active, inPlace);
       const exported = exportWithInactiveMoves(
-        documents,
+        publishable,
         receipt.now,
         options.facts,
         aliases,
         selected,
         globalsInPlace && { globalsInPlace },
       );
-      if (inPlace && globalsInPlace && documents.length)
+      if (inPlace && globalsInPlace && publishable.length) {
+        refillImportedTooltips(this, frozen, inPlace, active, activeAliases(aliases, selected), exported);
         provePublication(
           this,
           frozen,
           inPlace.live,
-          documents,
+          publishable,
           aliases,
           selected,
           receipt.now,
           exported,
           globalsInPlace,
         );
+      }
       if (
         stableStringify({ ...inPlace?.refills, ...exported }) !==
           stableStringify(receipt.exported) ||
@@ -1035,7 +1015,7 @@ export class Publisher {
           stableStringify(receipt.inPlace ?? null) ||
         stableStringify(
           receipt.entries
-            .filter(({ hash, digest }) => pushed[hash] !== digest)
+            .filter(({ hash, digest }) => !neutral?.has(hash) && pushed[hash] !== digest)
             .map(({ hash }) => hash),
         ) !== stableStringify(receipt.changed)
       )
@@ -1246,6 +1226,7 @@ export class Publisher {
         : undefined;
       if (receipt) {
         const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
+        const neutral = inPlace && neutralRenameHashes(this, tree, receipt.entries, inPlace.rewritten);
         if (inPlace && receipt.inPlace?.globals.length) {
           rewritePushed(this, tree, pushed, inPlace.rewritten);
           for (const [hash, tooltip] of inPlace.rewritten)
@@ -1255,14 +1236,13 @@ export class Publisher {
           );
         }
         for (const e of receipt.entries) {
+          if (neutral?.has(e.hash)) continue;
           pushed[e.hash] = e.digest;
           tree[`live/tooltips/${e.hash}.json`] = e.tooltipBlob;
         }
         tree['live/pushed.json'] = this.git.writeBlob(json(pushed));
         if (receipt.globals) {
           await new GlobalsPublisher(this).record(tree, receipt.globals, h, candidate!);
-        } else if (inPlace) {
-          await new GlobalsPublisher(this).recordInPlaceProofs(tree, h, candidate!);
         }
       }
       if (tree[p.request] && tree[p.request] !== blob) {
@@ -1308,6 +1288,8 @@ export class Publisher {
         batchTimes.landedAt = landedAt;
         batchTimes.landedAtSource = 'cas';
       }
+      if (receipt && inPlace)
+        await new GlobalsPublisher(this).recordInPlaceProofs(tree, h, candidate!);
       // A commit cannot contain its own SHA. recordCommit is deliberately null; resolve it via log blob history.
       tree[p.log] = this.git.writeBlob(
         json({
@@ -1721,7 +1703,9 @@ export class Publisher {
           aliases,
         );
         const inPlace = this.inPlaceOptions(tree, payload, live);
-        const checked = this.checkAndExport(tree, tooltips, aliases, inPlace);
+        const neutral = inPlace && neutralRenameHashes(this, tree, entries, inPlace.rewritten);
+        const publishable = neutral?.size ? tooltips.filter(({ hash }) => !neutral.has(hash)) : tooltips;
+        const checked = this.checkAndExport(tree, publishable, aliases, inPlace);
         if ('error' in checked) {
           await this.record(
             opId,
@@ -1746,7 +1730,7 @@ export class Publisher {
           entries,
           exported: { ...inPlace?.refills, ...checked.exported },
           changed: entries
-            .filter(({ hash, digest }) => pushed[hash] !== digest)
+            .filter(({ hash, digest }) => !neutral?.has(hash) && pushed[hash] !== digest)
             .map(({ hash }) => hash),
           requester: payload.requester,
           intentDigest: payload.intentDigest,
@@ -1941,7 +1925,8 @@ export class Publisher {
         moves,
         globalsInPlace && { globalsInPlace },
       );
-      if (inPlace && globalsInPlace && tooltips.length)
+      if (inPlace && globalsInPlace && tooltips.length) {
+        refillImportedTooltips(this, tree, inPlace, active, activeAliases(aliases, moves), exported);
         provePublication(
           this,
           tree,
@@ -1953,6 +1938,7 @@ export class Publisher {
           exported,
           globalsInPlace,
         );
+      }
     } catch (error) {
       if (inPlace) return { error: String(error), proposalRejected: true };
       throw new ConsumerOutputRejected(String(error));

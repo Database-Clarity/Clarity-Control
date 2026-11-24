@@ -28,6 +28,7 @@ import { GlobalsPublisher } from './globals.js';
 import {
   publishedGlobals,
   globalsFence,
+  historicalSecondaryUses,
   liveGlobalsInput,
   migrateInPlace,
 } from './globalsInPlace.js';
@@ -166,6 +167,7 @@ export async function dryRunGlobalsMigration(
     }
   const next = migrateInPlace(before);
   const files = proveMigrationFiles(before, next, inputs);
+  const olderSecondaries = historicalSecondaryUses(before, liveDefinitions);
   if (!journal) {
     assertDrained(pub, git, source);
     const migratedLive = git.commit(
@@ -227,7 +229,7 @@ export async function dryRunGlobalsMigration(
     git.cas(dataRef, hold, record);
     checkpoint?.('record');
   }
-  return { record, live: migratedLive, files };
+  return { record, live: migratedLive, files, olderSecondaries };
 }
 
 /** Restore only the exact migration snapshots in the disposable clone. */

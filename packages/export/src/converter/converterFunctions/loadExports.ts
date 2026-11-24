@@ -17,6 +17,7 @@ const getExports = (description: string) => {
 
 export const loadExports = (descriptionData: DescriptionData): string => {
   const { descriptionString, editorType, language, hash, database } = descriptionData
+  const importLanguage = database[hash]?.editor[language]?.englishFallback ? 'en' : language
   let description = descriptionString
 
   const getImports = (descriptionString: string) => {
@@ -61,7 +62,7 @@ export const loadExports = (descriptionData: DescriptionData): string => {
       }
 
       if (name === 'main' || name === 'secondary') {
-        const imported = database[from]?.editor[language]?.[name]
+        const imported = database[from]?.editor[importLanguage]?.[name]
         if (imported === undefined) throw new Error(`Missing import ${name} from ${from} for ${hash}/${language}`)
         description = description.replace(line, () => imported)
         return
@@ -78,7 +79,7 @@ export const loadExports = (descriptionData: DescriptionData): string => {
         return
       }
 
-      const imported = getExports(database[from]?.editor[language]?.[editorToImportFrom] || '').get(name)
+      const imported = getExports(database[from]?.editor[importLanguage]?.[editorToImportFrom] || '').get(name)
       if (imported === undefined) throw new Error(`Missing export ${name} from ${from} for ${hash}/${language}`)
       description = description.replace(line, () => imported)
     })

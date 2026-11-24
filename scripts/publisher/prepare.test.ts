@@ -1,3 +1,4 @@
+import { namePaths } from '../../apps/worker/src/globals/handlers.js';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
@@ -646,7 +647,18 @@ it.each([
     expect(f.pub.head(f.options.liveBranch)).toBe(migratedLive);
     change(rename ? '10' : '13', true);
   };
-  await f.pub.operation(R);
+  const writeProofs = GlobalsPublisher.prototype.recordInPlaceProofs;
+  const clockDuringRecord = vi
+    .spyOn(GlobalsPublisher.prototype, 'recordInPlaceProofs')
+    .mockImplementation(async function (this: GlobalsPublisher, ...args) {
+      await writeProofs.apply(this, args);
+      f.clock.now += 100;
+    });
+  try {
+    await f.pub.operation(R);
+  } finally {
+    clockDuringRecord.mockRestore();
+  }
   const live = f.pub.head(f.options.liveBranch);
   if (rename) {
     expect(f.batch().status).toBe('needs_attention');
@@ -657,6 +669,13 @@ it.each([
     return;
   }
   expect(f.batch().status).toBe('published');
+  const proof = f.read<{ sources: { live: string; upcoming: string } }>(
+    (await namePaths('variables', 'Alpha')).proof,
+  );
+  expect(proof.sources.live).toBe(live);
+  expect(proof.sources.upcoming).toBe(
+    globalTreeOid(f.git.tree(f.pub.head(f.options.dataBranch)), 'schedule'),
+  );
   expect(f.pub.receipt(live, R)).toMatchObject({
     inPlace: { globals: [], refills: [] },
     changed: [123],
