@@ -13,6 +13,7 @@ import { z } from 'zod';
 import {
   classifyPublishIntent,
   globalsInPlacePath,
+  globalsInPlacePublishContract,
   aliasGroupsPath,
   isTextlessDescription,
   permissionsSchema,
@@ -185,6 +186,11 @@ export async function publish(
       'maintainer',
       'editor',
     ]);
+    if (
+      snapshot.files.at(-1)?.value !== undefined &&
+      new URL(request.url).searchParams.get('contract') !== globalsInPlacePublishContract
+    )
+      throw new HttpError(409, 'Reload this page before publishing shared text.');
     const existingLog = logged(snapshot.files[2]);
     // A tombstone wins even if a malformed stray request was injected later.
     const decision = classifyPublishIntent(

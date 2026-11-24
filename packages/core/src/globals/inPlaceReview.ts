@@ -8,6 +8,7 @@ const oid = z.string().regex(/^[0-9a-f]{40}$/);
 /** Absent before migration. Both states prohibit the old publication path. */
 export const globalsInPlacePath = 'config/globals-in-place.json';
 export const globalsInPlaceCapability = 'globalsInPlaceV1';
+export const globalsInPlacePublishContract = 'shared-definitions-v1';
 export const globalsInPlaceFenceSchema = z
   .object({
     state: z.enum(['hold', 'active']),
@@ -24,6 +25,8 @@ export const globalsPendingSchema = z.array(
   z.object({
     id: globalIdSchema,
     name: z.string(),
+    previousName: z.string().optional(),
+    renameOnly: z.literal(true).optional(),
     kind: globalKindSchema,
     change: z.enum(['new', 'changed', 'renamed', 'removed']),
     digest: globalDigestSchema,

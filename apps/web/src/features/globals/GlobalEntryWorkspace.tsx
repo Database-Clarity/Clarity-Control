@@ -443,8 +443,21 @@ function Workspace({
     setPendingAction(mutation ? 'saving' : 'checking');
     setError('');
     try {
+      let head = snapshot.head;
+      if (filled && mutation && entry && service.readEntry) {
+        // The publisher can advance the head to update its bookkeeping after any save.
+        // Keep the revision the user edited so a concurrent edit still conflicts.
+        const current = await service.readEntry(entry.id, { reviews: false });
+        if (!mounted.current) return false;
+        if (current.kind !== 'ok') {
+          setError(current.message);
+          return false;
+        }
+        head = current.value.head;
+        onSnapshot(current.value);
+      }
       const result = mutation
-        ? await service.mutate({ expectedHead: snapshot.head, mutation })
+        ? await service.mutate({ expectedHead: head, mutation })
         : await service.read();
       if (!mounted.current) return false;
       if (result.kind === 'ok') {

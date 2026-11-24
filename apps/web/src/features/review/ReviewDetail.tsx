@@ -27,7 +27,7 @@ import { CompendiumChanges, FieldChanges } from '../history/TooltipDiff';
 import { useRenderedDiff } from '../history/useRenderedDiff';
 import { itemFor, listName } from '../navigation/catalog';
 import { globalUsers, unitName, type GlobalPart } from './globalRows';
-import { publishedGlobals, publishedText, type PendingGlobal } from './globalsPending';
+import { publishedCell, publishedGlobals, type PendingGlobal } from './globalsPending';
 import { reviewGlobals, textLanguages, type Classification } from './kinds';
 import type { PendingTooltip } from './model';
 import type { Published } from './published';
@@ -247,11 +247,16 @@ function UpdatedTooltips({ pending }: { pending: PendingGlobal }) {
     );
   // A refused global's tooltips were not worked out.
   if (!tooltips.length && pending.refusal !== undefined) return null;
+  const size = `${count.format(tooltips.length)} ${tooltips.length === 1 ? 'tooltip' : 'tooltips'}`;
+  if (!tooltips.length && pending.renameOnly)
+    return <p className={styles.note}>Renames it without changing published text.</p>;
   if (!tooltips.length) return <p className={styles.note}>Updates no published tooltip.</p>;
   return (
     <details className={styles.updates}>
       <summary>
-        Updates {count.format(tooltips.length)} {tooltips.length === 1 ? 'tooltip' : 'tooltips'}
+        {pending.renameOnly
+          ? `Renames it in ${size}; published text stays the same`
+          : `Updates ${size}`}
       </summary>
       <ul>
         {tooltips.map(({ hash, name }, index) => (
@@ -383,19 +388,33 @@ function Folded({ lines, lang }: { lines: DiffLine[]; lang: Lang }) {
 function TextChange({
   before,
   after,
+  previousLanguage,
+  currentLanguage,
   lang,
   hash,
   classification,
 }: {
   before: string;
   after: string;
+  previousLanguage: Lang;
+  currentLanguage: Lang;
   lang: Lang;
   hash: number;
   classification: Classification | undefined;
 }) {
   const data = useDataStore((state) => state.data);
-  const globals = useMemo(() => reviewGlobals(data, lang, hash), [data, lang, hash]);
-  const { result, busy } = useRenderedDiff(before, after, globals);
+  const globals = useMemo(
+    () => reviewGlobals(data, currentLanguage, hash),
+    [data, currentLanguage, hash],
+  );
+  const previous = useMemo(
+    () =>
+      previousLanguage !== currentLanguage
+        ? reviewGlobals(data, previousLanguage, hash)
+        : undefined,
+    [data, previousLanguage, currentLanguage, hash],
+  );
+  const { result, busy } = useRenderedDiff(before, after, globals, previous);
   const variants = classification?.variants;
   const scope = classification?.scope;
   const enhanced = useMemo(
@@ -408,10 +427,11 @@ function TextChange({
               after,
               variantGlobals(globals, true),
               before.length + after.length <= 4000,
+              previous && variantGlobals(previous, true),
             ),
           ))
         : undefined,
-    [variants, scope, result, before, after, globals],
+    [variants, scope, result, before, after, globals, previous],
   );
   const late = useDelayed(busy);
   if (busy)
@@ -562,36 +582,39 @@ export const ReviewDetail = memo(function ReviewDetail({
     Object.keys(tooltip.text).length
       ? (Object.entries(tooltip.text) as [Lang, { text: string }][])
           .filter(([, value]) => value?.text)
-          .map(([lang, value], _, all) => (
-            <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
-              {(all.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
-              <PlainText
-                text={
-                  data?.bundle.globalsPending
-                    ? publishedText(data, tooltip, lang, side)
-                    : value.text
-                }
-                lang={lang}
-                hash={entry.tooltip.hash}
-              />
-            </section>
-          ))
+          .map(([lang, value], _, all) => {
+            const cell = data?.bundle.globalsPending
+              ? publishedCell(data, tooltip, lang, side)
+              : { text: value.text, language: lang };
+            return (
+              <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
+                {(all.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
+                <PlainText text={cell.text} lang={cell.language} hash={entry.tooltip.hash} />
+              </section>
+            );
+          })
       : null;
   let evidence: ReactNode = null;
   if ((kind === 'Text changed' || kind === 'Renamed' || (kind === 'On hold' && pending)) && live) {
     const changed = classification!.languages ?? textLanguages(live, entry.tooltip);
-    evidence = changed.map((lang) => (
-      <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
-        {(changed.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
-        <TextChange
-          before={publishedText(data, live, lang, 'live')}
-          after={publishedText(data, entry.tooltip, lang, 'next')}
-          lang={lang}
-          hash={entry.tooltip.hash}
-          classification={classification}
-        />
-      </section>
-    ));
+    evidence = changed.map((lang) => {
+      const before = publishedCell(data, live, lang, 'live');
+      const after = publishedCell(data, entry.tooltip, lang, 'next');
+      return (
+        <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
+          {(changed.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
+          <TextChange
+            before={before.text}
+            after={after.text}
+            previousLanguage={before.language}
+            currentLanguage={after.language}
+            lang={lang}
+            hash={entry.tooltip.hash}
+            classification={classification}
+          />
+        </section>
+      );
+    });
   } else if (kind === 'Links changed' && live)
     evidence = (
       <div className={styles.links}>

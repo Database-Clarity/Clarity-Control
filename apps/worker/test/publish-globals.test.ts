@@ -3,6 +3,7 @@ import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import {
   globalsInPlaceCapability,
   globalsInPlacePath,
+  globalsInPlacePublishContract,
   inactiveRemovalHash,
   publicationSyncPendingCode,
   publishableHash,
@@ -43,6 +44,7 @@ async function fixture() {
 
 it('admits shared definitions only with the active fence and a capable publisher', async () => {
   const { f, value } = await fixture();
+  const route = `/publish?contract=${globalsInPlacePublishContract}`;
   const selected = {
     ...value,
     hashes: [],
@@ -55,26 +57,26 @@ it('admits shared definitions only with the active fence and a capable publisher
     legacyLive: 'b'.repeat(40),
     migratedLive: 'c'.repeat(40),
   };
-  expect((await f.request('/publish', 'POST', selected, 2)).status).toBe(409);
+  expect((await f.request(route, 'POST', selected, 2)).status).toBe(409);
   f.moveData({ [globalsInPlacePath]: { ...fence, state: 'hold' } });
-  expect((await f.request('/publish', 'POST', selected, 2)).status).toBe(409);
+  expect((await f.request(route, 'POST', selected, 2)).status).toBe(409);
   f.moveData({
     [globalsInPlacePath]: { ...fence, state: 'active' },
     '.publisher/PIN': { capabilities: [] },
   });
-  expect((await f.request('/publish', 'POST', selected, 2)).status).toBe(409);
+  expect((await f.request(route, 'POST', selected, 2)).status).toBe(409);
   f.moveData({ '.publisher/PIN': { capabilities: [globalsInPlaceCapability] } });
   expect(
-    (
-      await f.request(
-        '/publish',
-        'POST',
-        { ...value, hashes: [2], expected: { 2: 'a'.repeat(64) } },
-        2,
-      )
-    ).status,
+    (await f.request(route, 'POST', { ...value, hashes: [2], expected: { 2: 'a'.repeat(64) } }, 2))
+      .status,
   ).toBe(422);
-  expect((await f.request('/publish', 'POST', selected, 2)).status).toBe(202);
+  const stale = await f.request('/publish', 'POST', value, 2);
+  expect(stale.status).toBe(409);
+  expect(await stale.json()).toMatchObject({ error: expect.stringContaining('Reload this page') });
+  expect(f.current()[`publish/requests/${opId}.json`]).toBeUndefined();
+  const mixed = { ...value, globals: selected.globals };
+  expect((await f.request(route, 'POST', mixed, 2)).status).toBe(202);
+  expect((await f.request('/publish', 'POST', value, 2)).status).toBe(409);
   expect(f.current()[`publish/requests/${opId}.json`]).toBeDefined();
 });
 

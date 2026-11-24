@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { globalsInPlacePublishContract } from '@clarity/core';
 import { apiRequest } from '../api';
 
 /** What the Worker reports for one operation (GET /publish/status, fixed shape). */
@@ -77,14 +78,25 @@ async function send(path: string, init?: RequestInit): Promise<{ status: number;
 }
 
 /** Undefined when the receipt names no outcome: nothing is then known about its globals. */
-function globalResult(result: unknown): PublishAnswer['globals'] {
+function globalResult(
+  result: unknown,
+  selected: NonNullable<PublishBody['globals']>,
+): PublishAnswer['globals'] {
   const parsed = z
     .object({
       globals: z.array(z.string()).optional(),
       globalRefusals: z.array(z.object({ id: z.string(), error: z.string() })).optional(),
     })
     .safeParse(result).data;
-  return parsed && (parsed.globals || parsed.globalRefusals)
+  const ids = new Set(selected.map(({ id }) => id));
+  const outcomes = [
+    ...(parsed?.globals ?? []),
+    ...(parsed?.globalRefusals ?? []).map(({ id }) => id),
+  ];
+  return parsed &&
+    (parsed.globals || parsed.globalRefusals) &&
+    new Set(outcomes).size === outcomes.length &&
+    outcomes.every((id) => ids.has(id))
     ? { live: parsed.globals ?? [], refused: parsed.globalRefusals ?? [] }
     : undefined;
 }
@@ -94,18 +106,19 @@ function globalResult(result: unknown): PublishAnswer['globals'] {
  * terminal status recovered from the Worker's log. Anything else is a PublishHttpError.
  */
 export async function postPublish(body: PublishBody): Promise<PublishAnswer> {
-  const { status, value } = await send('/publish', {
+  const { status, value } = await send(`/publish?contract=${globalsInPlacePublishContract}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(publishBody(body)),
   });
   if (status === 202) {
-    if (!acceptedSchema.safeParse(value).success)
+    if (acceptedSchema.safeParse(value).data?.opId !== body.opId)
       throw new PublishHttpError(502, 'Unexpected publish response');
     return { status: 'pending' };
   }
   const complete = completeSchema.safeParse(value);
-  if (!complete.success) throw new PublishHttpError(502, 'Unexpected publish response');
+  if (!complete.success || complete.data.opId !== body.opId)
+    throw new PublishHttpError(502, 'Unexpected publish response');
   const result = z
     .object({ status: terminal, code: z.unknown().optional(), error: z.unknown().optional() })
     .safeParse(complete.data.result);
@@ -124,7 +137,9 @@ export async function postPublish(body: PublishBody): Promise<PublishAnswer> {
     ? { status: resolved, refusal: error.slice(prefix.length) }
     : {
         status: resolved,
-        ...(body.globals ? { globals: globalResult(complete.data.result) } : {}),
+        ...(body.globals && (resolved === 'done' || resolved === 'unchanged')
+          ? { globals: globalResult(complete.data.result, body.globals) }
+          : {}),
       };
 }
 

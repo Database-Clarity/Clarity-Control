@@ -2,8 +2,11 @@ import {
   exportLegacy,
   globalsInPlaceDefinition,
   languages,
-  MissingGlobalTranslation,
+  isLegacyAliasStub,
+  resolveAlias,
   resolveGlobalsInPlace,
+  UnpublishedGlobal,
+  withImportedGlobalsFallback,
   type GlobalsInPlaceOptions,
   type GlobalsPending,
   type Lang,
@@ -14,7 +17,7 @@ import type { Bundle } from '../../services/bundle';
 import type { EditorData } from '../../stores/data';
 import { globalTypes, type GlobalKind } from '../globals/model';
 import type { PendingTooltip } from './model';
-import { exportedText } from './published';
+import { exportedText, publishedFor, usePublished } from './published';
 
 export type PendingGlobal = GlobalsPending[number];
 
@@ -135,10 +138,8 @@ function publishedDefinitions(bundle: Bundle): { live: Definitions; next: Defini
     }
     if (change && unpublishedName(change)) added[kind][name] = after;
     if (change?.change === 'new') continue;
-    // The contract does not carry the published name: any earlier name of a renamed global is it.
-    const names =
-      change?.change === 'renamed' ? (entry?.nameHistory.map((old) => old.name) ?? []) : [name];
-    for (const published of names) live[kind][published] ??= before;
+    const published = change?.change === 'renamed' ? change.previousName : name;
+    if (published !== undefined) live[kind][published] = before;
   }
   const next: Definitions = {
     variables: { ...live.variables, ...added.variables },
@@ -162,7 +163,7 @@ export function neededGlobals(
   const fresh = new Map(
     pending
       .filter(({ part }) => part?.pending && unpublishedName(part.pending))
-      .map((entry) => [entry.name, entry]),
+      .map((entry) => [`${entry.part!.kind}:${entry.name}`, entry]),
   );
   if (!fresh.size) return [];
   const { live, next } = publishedDefinitions(data.bundle);
@@ -180,15 +181,13 @@ export function neededGlobals(
       };
       for (const { kind } of globalTypes)
         for (const [name, entry] of Object.entries(next[kind])) {
-          const global = fresh.get(name);
+          const global = fresh.get(`${kind}:${name}`);
           if (live[kind][name] || (global && included.has(global))) definitions[kind][name] = entry;
           else unavailable[kind].add(name);
         }
       // The publisher's own reading of the text, and its reason when a name is not published.
       const reason = refusalOf(by, { definitions, unavailable });
-      const global = fresh.get(
-        /Publish the shared change for (.+) first\./.exec(reason)?.[1] ?? '',
-      );
+      const global = reason && fresh.get(`${reason.kind}:${reason.globalName}`);
       if (global && !included.has(global)) {
         included.add(global);
         needed.push({ global, by });
@@ -199,7 +198,7 @@ export function neededGlobals(
   return needed;
 }
 
-function refusalOf({ tooltip, part }: PendingTooltip, options: GlobalsInPlaceOptions): string {
+function refusalOf({ tooltip, part }: PendingTooltip, options: GlobalsInPlaceOptions) {
   try {
     if (!part?.pending) exportLegacy([tooltip], 0, undefined, {}, { globalsInPlace: options });
     else
@@ -208,34 +207,49 @@ function refusalOf({ tooltip, part }: PendingTooltip, options: GlobalsInPlaceOpt
         if (text) resolveGlobalsInPlace(text, lang, options);
       }
   } catch (reason) {
-    return String(reason);
+    const cause = reason instanceof Error && part?.pending === undefined ? reason.cause : reason;
+    if (cause instanceof UnpublishedGlobal) return cause;
   }
-  return '';
 }
 
 /**
  * A tooltip's text as it publishes in a language: its globals filled in as published, and English
  * as a whole where one of them has no current translation.
  */
-export function publishedText(
+export function publishedCell(
   data: EditorData | null,
   tooltip: Tooltip | null,
   lang: Lang,
   side: 'live' | 'next',
-): string {
+): { text: string; language: Lang } {
   const text = exportedText(tooltip, lang);
-  if (!data?.bundle.globalsPending || !tooltip || tooltip.hash < 0) return text;
+  if (!data?.bundle.globalsPending || !tooltip || tooltip.hash < 0) return { text, language: lang };
   const definitions = publishedDefinitions(data.bundle)[side];
-  const uses = (value: string) =>
-    globalTypes.some(({ kind }) => Object.keys(definitions[kind]).some((n) => value.includes(n)));
-  if (!uses(text)) return text;
+  const options = withImportedGlobalsFallback({ definitions }, (hash) => {
+    const canonical = resolveAlias(hash, data.aliases);
+    const published = publishedFor(
+      usePublished.getState().byHash,
+      canonical,
+      data.bundle.pushed[canonical],
+    );
+    const document =
+      published?.status === 'ready' ? published.tooltip : data.bundle.tooltips[canonical];
+    return document ? { document } : undefined;
+  });
   try {
-    return resolveGlobalsInPlace(text, lang, { definitions });
-  } catch (reason) {
-    if (!(reason instanceof MissingGlobalTranslation) || lang === 'en') return text;
-    return publishedText(data, tooltip, 'en', side);
+    const exported = exportLegacy([tooltip], 0, undefined, {}, { globalsInPlace: options })[
+      tooltip.hash
+    ];
+    const cell = exported && !isLegacyAliasStub(exported) ? exported.editor[lang] : undefined;
+    if (cell) return { text: cell.main, language: cell.englishFallback ? 'en' : lang };
+  } catch {
+    // Leave invalid source visible in Review so the author can fix it.
   }
+  return { text, language: lang };
 }
+
+export const publishedText = (...args: Parameters<typeof publishedCell>) =>
+  publishedCell(...args).text;
 
 /** What a filled text's imports still read: the published globals, never a pending change. */
 export function publishedGlobals(

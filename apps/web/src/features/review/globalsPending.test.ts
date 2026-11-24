@@ -10,6 +10,7 @@ import {
   neededGlobals,
   publishedGlobals,
   publishedText,
+  publishedCell,
   rowIdentity,
 } from './globalsPending';
 import { localKind } from './kinds';
@@ -33,6 +34,29 @@ const make = (hash: number, text: string): Tooltip => ({
   hash,
   text: { en: { text, updatedAt: at, updatedBy: 'fixture' } },
   associated: [],
+});
+
+it('uses the English import language when a nested tooltip lacks a shared translation', async () => {
+  const data = await state([]);
+  const cell = (text: string) => ({ text, updatedAt: at, updatedBy: '' });
+  const importer = {
+    ...make(12, ''),
+    text: {
+      en: cell('English lead\nimport main from 13'),
+      de: cell('Deutscher Einstieg\nimport main from 13'),
+    },
+  };
+  data.bundle.tooltips[13] = {
+    ...make(13, ''),
+    text: {
+      en: cell('Import source <title Details [G_refill] />'),
+      de: cell('Quelle <title Details [G_refill] />'),
+    },
+  };
+  expect(publishedCell(data, importer, 'de', 'next')).toEqual({
+    text: importer.text.en.text,
+    language: 'en',
+  });
 });
 const row = (
   id: string,
@@ -270,7 +294,7 @@ it('holds a global saved after its row was built', async () => {
   expect(entries.find(({ name }) => name === 'Fresh')?.unpublishable).toBeUndefined();
 });
 
-it('follows published globals to a new one, and takes a renamed one along', async () => {
+it('finds the renamed dependency by kind and ignores names introduced by published bodies', async () => {
   const data = await state();
   const { entries } = data.bundle.globals!;
   const define = (id: string, kind: string, name: string, body: string) =>
@@ -282,13 +306,14 @@ it('follows published globals to a new one, and takes a renamed one along', asyn
       definitions: { en: { ...entries[0]!.definitions.en!, body } },
     } as never);
   // Published "Selector" names the new title: the text never spells it out.
-  define('g_select-001', 'variables', 'Selector', 'Detail');
+  define('g_select-001', 'variables', 'Selector', '<title Details [Detail] />');
   define('g_detail-001', 'titles', 'Detail', 'A new note');
   define(ids.scaling, 'variables', 'Scaling', 'x');
   data.bundle.globalsPending!.push(
     row('g_detail-001', 'titles', 'Detail', 'new', null, 'A new note'),
+    row('g_scaling-title', 'titles', 'Scaling', 'new', null, 'A note with the same name'),
   );
-  data.bundle.tooltips[12] = make(12, '<title Details [#Selector] />');
+  data.bundle.tooltips[12] = make(12, '#Selector');
   data.bundle.tooltips[13] = make(13, 'Scales with #Scaling');
   const listed = await pendingTooltips(data);
   const needs = (name: string) =>
@@ -297,7 +322,7 @@ it('follows published globals to a new one, and takes a renamed one along', asyn
       listed,
       data,
     ).map(({ global }) => global.name);
-  expect(needs('Perk 12')).toEqual(['Detail']);
+  expect(needs('Perk 12')).toEqual([]);
   expect(needs('Perk 13')).toEqual(['Scaling']);
 });
 
@@ -307,6 +332,7 @@ it('shows tooltips with the published globals, whatever is pending', async () =>
     row(ids.gone, 'exports', 'gone', 'removed', 'Old export', null),
     {
       ...row(ids.moved, 'variables', 'Moved', 'renamed', 'old text', 'new text'),
+      previousName: 'Was',
       languages: {
         en: { before: 'old text', after: 'new text' },
         de: { before: null, after: 'neuer Text' },

@@ -2,7 +2,7 @@ import { languages, type Lang, type Tooltip } from '@clarity/core';
 import { create } from 'zustand';
 import type { EditorData } from '../../stores/data';
 import { diffGlobals } from '../history/RenderedWordDiff';
-import { publishedGlobals, publishedText } from './globalsPending';
+import { publishedCell, publishedGlobals } from './globalsPending';
 import { classifyRendered } from '../history/useRenderedDiff';
 import { publishedOf, rowKey, usesOthers, type RowKey } from './globalRows';
 import type { PendingTooltip } from './model';
@@ -237,13 +237,18 @@ export function classifyRows(
     running.set(key, request);
     const changed = textLanguages(before, saved);
     void Promise.all(
-      changed.map((lang) =>
-        classifyRendered(
-          publishedText(data, before, lang, 'live'),
-          publishedText(data, saved, lang, 'next'),
-          reviewGlobals(data, lang, saved.hash),
-        ),
-      ),
+      changed.map((lang) => {
+        const previous = publishedCell(data, before, lang, 'live');
+        const current = publishedCell(data, saved, lang, 'next');
+        return classifyRendered(
+          previous.text,
+          current.text,
+          reviewGlobals(data, current.language, saved.hash),
+          previous.language !== current.language
+            ? reviewGlobals(data, previous.language, saved.hash)
+            : undefined,
+        );
+      }),
     ).then((outputs) => {
       // A newer check for this row (new saved text, published text, or imports) owns the result.
       if (running.get(key) !== request) return;

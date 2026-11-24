@@ -34,16 +34,18 @@ export function classifyRendered(
   before: string,
   after: string,
   globals: MarkupGlobals,
+  previous?: MarkupGlobals,
 ): Promise<NonNullable<RenderedDiffReply['classified']> | undefined> {
   const snapshot = diagnosticGlobals(
     `${before}
 ${after}`,
     globals,
   );
+  const previousSnapshot = previous && diagnosticGlobals(before, previous);
   if (typeof Worker === 'undefined')
     return Promise.resolve().then(() => {
       try {
-        return compareDiffOutput(before, after, snapshot);
+        return compareDiffOutput(before, after, snapshot, previousSnapshot);
       } catch {
         return undefined;
       }
@@ -56,7 +58,7 @@ ${after}`,
         pending.delete(id);
         resolve(reply?.classified);
       });
-      post({ id, before, after, globals: snapshot, classify: true });
+      post({ id, before, after, globals: snapshot, previous: previousSnapshot, classify: true });
     } catch {
       pending.delete(id);
       resolve(undefined);
@@ -65,29 +67,43 @@ ${after}`,
 }
 
 /** Keep the bounded word alignment off the opening/input path for long descriptions. */
-export function useRenderedDiff(before: string, after: string, globals: MarkupGlobals) {
+export function useRenderedDiff(
+  before: string,
+  after: string,
+  globals: MarkupGlobals,
+  previous?: MarkupGlobals,
+) {
   const large = !!before && !!after && before.length + after.length > 4000;
   const snapshot = useMemo(
     () => diagnosticGlobals(`${before}\n${after}`, globals),
     [before, after, globals],
   );
+  const previousSnapshot = useMemo(
+    () => previous && diagnosticGlobals(before, previous),
+    [before, previous],
+  );
   // Capture only reachable imports for the worker's bounded source checks.
-  const key = useMemo(() => JSON.stringify([before, after, snapshot]), [before, after, snapshot]);
+  const key = useMemo(
+    () => JSON.stringify([before, after, snapshot, previousSnapshot]),
+    [before, after, snapshot, previousSnapshot],
+  );
   const [computed, setComputed] = useState<{
     key: string;
     result?: Result;
     sourceFailed?: boolean;
   }>();
   const initial = useMemo<Result>(
-    () => cache.get(key) ?? presentDiff(renderedDiff(before, after, snapshot, !large)),
-    [key, before, after, snapshot, large],
+    () =>
+      cache.get(key) ??
+      presentDiff(renderedDiff(before, after, snapshot, !large, previousSnapshot)),
+    [key, before, after, snapshot, large, previousSnapshot],
   );
   const cached = cache.get(key);
   const opening = useRef(true);
   useEffect(() => {
     const initialOpening = opening.current;
     opening.current = false;
-    if (before === after || cached || typeof Worker === 'undefined') return;
+    if ((before === after && !previousSnapshot) || cached || typeof Worker === 'undefined') return;
     const id = ++sequence;
     // The diff paints first; the complete source check lands after it. A short
     // text's opening diff is already exact, so only a long text's provisional
@@ -113,7 +129,7 @@ export function useRenderedDiff(before: string, after: string, globals: MarkupGl
       try {
         startWorker();
         pending.set(id, finish);
-        post({ id, before, after, globals: snapshot });
+        post({ id, before, after, globals: snapshot, previous: previousSnapshot });
       } catch {
         pending.delete(id);
         finish();
@@ -128,7 +144,7 @@ export function useRenderedDiff(before: string, after: string, globals: MarkupGl
       // A newer diff or a closed view drops the old check in the worker too.
       if (pending.delete(id)) post({ cancel: id });
     };
-  }, [before, after, snapshot, key, large, cached]);
+  }, [before, after, snapshot, previousSnapshot, key, large, cached]);
   return {
     result: cached ?? (computed?.key === key ? computed.result : undefined) ?? initial,
     sourceAnalysis:

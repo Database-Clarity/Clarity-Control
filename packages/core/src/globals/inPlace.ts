@@ -1,9 +1,15 @@
-import { translationMaxAge } from '../exportLegacy.js';
+import type { Tooltip } from '../schemas.js';
+import {
+  exportLegacy,
+  isLegacyAliasStub,
+  translationMaxAge,
+  type LegacyEntry,
+} from '../exportLegacy.js';
 import type { Lang } from '../languages.js';
 import { lowerConsumerMarkup, variableReferences } from '../markup/braces.js';
 import { markupCommentContext, removeMarkupComments } from '../markup/comments.js';
 import { parseLines } from '../markup/lines.js';
-import { markupConditions, prepareMarkup } from '../markup/prepare.js';
+import { markupConditions, markupImports, prepareMarkup } from '../markup/prepare.js';
 import { extractBlocks, extractVariables } from '../markup/syntax.js';
 import { globalReferenceSpans } from './references.js';
 import type { MarkupGlobals } from '../markup/types.js';
@@ -31,6 +37,68 @@ export class MissingGlobalTranslation extends Error {
     super(`Add or update the translation for shared ${globalName}.`);
     this.name = 'MissingGlobalTranslation';
   }
+}
+
+export class UnpublishedGlobal extends Error {
+  constructor(
+    readonly kind: Kind,
+    readonly globalName: string,
+  ) {
+    super(`Publish the shared change for ${globalName} first.`);
+  }
+}
+
+/** Both readers can consume a tag even when a comment boundary crosses it. */
+function* tagVariables(source: string) {
+  if (!source.includes('#') || !source.includes('<')) return;
+  const uncommented = removeMarkupComments(source);
+  const local = extractVariables(uncommented);
+  for (const text of new Set([uncommented, source.replace(/\r/g, '')])) {
+    const comments = text === uncommented ? [] : markupCommentContext(text).comments;
+    for (const match of text.matchAll(/<(?:link|title)\b[^\n]*?(?:\/>|$)/gm)) {
+      const [tag] = match;
+      const end = match.index + tag.length;
+      if (comments.some(({ from, to }) => from <= match.index && to >= end)) continue;
+      const literal =
+        !comments.some(({ from, to }) => from < end && match.index < to) &&
+        /^[^\[\]\n]*\[[^\[\]<>\n]*\] *\/>$/.test(tag);
+      const destination = literal ? tag.indexOf('[') : tag.length;
+      const wholeLink =
+        literal && /^<link .* \[#(?:[A-Za-z0-9]+|\{[A-Za-z0-9]+\})\] *\/>$/.test(tag);
+      for (const { name, from } of variableReferences(tag))
+        if (!Object.hasOwn(local, name))
+          yield {
+            name,
+            destination: from > destination,
+            wholeLink: wholeLink && from > destination,
+          };
+    }
+  }
+}
+
+export function inPlaceLabelVariable(
+  source: string,
+  shared: ReadonlySet<string>,
+  target?: string,
+): string | undefined {
+  for (const { name, destination, wholeLink } of tagVariables(source))
+    if (target === undefined ? !destination || (!wholeLink && shared.has(name)) : name === target)
+      return name;
+}
+
+export function inPlaceLinkVariables(source: string): Set<string> {
+  return new Set(
+    [...tagVariables(source)].filter(({ wholeLink }) => wholeLink).map(({ name }) => name),
+  );
+}
+
+export function plainInPlaceDestination(body: string, names: ReadonlySet<string>): boolean {
+  return (
+    !!body &&
+    body.trim() === body &&
+    !/[\[\]<>\r\n]/.test(body) &&
+    !variableReferences(body).some(({ name }) => names.has(name))
+  );
 }
 
 /** Shared authored-content guard, independent of the selected translation or render preset. */
@@ -165,7 +233,7 @@ export function resolveGlobalsInPlace(
 ): string {
   const requirePublished = (kind: Kind, name: string) => {
     if (unavailable?.[kind]?.has(name) && !Object.hasOwn(definitions[kind] ?? {}, name))
-      throw new Error(`Publish the shared change for ${name} first.`);
+      throw new UnpublishedGlobal(kind, name);
   };
   const lookup = (kind: Kind, name: string, needed = true): string | undefined => {
     const entries = definitions[kind];
@@ -246,7 +314,7 @@ export function resolveGlobalsInPlace(
   if (unavailable?.titles?.size)
     for (const name of effectiveSharedNotes(
       lowerConsumerMarkup(source),
-      globals,
+      { ...globals, variables: globalsInPlaceLibraryText(2)! },
       unavailable.titles,
     ))
       if (!Object.hasOwn(local, name)) requirePublished('titles', name);
@@ -268,4 +336,60 @@ export function resolveGlobalsInPlace(
 export function globalsInPlaceLibraryText(hash: number): string | undefined {
   if (hash === 1 || hash === 3) return '';
   if (hash === 2) return 'var e = 🡅';
+}
+
+export function withImportedGlobalsFallback(
+  options: GlobalsInPlaceOptions,
+  source: (hash: number) => { document: Tooltip; draft?: boolean } | undefined,
+): GlobalsInPlaceOptions {
+  const cache = new Map<
+    number,
+    { editor?: LegacyEntry['editor']; causes: Map<Lang, MissingGlobalTranslation> }
+  >();
+  const inspect = (hash: number) => {
+    const cached = cache.get(hash);
+    if (cached) return cached;
+    const input = source(hash);
+    const causes = new Map<Lang, MissingGlobalTranslation>();
+    const row =
+      input &&
+      exportLegacy(
+        [input.document],
+        0,
+        undefined,
+        {},
+        {
+          globalsInPlace: input.draft ? options : { definitions: options.definitions },
+          onGlobalsFallback: (_hash, cause) => causes.set(cause.language, cause),
+        },
+      )[input.document.hash];
+    const inspected = { editor: row && !isLegacyAliasStub(row) ? row.editor : undefined, causes };
+    cache.set(hash, inspected);
+    return inspected;
+  };
+  const inherited = (
+    text: string,
+    lang: Lang,
+    visited: Set<number>,
+  ): MissingGlobalTranslation | undefined => {
+    for (const line of markupImports(text)) {
+      const target = / from (\d+) *$/.exec(line)?.[1];
+      if (!target || visited.has(Number(target))) continue;
+      const hash = Number(target);
+      visited.add(hash);
+      const { editor, causes } = inspect(hash);
+      const local = editor?.[lang];
+      const cause =
+        causes.get(lang) ??
+        (local && !local.englishFallback
+          ? inherited(`${local.main}\n${local.secondary}`, lang, visited)
+          : undefined);
+      if (cause) return cause;
+    }
+  };
+  return {
+    ...options,
+    importFallback: (text, lang) =>
+      text.includes('import ') ? inherited(text, lang, new Set()) : undefined,
+  };
 }

@@ -729,6 +729,8 @@ describe('in-place shared text publication', () => {
   it.each([
     ['published', 'Beta', '<title Up to #Beta [Local] />\ntitle Local (\nNote\n)'],
     ['saved', 'Newvar', '<link Up to #{Newvar} [https://example.com] />'],
+    ['nested destination', 'Beta', '<link Up to #Beta [https://example.com/?q=a[b]] />'],
+    ['comment opens a tag', 'Beta', '/* <title foo */ #Beta <link b [https://example.com] />'],
   ])('refuses a %s variable in a tooltip label', async (state, name, text) => {
     const f = await inPlaceFixture();
     const saved = { ...structuredClone(f.entry), id: 'g_savedlabelcase00', name: 'Newvar' };
@@ -750,7 +752,7 @@ describe('in-place shared text publication', () => {
       f.change({
         'tooltips/142.json': tooltip(
           142,
-          'var LocalValue = 10\n<link Up to #LocalValue [https://example.com] />\n// <link #Beta [https://example.com] />',
+          'var Beta = 10\n<link Up to #Beta [https://example.com] />\n// <link #Missing [https://example.com] />',
         ),
       });
       const next = A.replace(/1$/, '2');
@@ -763,14 +765,15 @@ describe('in-place shared text publication', () => {
   it.each([
     ['titles', '<title Up to #Beta [Local] />'],
     ['exports', '<link Up to #{Beta} [https://example.com] />'],
-  ])('refuses a shared variable in an approved %s label', async (kind, body) => {
+    ['titles', '<link Up to #Later [https://example.com] />'],
+  ])('refuses a nonlocal variable in an approved %s label (%s)', async (kind, body) => {
     const f = await inPlaceFixture('title Help (\nRead\n)', kind === 'exports');
     const entry = structuredClone(f.published.entries.find((record) => record.kind === kind)!);
     entry.definitions.en!.body = body;
     f.change({ [`globals/entries/${entry.id}.json`]: entry });
     const changed = pending(f).find(({ id }) => id === entry.id)!;
     expect(changed.refusal).toContain(
-      "Shared variables can't be used inside a title or link label: #Beta.",
+      "Shared variables can't be used inside a title or link label",
     );
     const before = f.git.head(L);
     await f.request([], A, selection(changed));
@@ -778,6 +781,106 @@ describe('in-place shared text publication', () => {
     expect(f.read(paths(A).log).result.status).toBe('rejected');
     expect(f.git.head(L)).toBe(before);
   });
+
+  it('refuses a label that uses the old variable name in a joint rename and approval', async () => {
+    const f = await inPlaceFixture('title Help (\nRead\n)');
+    const note = structuredClone(f.published.entries.find(({ name }) => name === 'Help')!);
+    note.definitions.en!.body = '<link Up to #Beta [https://example.com] />';
+    const renamed = {
+      ...f.published.entries.find(({ name }) => name === 'Beta')!,
+      name: 'Magnitude',
+    };
+    f.change({ [f.entryPath]: renamed, [`globals/entries/${note.id}.json`]: note });
+    const rows = pending(f);
+    await f.request(
+      [],
+      A,
+      rows.filter(({ id }) => id === note.id || id === renamed.id).flatMap(selection),
+    );
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.globalRefusals).toEqual(
+      expect.arrayContaining([{ id: note.id, error: expect.stringContaining('label: #Beta') }]),
+    );
+  });
+
+  it('lands a tooltip edit when a published variable supplies a note whose definition is only saved', async () => {
+    const f = await inPlaceFixture();
+    const variable = structuredClone(f.published.entries.find(({ name }) => name === 'Alpha')!);
+    variable.definitions.en!.body = 'A <title q [Extra] />';
+    f.change({ [`globals/entries/${variable.id}.json`]: variable });
+    await f.request([], A, selection(pending(f).find(({ id }) => id === variable.id)!));
+    await f.pub.run(false);
+    const source = A.replace(/1$/, '2');
+    f.change({ 'tooltips/142.json': tooltip(142, 'Start #Alpha') });
+    await f.request([142], source);
+    await f.pub.run(false);
+    expect(f.read(paths(source).log).result.status).toBe('done');
+    const extra = {
+      ...structuredClone(variable),
+      id: 'g_fixtureextra99',
+      kind: 'titles',
+      name: 'Extra',
+    };
+    extra.definitions = {
+      en: {
+        body: 'A saved-only note',
+        revision: 'new-note',
+        updatedAt: extra.definitions.en!.updatedAt,
+        updatedBy: extra.definitions.en!.updatedBy,
+      },
+    };
+    f.change({
+      [`globals/entries/${extra.id}.json`]: extra,
+      'tooltips/142.json': tooltip(142, 'Edited #Alpha'),
+    });
+    const later = A.replace(/1$/, '3');
+    await f.request([142], later);
+    await f.pub.run(false);
+    expect(f.read(paths(later).log).result.status).toBe('done');
+    expect(live(f).perks[142]).toMatchObject({
+      editor: { en: { main: 'Edited A <title q [Extra] />' } },
+    });
+  });
+
+  it.each(['change', 'rename', 'create'] as const)(
+    'reads whole-variable link destinations in both readers and catches an unsafe %s',
+    async (operation) => {
+      const f = await inPlaceFixture();
+      const entry = structuredClone(f.published.entries.find(({ name }) => name === 'Beta')!);
+      entry.definitions.en!.body = 'https://example.com/old';
+      f.change({ [f.entryPath]: entry });
+      await f.request([], A, selection(pending(f).find(({ id }) => id === entry.id)!));
+      await f.pub.run(false);
+      const next = A.replace(/1$/, '2');
+      f.change({
+        'tooltips/142.json': tooltip(142, '<link Reference [#{Beta}] /> <link Anchor [#Known] />'),
+      });
+      await f.request([142], next);
+      await f.pub.run(false);
+      expect(f.read(paths(next).log).result.status).toBe('done');
+      expect(JSON.stringify(formatV2Text(live(f), 142, 'en'))).toContain('https://example.com/old');
+      expect(Buffer.from(buildLegacy(live(f), 'clarity')).toString()).toContain(
+        'https://example.com/old',
+      );
+      const proposed =
+        operation === 'change'
+          ? {
+              ...entry,
+              definitions: { en: { ...entry.definitions.en!, body: 'https://example.com/#Beta' } },
+            }
+          : {
+              ...entry,
+              name: 'Known',
+              ...(operation === 'create' ? { id: 'g_fixtureknown99' } : {}),
+            };
+      f.change({ [`globals/entries/${proposed.id}.json`]: proposed });
+      const row = pending(f).find(({ id }) => id === proposed.id);
+      expect(row?.refusal).toContain('Tooltip 142');
+      expect(row?.refusal).toContain(
+        operation === 'change' ? 'plain, single-line destination' : 'Choose a different name',
+      );
+    },
+  );
 
   it.each(['import self', 'Independent older text'])(
     'preserves the LIVE secondary %s in a refill',

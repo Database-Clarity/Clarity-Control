@@ -1,8 +1,11 @@
 import { isDeepStrictEqual } from 'node:util';
 import {
   exportLegacy,
+  currentSavePath,
+  currentSaveStageRecord,
   globalsInPlaceCapability,
   globalsInPlaceDefinition,
+  globalsInPlaceDefinitions,
   globalsInPlaceFenceSchema,
   globalsInPlacePath,
   languages,
@@ -10,7 +13,7 @@ import {
   projectGlobals,
   type GlobalsInPlaceFence,
 } from '../../packages/core/src/index.js';
-import { batchSchema } from '@clarity/core/schedule';
+import { batchSchema, scheduleRequestSchema } from '@clarity/core/schedule';
 import {
   buildLegacy,
   bungieIdentical,
@@ -27,6 +30,7 @@ import { appCredits, LocalRepository } from './git.js';
 import { GlobalsPublisher } from './globals.js';
 import {
   publishedGlobals,
+  assertLinkVariableValues,
   globalsFence,
   historicalSecondaryUses,
   liveGlobalsInput,
@@ -102,6 +106,16 @@ function assertDrained(pub: Publisher, git: LocalRepository, data: string) {
   for (const path of Object.keys(tree)) {
     if (path.startsWith('publish/requests/') || path.startsWith('globals/intents/'))
       throw new Error(`Drain ${path} with the old publisher first.`);
+    if (path.startsWith(currentSavePath) && path.endsWith('/request.json')) {
+      const save = currentSaveStageRecord.parse(pub.read(tree, path));
+      if (save.status === 'uploading' || save.status === 'queued')
+        throw new Error(`Finish or cancel ${path} with the old publisher first.`);
+    }
+    if (/^schedule\/requests\/[^/.]+\.json$/.test(path)) {
+      const request = scheduleRequestSchema.parse(pub.read(tree, path));
+      if (request.status === 'pending' || request.status === 'needs_attention')
+        throw new Error(`Finish or cancel ${path} with the old publisher first.`);
+    }
     if (/^schedule\/batches\/[^/]+\/batch\.json$/.test(path)) {
       const batch = batchSchema.parse(pub.read(tree, path));
       if (
@@ -148,19 +162,31 @@ export async function dryRunGlobalsMigration(
   let hold = source;
   const legacyLive = journal?.legacyLive ?? pub.head(pub.options.liveBranch);
   const legacyData = journal?.legacyData ?? source;
+  const legacyTree = git.tree(legacyData);
+  if (
+    journal &&
+    (Object.keys(tree).length !== Object.keys(legacyTree).length + 1 ||
+      Object.keys(legacyTree).some((path) => tree[path] !== legacyTree[path]))
+  )
+    throw new Error(
+      'Editor Data moved during the shared text migration. Preserve those saves and plan again.',
+    );
   const { saved, published, authored, live } = new GlobalsPublisher(pub).capture(
-    git.tree(legacyData),
+    legacyTree,
     legacyData,
     legacyLive,
   );
   const before = liveGlobalsInput(pub, legacyLive);
   const entries = [...published.entries, ...saved.entries].filter(({ tombstone }) => !tombstone);
-  const variableNames = new Set(
-    entries.filter(({ kind }) => kind === 'variables').map(({ name }) => name),
+  const names = new Set(entries.filter(({ kind }) => kind === 'variables').map(({ name }) => name));
+  const definitionStores = [saved, published].map(
+    (store) => globalsInPlaceDefinitions(store.entries).variables,
   );
   const checkLabel = (text: string, context: string) => {
-    const issue = sharedVariableLabelIssue(text, variableNames);
+    const issue = sharedVariableLabelIssue(text, names);
     if (issue) throw new Error(`${context}: ${issue}`);
+    for (const variables of definitionStores)
+      assertLinkVariableValues(text, context, variables, names);
   };
   for (const entry of entries)
     for (const [lang, cell] of Object.entries(entry.definitions))
@@ -241,6 +267,10 @@ export async function dryRunGlobalsMigration(
   )
     throw new Error('Migration journal differs from its proven inputs.');
   const currentLive = pub.head(pub.options.liveBranch);
+  if (pub.head(pub.options.dataBranch) !== hold)
+    throw new Error(
+      'Editor Data moved during the shared text migration. Preserve those saves and plan again.',
+    );
   if (currentLive === legacyLive && journal.state === 'hold') {
     git.cas(liveRef, legacyLive, migratedLive);
     checkpoint?.('live');

@@ -27,13 +27,18 @@ export function variantGlobals(globals: MarkupGlobals, enhanced: boolean): Marku
 }
 
 /** Compare both preview variants using the production renderer. */
-export function compareDiffOutput(before: string, after: string, globals: MarkupGlobals) {
-  const render = (text: string, enhanced: boolean) =>
-    JSON.stringify(parseMarkup(text, variantGlobals(globals, enhanced)).lines);
-  const baseBefore = render(before, false),
-    baseAfter = render(after, false);
-  const enhancedBefore = render(before, true),
-    enhancedAfter = render(after, true);
+export function compareDiffOutput(
+  before: string,
+  after: string,
+  globals: MarkupGlobals,
+  previous = globals,
+) {
+  const render = (text: string, context: MarkupGlobals, enhanced: boolean) =>
+    JSON.stringify(parseMarkup(text, variantGlobals(context, enhanced)).lines);
+  const baseBefore = render(before, previous, false),
+    baseAfter = render(after, globals, false);
+  const enhancedBefore = render(before, previous, true),
+    enhancedAfter = render(after, globals, true);
   return {
     base: baseBefore !== baseAfter,
     enhanced: enhancedBefore !== enhancedAfter,
@@ -69,12 +74,13 @@ export function renderedDiff(
   after: string,
   globals: MarkupGlobals,
   precise = true,
+  previous = globals,
 ) {
   // With only one side there is nothing to align. Preserve the preview's spans
   // directly instead of splitting, encoding, aligning, and recombining words.
   if (!precise || !before || !after) {
-    const coarse = (text: string, diffKind: DiffSpan['diffKind']) => {
-      const lines: DiffLine[] = text ? parseMarkup(text, globals).lines : [];
+    const coarse = (text: string, context: MarkupGlobals, diffKind: DiffSpan['diffKind']) => {
+      const lines: DiffLine[] = text ? parseMarkup(text, context).lines : [];
       for (const line of lines) {
         line.diffKind = diffKind;
         for (const span of line.linesContent ?? []) (span as DiffSpan).diffKind = diffKind;
@@ -85,11 +91,19 @@ export function renderedDiff(
       return lines;
     };
     return {
-      before: coarse(before, before === after ? undefined : 'delete'),
-      after: coarse(after, before === after ? undefined : 'insert'),
+      before: coarse(
+        before,
+        previous,
+        before === after && previous === globals ? undefined : 'delete',
+      ),
+      after: coarse(
+        after,
+        globals,
+        before === after && previous === globals ? undefined : 'insert',
+      ),
     };
   }
-  function side(text: string) {
+  function side(text: string, context: MarkupGlobals) {
     const keys: string[] = [];
     // Word, icon, link, and title spans, plus one structure token per line, in render order.
     const tokens: (DiffSpan | DiffLine)[] = [];
@@ -117,7 +131,7 @@ export function renderedDiff(
           return span;
         });
       });
-    const lines: DiffLine[] = parseMarkup(text, globals).lines.map((source) => {
+    const lines: DiffLine[] = parseMarkup(text, context).lines.map((source) => {
       const line: DiffLine = { ...source };
       line.linesContent = source.linesContent && split(source.linesContent, source.classNames);
       line.table = source.table?.map((row) => ({
@@ -152,8 +166,8 @@ export function renderedDiff(
     });
     return { lines, tokens, structure, tables, lineOf, inks, keys: keys.join(' ') };
   }
-  const left = side(before),
-    right = side(after);
+  const left = side(before, previous),
+    right = side(after, globals);
   let a = 0,
     b = 0;
   // Rendered lines that share an unchanged word, icon, link, or title:
