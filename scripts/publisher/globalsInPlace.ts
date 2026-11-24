@@ -42,6 +42,8 @@ import {
   type Tooltip,
 } from '../../packages/core/src/index.js';
 import { markupImports } from '../../packages/core/src/markup/prepare.js';
+import { variableReferences } from '../../packages/core/src/markup/braces.js';
+import { removeMarkupComments } from '../../packages/core/src/markup/comments.js';
 import { provesInPlace, type LegacyInput } from '../../packages/export/src/index.js';
 import { createHash } from 'node:crypto';
 import { ZodError } from 'zod';
@@ -229,13 +231,17 @@ export function provePublication(
 ) {
   assertInPlaceLibraries(live);
   const hashes = documents.map(({ hash }) => hash);
+  const publishedOnly = { definitions: options.definitions };
   for (const entry of Object.values(exported)) {
     if (isLegacyAliasStub(entry)) continue;
     for (const [lang, cell] of Object.entries(entry.editor))
       for (const value of new Set([cell.main, cell.secondary]))
         if (
-          resolveGlobalsInPlace(value, cell.englishFallback ? 'en' : (lang as Lang), options) !==
-          value
+          resolveGlobalsInPlace(
+            value,
+            cell.englishFallback ? 'en' : (lang as Lang),
+            publishedOnly,
+          ) !== value
         )
           throw new Error(
             `Tooltip ${entry.name || entry.hash} (${lang}) still reads shared text after export.`,
@@ -324,6 +330,20 @@ export function proveInPlaceInputs(
   prove(fallbackBefore, fallsBack);
 }
 
+export function sharedVariableLabelIssue(source: string, names: ReadonlySet<string>) {
+  if (!names.size || !source.includes('#') || !source.includes('<')) return;
+  for (const [, label] of removeMarkupComments(source).matchAll(
+    /<(?:title|link) ([^\n]*?) \[[^\]\n]+\] \/>/g,
+  ))
+    for (const { name } of variableReferences(label))
+      if (name !== 'e' && names.has(name))
+        return `Shared variables can't be used inside a title or link label: #${name}.`;
+}
+
+function sharedVariableNames({ definitions, unavailable }: GlobalsInPlaceOptions) {
+  return new Set([...Object.keys(definitions.variables ?? {}), ...(unavailable?.variables ?? [])]);
+}
+
 export function assertInPlaceDocuments(
   documents: readonly Tooltip[],
   options: GlobalsInPlaceOptions,
@@ -333,9 +353,12 @@ export function assertInPlaceDocuments(
     ...Object.keys(options.definitions.titles ?? {}),
     ...(options.unavailable?.titles ?? []),
   ]);
+  const variableNames = sharedVariableNames(options);
   for (const tooltip of documents)
     for (const [lang, cell] of Object.entries(tooltip.text)) {
-      const issue = globalsInPlaceSaveIssue(cell.text, titleNames);
+      const issue =
+        sharedVariableLabelIssue(cell.text, variableNames) ??
+        globalsInPlaceSaveIssue(cell.text, titleNames);
       if (issue)
         throw new Error(`Tooltip ${tooltip.custom?.name || tooltip.hash} (${lang}): ${issue}`);
     }
@@ -702,9 +725,12 @@ function selectedRelease(
     selected.map(({ id }) => id),
   );
   const options = releaseOptions(next, saved);
+  const variableNames = sharedVariableNames(options);
   for (const entry of selected) {
     if (entry.tombstone) continue;
-    for (const { body } of Object.values(entry.definitions))
+    for (const [lang, { body }] of Object.entries(entry.definitions)) {
+      const issue = sharedVariableLabelIssue(body, variableNames);
+      if (issue) throw new Error(`${entry.name} (${lang}): ${issue}`);
       for (const kind of ['exports', 'variables', 'titles'] as const) {
         const unavailable = options.unavailable?.[kind];
         if (!unavailable?.size) continue;
@@ -713,6 +739,7 @@ function selectedRelease(
         );
         if (reference) throw new Error(`Publish the shared change for ${reference.name} first.`);
       }
+    }
   }
   const rewritten = new Map<number, Tooltip>();
   const updatedDocs = liveDocs.map((prior) => {

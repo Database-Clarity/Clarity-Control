@@ -163,13 +163,13 @@ export function resolveGlobalsInPlace(
   language: Lang,
   { definitions, unavailable }: GlobalsInPlaceOptions,
 ): string {
+  const requirePublished = (kind: Kind, name: string) => {
+    if (unavailable?.[kind]?.has(name) && !Object.hasOwn(definitions[kind] ?? {}, name))
+      throw new Error(`Publish the shared change for ${name} first.`);
+  };
   const lookup = (kind: Kind, name: string, needed = true): string | undefined => {
     const entries = definitions[kind];
-    if (!entries || !Object.hasOwn(entries, name)) {
-      if (needed && unavailable?.[kind]?.has(name))
-        throw new Error(`Publish the shared change for ${name} first.`);
-      return;
-    }
+    if (!entries || !Object.hasOwn(entries, name)) return;
     const entry = entries[name];
     const selected = globalsInPlaceDefinition(entry, language);
     if (!selected && needed)
@@ -183,29 +183,35 @@ export function resolveGlobalsInPlace(
   };
 
   const active = new Set<string>();
-  const expand = (text: string): string =>
+  const expand = (text: string, authored: boolean): string =>
     protectCommentedGlobalImports(text).replace(
       /^import ([A-z0-9 ]+?) from global *$/gm,
       (_line, rawName: string) => {
         const name = rawName.trim();
         if (active.has(name)) throw new Error(`Remove the cycle in shared export ${name}.`);
+        if (authored) requirePublished('exports', name);
         const body = lookup('exports', name);
         if (body === undefined) throw new Error(`Choose an existing shared export for ${name}.`);
         active.add(name);
-        const expanded = expand(body);
+        const expanded = expand(body, false);
         active.delete(name);
         return expanded;
       },
     );
-  const fill = (text: string): string => {
+  const variableUses = (text: string) => {
     const refs = variableReferences(text);
-    if (!refs.length) return text;
+    if (!refs.length) return refs;
     const comments =
       text.includes('//') || text.includes('/*') ? markupCommentContext(text).comments : [];
+    return refs.filter(
+      ({ name, from }) =>
+        name !== 'e' && !comments.some((span) => span.from <= from && from < span.to),
+    );
+  };
+  const fill = (text: string): string => {
     let result = '';
     let at = 0;
-    for (const { name, from, to } of refs) {
-      if (name === 'e' || comments.some((span) => span.from <= from && from < span.to)) continue;
+    for (const { name, from, to } of variableUses(text)) {
       const body = lookup('variables', name)?.trim();
       if (body === undefined) continue;
       result += text.slice(at, from) + (body === 'empty' ? '' : body);
@@ -214,10 +220,14 @@ export function resolveGlobalsInPlace(
     return at ? result + text.slice(at) : text;
   };
 
-  const expanded = source.includes('import ') ? expand(source) : source;
+  // The pending catalogue governs this authored cell, including its direct imports.
+  // Once published text is inserted, resolve it only against the published catalogue.
+  if (unavailable?.variables?.size)
+    for (const { name } of variableUses(source)) requirePublished('variables', name);
+  const expanded = source.includes('import ') ? expand(source, true) : source;
   const text = fill(expanded);
-  const names = new Set([...Object.keys(definitions.titles ?? {}), ...(unavailable?.titles ?? [])]);
-  if (!names.size || !source) return text;
+  const names = new Set(Object.keys(definitions.titles ?? {}));
+  if ((!names.size && !unavailable?.titles?.size) || !source) return text;
   const variables = Object.keys(definitions.variables ?? {}).flatMap((name) => {
     const body = lookup('variables', name, false);
     return name !== 'e' && body !== undefined ? [`var ${name} = ${body.trim() || 'empty'}`] : [];
@@ -227,16 +237,20 @@ export function resolveGlobalsInPlace(
     const body = lookup('titles', name, false);
     return body === undefined ? [] : [noteBlock(name, body)];
   });
-  const reads = effectiveSharedNotes(
-    lowerConsumerMarkup(expanded),
-    {
-      variables: lowerConsumerMarkup([globalsInPlaceLibraryText(2), ...variables].join('\n')),
-      titles: lowerConsumerMarkup(titles.join('\n')),
-      lang: language,
-    },
-    names,
-  );
+  const globals = {
+    variables: lowerConsumerMarkup([globalsInPlaceLibraryText(2), ...variables].join('\n')),
+    titles: lowerConsumerMarkup(titles.join('\n')),
+    lang: language,
+  };
   const local = extractBlocks(text.replace(/\r/g, ''), 'title');
+  if (unavailable?.titles?.size)
+    for (const name of effectiveSharedNotes(
+      lowerConsumerMarkup(source),
+      globals,
+      unavailable.titles,
+    ))
+      if (!Object.hasOwn(local, name)) requirePublished('titles', name);
+  const reads = effectiveSharedNotes(lowerConsumerMarkup(expanded), globals, names);
   const blocks = reads.flatMap((name) => {
     if (Object.hasOwn(local, name)) return [];
     const body = lookup('titles', name)!;

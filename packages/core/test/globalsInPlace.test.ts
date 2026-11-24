@@ -73,6 +73,36 @@ test('reports missing and stale shared definitions to the tooltip exporter', () 
   );
 });
 
+test('checks pending names in the authored source before expanding published bodies', () => {
+  const globals = {
+    definitions: {
+      titles: { Help: { en: { body: 'Value #Pending' } } },
+      exports: {
+        First: { en: { body: 'import Second from global' } },
+        Second: { en: { body: 'Nested #Pending. <title Read [PendingNote] />' } },
+      },
+    },
+    unavailable: {
+      variables: new Set(['Pending']),
+      titles: new Set(['PendingNote']),
+      exports: new Set(['PendingExport']),
+    },
+  };
+  const resolve = (text: string) => resolveGlobalsInPlace(text, 'en', globals);
+  expect(resolve('<title Read [Help] />')).toBe(
+    'title Help (\nValue #Pending\n)\n<title Read [Help] />',
+  );
+  expect(resolve('import First from global')).toBe('Nested #Pending. <title Read [PendingNote] />');
+  for (const [text, name] of [
+    ['#Pending\nimport First from global', 'Pending'],
+    ['<title Read [PendingNote] />\nimport First from global', 'PendingNote'],
+    ['import PendingExport from global', 'PendingExport'],
+  ])
+    expect(() => resolve(text)).toThrow(`Publish the shared change for ${name} first.`);
+  expect(resolve('title PendingNote (\nLocal\n)\n<title Read [PendingNote] />')).toContain('Local');
+  expect(resolve('/* #Pending */\nimport First from global')).toContain('Nested #Pending');
+});
+
 const doc = (hash: number, text: string): Tooltip => {
   const base = tooltip();
   return { ...base, hash, text: { en: { ...base.text.en!, text } } };

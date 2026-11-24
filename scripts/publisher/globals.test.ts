@@ -704,6 +704,81 @@ describe('in-place shared text publication', () => {
     expect(live(f).perks[140]).toEqual(before);
   });
 
+  it('publishes a tooltip edit when a published note contains a saved-only name', async () => {
+    const f = await inPlaceFixture('title Help (\nValue #Extra\n)');
+    const original = tooltip(141, 'See <title Details [Help] />');
+    f.change({ 'tooltips/141.json': original });
+    await f.request([141]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+
+    const pendingExtra = { ...structuredClone(f.entry), id: 'g_extraoriginal1', name: 'Extra' };
+    f.change({
+      [`globals/entries/${pendingExtra.id}.json`]: pendingExtra,
+      'tooltips/141.json': tooltip(141, 'Open <title Details [Help] />'),
+    });
+    const next = A.replace(/1$/, '2');
+    await f.request([141], next);
+    await f.pub.run(false);
+    expect(f.read(paths(next).log).result).toMatchObject({ status: 'done' });
+    expect(live(f).perks[141]).toMatchObject({
+      editor: { en: { main: 'title Help (\nValue #Extra\n)\nOpen <title Details [Help] />' } },
+    });
+  });
+
+  it.each([
+    ['published', 'Beta', '<title Up to #Beta [Local] />\ntitle Local (\nNote\n)'],
+    ['saved', 'Newvar', '<link Up to #{Newvar} [https://example.com] />'],
+  ])('refuses a %s variable in a tooltip label', async (state, name, text) => {
+    const f = await inPlaceFixture();
+    const saved = { ...structuredClone(f.entry), id: 'g_savedlabelcase00', name: 'Newvar' };
+    f.change({
+      [`globals/entries/${saved.id}.json`]: saved,
+      'tooltips/142.json': tooltip(142, text),
+    });
+    const before = f.git.head(L);
+    await f.request([142]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      error: expect.stringContaining(
+        `Shared variables can't be used inside a title or link label: #${name}.`,
+      ),
+    });
+    expect(f.git.head(L)).toBe(before);
+    if (state === 'published') {
+      f.change({
+        'tooltips/142.json': tooltip(
+          142,
+          'var LocalValue = 10\n<link Up to #LocalValue [https://example.com] />\n// <link #Beta [https://example.com] />',
+        ),
+      });
+      const next = A.replace(/1$/, '2');
+      await f.request([142], next);
+      await f.pub.run(false);
+      expect(f.read(paths(next).log).result.status).toBe('done');
+    }
+  });
+
+  it.each([
+    ['titles', '<title Up to #Beta [Local] />'],
+    ['exports', '<link Up to #{Beta} [https://example.com] />'],
+  ])('refuses a shared variable in an approved %s label', async (kind, body) => {
+    const f = await inPlaceFixture('title Help (\nRead\n)', kind === 'exports');
+    const entry = structuredClone(f.published.entries.find((record) => record.kind === kind)!);
+    entry.definitions.en!.body = body;
+    f.change({ [`globals/entries/${entry.id}.json`]: entry });
+    const changed = pending(f).find(({ id }) => id === entry.id)!;
+    expect(changed.refusal).toContain(
+      "Shared variables can't be used inside a title or link label: #Beta.",
+    );
+    const before = f.git.head(L);
+    await f.request([], A, selection(changed));
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('rejected');
+    expect(f.git.head(L)).toBe(before);
+  });
+
   it.each(['import self', 'Independent older text'])(
     'preserves the LIVE secondary %s in a refill',
     async (secondary) => {
@@ -1259,6 +1334,46 @@ describe('in-place shared text publication', () => {
     expect(git.head(L)).toBe(fallbackLive);
     git.cas(D, fallbackCatalogue, aligned);
     git.cas(L, fallbackLive, currentLive);
+    const label = '<link Up to #{Beta} [https://example.com] />';
+    const labelledDraft = git.commit(
+      aligned,
+      {
+        ...git.tree(aligned),
+        'tooltips/142.json': git.writeBlob(encode(tooltip(142, label))),
+      },
+      'Keep a legacy shared variable label in an authored draft',
+    );
+    git.cas(D, aligned, labelledDraft);
+    await expect(dryRunGlobalsMigration(publisher, migrationInputs)).rejects.toThrow(
+      "Tooltip 142 (en): Shared variables can't be used inside a title or link label: #Beta.",
+    );
+    expect(git.head(D)).toBe(labelledDraft);
+    expect(git.head(L)).toBe(currentLive);
+    git.cas(D, labelledDraft, aligned);
+
+    const labelledLive = publisher.read<LegacyInput>(
+      git.tree(currentLive),
+      'liveDescriptions.json',
+    )!;
+    const row = labelledLive.perks[142];
+    if (!('editor' in row) || !row.editor.en) throw new Error('Missing fixture tooltip');
+    row.editor.en.secondary = label;
+    const labelledSecondary = git.commit(
+      currentLive,
+      {
+        ...git.tree(currentLive),
+        'liveDescriptions.json': git.writeBlob(encode(labelledLive)),
+      },
+      'Keep a legacy shared variable label in a historical secondary',
+    );
+    git.cas(L, currentLive, labelledSecondary);
+    await expect(dryRunGlobalsMigration(publisher, migrationInputs)).rejects.toThrow(
+      "LIVE tooltip 142 (en): Shared variables can't be used inside a title or link label: #Beta.",
+    );
+    expect(git.head(D)).toBe(aligned);
+    expect(git.head(L)).toBe(labelledSecondary);
+    git.cas(L, labelledSecondary, currentLive);
+
     for (const step of ['hold', 'live', 'record'] as const) {
       await expect(
         dryRunGlobalsMigration(publisher, migrationInputs, (checkpoint) => {

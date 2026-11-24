@@ -31,6 +31,7 @@ import {
   historicalSecondaryUses,
   liveGlobalsInput,
   migrateInPlace,
+  sharedVariableLabelIssue,
 } from './globalsInPlace.js';
 import type { Publisher } from './publisher.js';
 
@@ -147,12 +148,33 @@ export async function dryRunGlobalsMigration(
   let hold = source;
   const legacyLive = journal?.legacyLive ?? pub.head(pub.options.liveBranch);
   const legacyData = journal?.legacyData ?? source;
-  const { published } = new GlobalsPublisher(pub).capture(
+  const { saved, published, authored, live } = new GlobalsPublisher(pub).capture(
     git.tree(legacyData),
     legacyData,
     legacyLive,
   );
   const before = liveGlobalsInput(pub, legacyLive);
+  const entries = [...published.entries, ...saved.entries].filter(({ tombstone }) => !tombstone);
+  const variableNames = new Set(
+    entries.filter(({ kind }) => kind === 'variables').map(({ name }) => name),
+  );
+  const checkLabel = (text: string, context: string) => {
+    const issue = sharedVariableLabelIssue(text, variableNames);
+    if (issue) throw new Error(`${context}: ${issue}`);
+  };
+  for (const entry of entries)
+    for (const [lang, cell] of Object.entries(entry.definitions))
+      checkLabel(cell.body, `${entry.name} (${lang})`);
+  for (const snapshot of [authored, live])
+    for (const tooltip of Object.values(snapshot.tooltips))
+      for (const [lang, cell] of Object.entries(tooltip.text))
+        checkLabel(cell.text, `Tooltip ${tooltip.hash} (${lang})`);
+  for (const row of Object.values(before.perks)) {
+    if (!('editor' in row)) continue;
+    for (const [lang, cell] of Object.entries(row.editor))
+      for (const text of [cell.main, cell.secondary])
+        checkLabel(text, `LIVE tooltip ${row.hash} (${lang})`);
+  }
   for (const hash of [1, 2, 3]) {
     const library = before.perks[hash];
     if (!library || !('editor' in library)) continue;
