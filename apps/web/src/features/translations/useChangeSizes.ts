@@ -41,6 +41,55 @@ export function sortBySize(
   return [...rows].sort((a, b) => size(a) - size(b));
 }
 
+/** Starts one word comparison; its one reply (or failure) goes to `finish`. */
+function changeSizeWorker(request: ChangeRequest, finish: (value: ChangeSize) => void): Worker {
+  const message = { ...request, url: endpoint(''), headers: authorization() };
+  const worker = new Worker(new URL('./changeSize.worker.ts', import.meta.url), {
+    type: 'module',
+  });
+  worker.onmessage = (event: MessageEvent<ChangeSize>) => finish(event.data);
+  worker.onerror = () => finish({ error: 'History unavailable' });
+  worker.postMessage(message);
+  return worker;
+}
+
+function rememberSize(key: string, value: ChangeSize) {
+  memory.set(key, value);
+  if (memory.size > 1000) memory.delete(memory.keys().next().value!);
+}
+
+/** Let a fast scroll (or stepping) settle before starting any history requests. */
+const settleMs = 180;
+
+/** The size of one change, once known: the editor's banner shares the list's worker and cache. */
+export function useChangeSize(request: ChangeRequest | undefined): number | undefined {
+  const key = request && changeKey(request);
+  const [, setRevision] = useState(0);
+  const latest = useRef(request);
+  latest.current = request;
+  useEffect(() => {
+    if (!key || memory.has(key) || typeof Worker === 'undefined') return;
+    let worker: Worker | undefined;
+    const timer = setTimeout(() => {
+      try {
+        worker = changeSizeWorker(latest.current!, (value) => {
+          worker?.terminate();
+          rememberSize(key, value);
+          setRevision((value) => value + 1);
+        });
+      } catch {
+        // No API or no worker: the banner goes without its count.
+      }
+    }, settleMs);
+    return () => {
+      clearTimeout(timer);
+      worker?.terminate();
+    };
+  }, [key]);
+  const size = key ? memory.get(key) : undefined;
+  return size && 'count' in size ? size.count : undefined;
+}
+
 /** The virtual list reports strictly visible rows, excluding overscan and offscreen focus. */
 export function useChangeSizes(data: EditorData | null, enabled: boolean) {
   const [visible, setVisible] = useState<readonly QueueRow[]>([]);
@@ -87,22 +136,15 @@ export function useChangeSizes(data: EditorData | null, enabled: boolean) {
         const request = pending.shift()!;
         let worker: Worker;
         try {
-          worker = new Worker(new URL('./changeSize.worker.ts', import.meta.url), {
-            type: 'module',
-          });
-          workers.add(worker);
-          const finish = (value: ChangeSize) => {
+          worker = changeSizeWorker(request, (value) => {
             worker.terminate();
             workers.delete(worker);
             if (disposed) return;
-            memory.set(changeKey(request), value);
-            if (memory.size > 1000) memory.delete(memory.keys().next().value!);
+            rememberSize(changeKey(request), value);
             setRevision((value) => value + 1);
             pump();
-          };
-          worker.onmessage = (event: MessageEvent<ChangeSize>) => finish(event.data);
-          worker.onerror = () => finish({ error: 'History unavailable' });
-          worker.postMessage({ ...request, url: endpoint(''), headers: authorization() });
+          });
+          workers.add(worker);
         } catch {
           for (const worker of workers) worker.terminate();
           workers.clear();
@@ -111,8 +153,7 @@ export function useChangeSizes(data: EditorData | null, enabled: boolean) {
         }
       }
     };
-    // Let a fast scroll settle before starting any history requests.
-    const timer = setTimeout(pump, 180);
+    const timer = setTimeout(pump, settleMs);
     return () => {
       disposed = true;
       clearTimeout(timer);
