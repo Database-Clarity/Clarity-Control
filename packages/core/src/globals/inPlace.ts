@@ -17,7 +17,7 @@ export type GlobalsInPlaceDefinitions = Readonly<
 >;
 export interface GlobalsInPlaceOptions {
   definitions: GlobalsInPlaceDefinitions;
-  onRead?: (kind: Kind, name: string, language: Lang, body: string | undefined) => void;
+  unavailable?: Partial<Record<Kind, ReadonlySet<string>>>;
 }
 
 export class MissingGlobalTranslation extends Error {
@@ -149,17 +149,17 @@ export function effectiveSharedNotes(
 export function resolveGlobalsInPlace(
   source: string,
   language: Lang,
-  { definitions, onRead }: GlobalsInPlaceOptions,
+  { definitions, unavailable }: GlobalsInPlaceOptions,
 ): string {
   const lookup = (kind: Kind, name: string, needed = true): string | undefined => {
     const entries = definitions[kind];
     if (!entries || !Object.hasOwn(entries, name)) {
-      if (needed) onRead?.(kind, name, language, undefined);
+      if (needed && unavailable?.[kind]?.has(name))
+        throw new Error(`Publish the shared change for ${name} first.`);
       return;
     }
     const entry = entries[name];
     const selected = globalsInPlaceDefinition(entry, language);
-    if (needed) onRead?.(kind, name, language, selected?.body);
     if (!selected && needed)
       throw new MissingGlobalTranslation(
         kind,
@@ -197,7 +197,7 @@ export function resolveGlobalsInPlace(
 
   const expanded = source.includes('import ') ? expand(source) : source;
   const text = fill(expanded);
-  const names = new Set(Object.keys(definitions.titles ?? {}));
+  const names = new Set([...Object.keys(definitions.titles ?? {}), ...(unavailable?.titles ?? [])]);
   if (!names.size || !source) return text;
   const variables = Object.keys(definitions.variables ?? {}).flatMap((name) => {
     const body = lookup('variables', name, false);

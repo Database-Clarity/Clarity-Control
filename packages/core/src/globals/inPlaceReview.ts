@@ -20,22 +20,29 @@ export const globalsInPlaceFenceSchema = z
 export type GlobalsInPlaceFence = z.infer<typeof globalsInPlaceFenceSchema>;
 
 /** Presence of this array, even empty, identifies the switched Review model. */
-export const globalsPendingSchema = z.array(z.object({
-  id: globalIdSchema,
-  name: z.string(),
-  kind: globalKindSchema,
-  change: z.enum(['new', 'changed', 'renamed', 'removed']),
-  digest: globalDigestSchema,
-  languages: z.partialRecord(langSchema, z.object({
-    before: z.string().nullable(),
-    after: z.string().nullable(),
-  })),
-  affected: z.array(hashSchema),
-  refusal: z.string().optional(),
-}));
+export const globalsPendingSchema = z.array(
+  z.object({
+    id: globalIdSchema,
+    name: z.string(),
+    kind: globalKindSchema,
+    change: z.enum(['new', 'changed', 'renamed', 'removed']),
+    digest: globalDigestSchema,
+    languages: z.partialRecord(
+      langSchema,
+      z.object({
+        before: z.string().nullable(),
+        after: z.string().nullable(),
+      }),
+    ),
+    affected: z.array(hashSchema),
+    refusal: z.string().optional(),
+  }),
+);
 export type GlobalsPending = z.infer<typeof globalsPendingSchema>;
 
-export const globalPublishSelectionSchema = z.object({
-  id: globalIdSchema,
-  expected: globalDigestSchema,
-}).strict();
+export const globalPublishSelectionSchema = z
+  .object({
+    id: globalIdSchema,
+    expected: globalDigestSchema,
+  })
+  .strict();

@@ -1,6 +1,5 @@
 import {
   globalsInPlaceCapability,
-  globalsInPlaceClearance,
   globalsInPlaceFenceSchema,
   globalsInPlaceLibraryText,
   globalsInPlaceSaveIssue,
@@ -16,11 +15,7 @@ export function inPlaceAdmission(
 ) {
   if (raw === undefined) return undefined;
   const fence = globalsInPlaceFenceSchema.safeParse(raw);
-  if (
-    !fence.success ||
-    !globalsInPlaceClearance(fence.data) ||
-    fence.data.destination !== destination
-  )
+  if (!fence.success || fence.data.state !== 'active' || fence.data.destination !== destination)
     throw new HttpError(409, 'Publication is paused for the shared text migration.');
   const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
   if (!Array.isArray(capabilities) || !capabilities.includes(globalsInPlaceCapability))

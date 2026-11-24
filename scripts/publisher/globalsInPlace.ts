@@ -2,7 +2,10 @@ import {
   exportWithInactiveMoves,
   exportLegacy,
   globalPublishedSchema,
-  globalsInPlaceClearance,
+  activeAliases,
+  composeGlobalRelease,
+  globalAggregateHash,
+  globalReferenceSpans,
   globalsInPlaceDefinition,
   globalsInPlaceDefinitions,
   globalsInPlaceFenceSchema,
@@ -16,23 +19,27 @@ import {
   languages,
   legacyGlobalsInPlaceDefinitions,
   lowerConsumerMarkup,
+  publishableHashInput,
+  pushedSchema,
+  reconcileGlobalStore,
+  rewriteGlobalReferences,
   resolveGlobalsInPlace,
-  resolveAlias,
   stableStringify,
   type Aliases,
   type GlobalRecord,
   type GlobalsInPlaceFence,
   type GlobalsInPlaceOptions,
-  type GlobalsInPlaceReview,
+  type GlobalsPending,
+  type GlobalStore,
+  type PublishPayload,
   type InactiveMoves,
   type LegacyEntry,
   type LegacyCatalog,
   type Lang,
-  type MissingGlobalTranslation,
   type Tooltip,
 } from '../../packages/core/src/index.js';
 import { provesInPlace, type LegacyInput } from '../../packages/export/src/index.js';
-import { globalSourceText } from '../../packages/core/src/globals/source.js';
+import { createHash } from 'node:crypto';
 import { type Tree } from './git.js';
 import { GlobalsPublisher } from './globals.js';
 import type { Publisher, Receipt } from './publisher.js';
@@ -45,12 +52,11 @@ export function globalsFence(pub: Publisher, tree: Tree): GlobalsInPlaceFence | 
   return fence;
 }
 
-export function requireGlobalsMode(pub: Publisher, tree: Tree, revision?: string) {
+export function requireGlobalsMode(pub: Publisher, tree: Tree, globals = false) {
   const fence = globalsFence(pub, tree);
-  if (fence && !globalsInPlaceClearance(fence))
+  if (fence?.state === 'hold')
     throw new Error('Publication is paused for the shared text migration.');
-  if (Boolean(fence) !== Boolean(revision))
-    throw new Error('The publication mode changed. Review the tooltip again.');
+  if (!fence && globals) throw new Error('Review shared definitions with the current publisher.');
   return fence;
 }
 
@@ -237,7 +243,7 @@ export function provePublication(
 export function exportGlobalsProof(
   documents: readonly Tooltip[],
   now: number,
-  facts: LegacyCatalog,
+  facts: LegacyCatalog | undefined,
   aliases: Aliases,
   moves: InactiveMoves,
   globalsInPlace: GlobalsInPlaceOptions,
@@ -316,26 +322,15 @@ export function proveInPlaceInputs(
   prove(fallbackBefore, (hash, lang) => fallbackScope.get(lang)?.has(hash) ?? false);
 }
 
-export function inPlaceSource(pub: Publisher, revision: string, fence: GlobalsInPlaceFence) {
-  const tree = pub.git.tree(revision);
-  const sourceFence = globalsFence(pub, tree);
-  if (!sourceFence || stableStringify(sourceFence) !== stableStringify(fence))
-    throw new Error('Review the tooltip in the current shared text mode.');
-  const entries = new GlobalsPublisher(pub).store(tree).entries;
-  return {
-    entries,
-    options: {
-      definitions: globalsInPlaceDefinitions(entries),
-    } satisfies GlobalsInPlaceOptions,
-  };
-}
-
 export function assertInPlaceDocuments(
   documents: readonly Tooltip[],
   options: GlobalsInPlaceOptions,
 ) {
   assertInPlaceRoots(documents.map(({ hash }) => hash));
-  const titleNames = new Set(Object.keys(options.definitions.titles ?? {}));
+  const titleNames = new Set([
+    ...Object.keys(options.definitions.titles ?? {}),
+    ...(options.unavailable?.titles ?? []),
+  ]);
   for (const tooltip of documents)
     for (const [lang, cell] of Object.entries(tooltip.text)) {
       const issue = globalsInPlaceSaveIssue(cell.text, titleNames);
@@ -344,217 +339,378 @@ export function assertInPlaceDocuments(
     }
 }
 
-function editorOf(value: unknown): LegacyEntry['editor'] | undefined {
-  return (value as LegacyEntry | undefined)?.editor;
-}
+type Selection = NonNullable<PublishPayload['globals']>;
+type Rename = { kind: GlobalRecord['kind']; from: string; to: string };
+const sha256 = (input: string) => createHash('sha256').update(input).digest('hex');
+const definitionDigest = (entry: GlobalRecord) => sha256(stableStringify(entry));
 
-function primary(editor: LegacyEntry['editor'] | undefined, lang: (typeof languages)[number]) {
-  const cell = editor?.[lang];
-  return cell && [cell.main, cell.englishFallback === true];
-}
-
-export function resolvedPrimaryDiffers(before: unknown, after: unknown) {
-  return languages.some(
-    (lang) =>
-      JSON.stringify(primary(editorOf(before), lang)) !==
-      JSON.stringify(primary(editorOf(after), lang)),
-  );
-}
-
-export function publicationChanges(
-  entries: Receipt['entries'],
-  pushed: Record<string, string>,
-  exported: Receipt['exported'],
-  live?: LegacyInput,
-) {
-  return entries
-    .filter(
-      ({ hash, digest }) =>
-        pushed[hash] !== digest ||
-        (live && resolvedPrimaryDiffers(live.perks[hash], exported[hash])),
-    )
-    .map(({ hash }) => hash);
-}
-
-/** A scheduled change cannot replace LIVE shared text in an unchanged authored language. */
-export function unreviewedScheduledGlobals(
-  current: Tooltip,
-  published: Tooltip | undefined,
-  live: LegacyInput,
-  exported: Receipt['exported'],
-) {
-  if (!published || !editorOf(live.perks[current.hash])) return false;
-  return languages.some(
-    (lang) =>
-      globalSourceText(current, lang, 'live') === globalSourceText(published, lang, 'live') &&
-      JSON.stringify(primary(editorOf(live.perks[current.hash]), lang)) !==
-        JSON.stringify(primary(editorOf(exported[current.hash]), lang)),
-  );
-}
-
-/** The latest receipt for each row is the existing record of its reviewed definitions. */
-export function reviewRevisions(pub: Publisher, live: string, fence: GlobalsInPlaceFence) {
-  const tree = pub.git.tree(live);
-  const byHash = new Map<number, string>();
-  if (live === fence.migratedLive) return byHash;
-  for (const { path } of pub.git.additions(live, '.publish/receipts', fence.migratedLive)) {
-    if (!tree[path]) continue;
-    const receipt = pub.read<Receipt>(tree, path);
-    if (!receipt?.globalsRevision) continue;
-    for (const { hash } of receipt.entries) byHash.set(hash, receipt.globalsRevision);
-  }
-  return byHash;
-}
-
-export function migrationBaseline(pub: Publisher, fence: GlobalsInPlaceFence): GlobalRecord[] {
-  const tree = pub.git.tree(fence.legacyData);
+function stores(pub: Publisher, tree: Tree) {
   const published = globalPublishedSchema.parse(
     pub.read(tree, globalsReleasePaths.published(pub.options.liveBranch)),
   );
-  return published.store.entries;
+  if (published.destination !== pub.options.liveBranch)
+    throw new Error('Published global destination mismatch.');
+  return { published, saved: new GlobalsPublisher(pub).store(tree) };
 }
 
-export function inPlaceDiff(
-  before: unknown,
-  after: unknown,
-): GlobalsInPlaceReview['rows'][string]['diff'] {
-  const left = editorOf(before);
-  const right = editorOf(after);
-  return Object.fromEntries(
-    languages.flatMap((lang) =>
-      JSON.stringify(primary(left, lang)) === JSON.stringify(primary(right, lang))
-        ? []
-        : [[lang, { before: left?.[lang] ?? null, after: right?.[lang] ?? null }]],
-    ),
-  );
+export function publishedGlobals(pub: Publisher, tree: Tree) {
+  const { published, saved } = stores(pub, tree);
+  return releaseOptions(published.store, saved);
 }
 
-type Cause = GlobalsInPlaceReview['rows'][string]['causes'][number];
-
-function rowCauses(
-  tooltip: Tooltip,
-  now: number,
-  before: ReturnType<typeof inPlaceSource>,
-  after: ReturnType<typeof inPlaceSource>,
-  fallbacks: readonly MissingGlobalTranslation[],
-) {
-  const reads = (source: ReturnType<typeof inPlaceSource>) => {
-    const values = new Map<string, [GlobalRecord['kind'], string, string | undefined]>();
-    try {
-      exportLegacy(
-        [tooltip],
-        now,
-        undefined,
-        {},
-        {
-          globalsInPlace: {
-            ...source.options,
-            onRead(kind, name, lang, body) {
-              values.set(JSON.stringify([kind, name, lang]), [kind, name, body]);
-            },
-          },
-        },
-      );
-    } catch {
-      // A missing prior export is still attributable to the saved definition that supplies it.
-    }
-    return values;
+function releaseOptions(published: GlobalStore, saved: GlobalStore): GlobalsInPlaceOptions {
+  const definitions = globalsInPlaceDefinitions(published.entries);
+  const unavailable = {
+    exports: new Set<string>(),
+    variables: new Set<string>(),
+    titles: new Set<string>(),
   };
-  const oldReads = reads(before);
-  const newReads = reads(after);
-  const causes = new Map<string, Cause>();
-  for (const [key, [kind, name]] of new Map([...oldReads, ...newReads])) {
-    if (oldReads.get(key)?.[2] === newReads.get(key)?.[2]) continue;
-    const previous = before.entries.find((entry) => entry.kind === kind && entry.name === name);
-    const current = after.entries.find((entry) => entry.kind === kind && entry.name === name);
-    for (const entry of [previous, current]) {
-      if (!entry || entry.tombstone) continue;
-      causes.set(entry.id, {
-        id: entry.id,
-        name: after.entries.find(({ id }) => id === entry.id)?.name ?? entry.name,
-      });
-    }
-  }
-  for (const { kind, globalName, language, reason } of fallbacks) {
-    const entry = after.entries.find(
-      (item) => item.kind === kind && item.name === globalName && !item.tombstone,
-    );
-    if (!entry) continue;
-    const cause = causes.get(entry.id) ?? { id: entry.id, name: entry.name };
-    causes.set(entry.id, { ...cause, fallbacks: { ...cause.fallbacks, [language]: reason } });
-  }
-  return [...causes.values()];
+  for (const entry of saved.entries)
+    if (!entry.tombstone && !Object.hasOwn(definitions[entry.kind] ?? {}, entry.name))
+      unavailable[entry.kind].add(entry.name);
+  return { definitions, unavailable };
 }
 
-export function bundleInPlaceReview(
+function renamesOf(published: GlobalStore, selected: readonly GlobalRecord[]): Rename[] {
+  return selected.flatMap((entry) => {
+    const previous = published.entries.find(({ id }) => id === entry.id);
+    return previous && !previous.tombstone && previous.name !== entry.name && !entry.tombstone
+      ? [{ kind: entry.kind, from: previous.name, to: entry.name }]
+      : [];
+  });
+}
+
+function rewrite(source: string, renames: readonly Rename[]) {
+  // Published names are resolved against the original snapshot. Apply edits from right to
+  // left so choosing multiple renames cannot rewrite a name introduced by another selection.
+  const edits = renames.flatMap(({ kind, from, to }) =>
+    rewriteGlobalReferences(source, kind, from, to).edits.map((edit) => ({
+      ...edit,
+      kind,
+      toName: to,
+    })),
+  );
+  for (const edit of edits.sort((a, b) => b.from - a.from)) {
+    const value =
+      edit.kind === 'variables'
+        ? edit.braced
+          ? `#{${edit.toName}}`
+          : `#${edit.toName}`
+        : edit.toName;
+    source = source.slice(0, edit.from) + value + source.slice(edit.to);
+  }
+  return source;
+}
+
+function rewriteTooltip(document: Tooltip, renames: readonly Rename[]) {
+  const copy = structuredClone(document);
+  for (const cell of Object.values(copy.text)) cell.text = rewrite(cell.text, renames);
+  return stableStringify(copy.text) === stableStringify(document.text) ? document : copy;
+}
+
+function rewriteEntries(entries: readonly GlobalRecord[], renames: readonly Rename[]) {
+  return entries.map((entry) => {
+    if (entry.tombstone) return entry;
+    const copy = structuredClone(entry);
+    const renamed = renames.find(({ kind, from }) => kind === copy.kind && from === copy.name);
+    if (renamed) copy.name = renamed.to;
+    for (const definition of Object.values(copy.definitions))
+      definition.body = rewrite(definition.body, renames);
+    return copy;
+  });
+}
+
+function sourceIdentity(entry: GlobalRecord | undefined) {
+  if (!entry || entry.tombstone) return null;
+  return {
+    name: entry.name,
+    definitions: Object.fromEntries(
+      Object.entries(entry.definitions).map(([lang, definition]) => [
+        lang,
+        [definition.body, globalsInPlaceDefinition(entry.definitions, lang as Lang) !== undefined],
+      ]),
+    ),
+  };
+}
+
+function pendingEntries(published: GlobalStore, saved: GlobalStore) {
+  const renames = renamesOf(published, saved.entries);
+  const normalized = rewriteEntries(published.entries, renames);
+  return saved.entries.filter((entry) => {
+    const old = published.entries.find(({ id }) => id === entry.id);
+    if (old && old.name !== entry.name && !old.tombstone && !entry.tombstone) return true;
+    return (
+      stableStringify(sourceIdentity(normalized.find(({ id }) => id === entry.id))) !==
+      stableStringify(sourceIdentity(entry))
+    );
+  });
+}
+
+function publishedDocuments(pub: Publisher, tree: Tree, live: LegacyInput): Tooltip[] {
+  const docs = new GlobalsPublisher(pub).documents(tree, 'live/tooltips');
+  return Object.entries(live.perks).flatMap(([hash, perk]) => {
+    if (globalsInPlaceLibraryText(Number(hash)) !== undefined || !('editor' in perk)) return [];
+    const doc = docs[hash];
+    if (!doc) throw new Error(`Missing the published source for tooltip ${hash}.`);
+    return isTextlessDescription(doc) ? [] : [doc];
+  });
+}
+
+function assertWithdrawal(
+  selected: GlobalRecord,
+  previous: GlobalRecord | undefined,
+  saved: GlobalStore,
+  published: GlobalStore,
+  documents: readonly Tooltip[],
+) {
+  if (!selected.tombstone || !previous || previous.tombstone) return;
+  const names = new Set([selected.name, previous.name]);
+  const reads = (text: string) =>
+    globalReferenceSpans(text, selected.kind).some(({ name }) => names.has(name));
+  const reader = documents.find((doc) => Object.values(doc.text).some((cell) => reads(cell.text)));
+  if (reader)
+    throw new Error(`Tooltip ${reader.custom?.name || reader.hash} still uses ${selected.name}.`);
+  const dependency = [...saved.entries, ...published.entries].find(
+    (entry) =>
+      entry.id !== selected.id &&
+      !entry.tombstone &&
+      Object.values(entry.definitions).some((cell) => reads(cell.body)),
+  );
+  if (dependency) throw new Error(`${dependency.name} still uses ${selected.name}.`);
+}
+
+function selectedRelease(
   pub: Publisher,
-  revision: string,
   tree: Tree,
-  tooltips: Record<string, Tooltip>,
-  fence: GlobalsInPlaceFence,
-): GlobalsInPlaceReview {
+  live: LegacyInput,
+  selection: Selection,
+  maintainer: boolean,
+) {
+  const { published, saved } = stores(pub, tree);
+  if (!selection.length)
+    return {
+      options: releaseOptions(published.store, saved),
+      published,
+      refills: {},
+      rewritten: new Map<number, Tooltip>(),
+    };
+  const selected = selection.map(({ id, expected }) => {
+    const entry = saved.entries.find((candidate) => candidate.id === id);
+    if (!entry || definitionDigest(entry) !== expected)
+      throw new Error(`Shared definition ${entry?.name || id} changed. Review it again.`);
+    if (entry.tombstone && !maintainer)
+      throw new Error(`Only a maintainer can publish the removal of ${entry.name}.`);
+    return entry;
+  });
+  const liveDocs = publishedDocuments(pub, tree, live);
+  const globals = new GlobalsPublisher(pub);
+  const removalDocs = selected.some((entry) => entry.tombstone)
+    ? [
+        ...liveDocs,
+        ...Object.values(globals.documents(tree, 'tooltips')),
+        ...globals.upcoming(tree).flatMap(Object.values),
+      ]
+    : [];
+  for (const entry of selected)
+    assertWithdrawal(
+      entry,
+      published.store.entries.find(({ id }) => id === entry.id),
+      saved,
+      published.store,
+      removalDocs,
+    );
+
+  const renames = renamesOf(published.store, selected);
+  const beforeEntries = rewriteEntries(published.store.entries, renames);
+  const before = reconcileGlobalStore(
+    [
+      ...published.store.aggregates,
+      ...saved.aggregates.filter(
+        (item) =>
+          !published.store.aggregates.some((old) => old.document.hash === item.document.hash) &&
+          selected.some((entry) => globalAggregateHash(entry.kind) === item.document.hash),
+      ),
+    ],
+    beforeEntries,
+  );
+  const next = composeGlobalRelease(
+    before,
+    saved,
+    selected.map(({ id }) => id),
+  );
+  const oldOptions = { definitions: globalsInPlaceDefinitions(before.entries) };
+  const options = releaseOptions(next, saved);
+  const rewritten = new Map<number, Tooltip>();
+  const affected: Tooltip[] = [];
+  const changedLanguages = new Map<number, Lang[]>();
+  const refills: Receipt['exported'] = {};
+  for (const prior of liveDocs) {
+    const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
+    if (doc !== prior) rewritten.set(doc.hash, doc);
+    const old = exportLegacy([doc], 0, undefined, {}, { globalsInPlace: oldOptions })[doc.hash];
+    const filled = exportLegacy([doc], 0, undefined, {}, { globalsInPlace: options })[doc.hash];
+    if (
+      isLegacyAliasStub(old) ||
+      isLegacyAliasStub(filled) ||
+      stableStringify(old.editor) === stableStringify(filled.editor)
+    )
+      continue;
+    affected.push(doc);
+    const perk = live.perks[doc.hash] as unknown as LegacyEntry;
+    const changed = languages.filter(
+      (lang) =>
+        stableStringify(old.editor[lang] ?? null) !== stableStringify(filled.editor[lang] ?? null),
+    );
+    changedLanguages.set(doc.hash, changed);
+    const editor = { ...perk.editor };
+    for (const lang of changed) editor[lang] = filled.editor[lang];
+    refills[doc.hash] = { ...perk, editor };
+  }
+  if (affected.length) {
+    assertInPlaceDocuments(affected, options);
+    const { raw, fallbacks } = exportGlobalsProof(affected, 0, undefined, {}, {}, options);
+    const rawPerks = { ...live.perks };
+    for (const { hash } of affected) {
+      const existing = rawPerks[hash],
+        source = raw[hash];
+      if (!('editor' in existing) || isLegacyAliasStub(source))
+        throw new Error(`Missing shared text proof input for ${hash}.`);
+      const changed = changedLanguages.get(hash)!;
+      const editor = { ...existing.editor };
+      for (const lang of changed) editor[lang] = source.editor[lang];
+      const fallback = fallbacks.get(hash);
+      if (fallback) {
+        for (const lang of fallback) if (!changed.includes(lang)) fallback.delete(lang);
+        if (!fallback.size) fallbacks.delete(hash);
+      }
+      rawPerks[hash] = { ...existing, editor };
+    }
+    proveInPlaceInputs(
+      live,
+      { ...live, perks: rawPerks },
+      { ...live, perks: { ...live.perks, ...refills } as LegacyInput['perks'] },
+      options,
+      affected.map(({ hash }) => hash),
+      fallbacks,
+    );
+  }
+  return { options, published: { ...published, store: next }, refills, rewritten };
+}
+
+export function planInPlaceRelease(
+  pub: Publisher,
+  tree: Tree,
+  live: LegacyInput,
+  selection: Selection,
+  maintainer: boolean,
+) {
+  const plan = (items: Selection) => selectedRelease(pub, tree, live, items, maintainer);
+  const refusals: { id: string; error: string }[] = [];
+  try {
+    return { ...plan(selection), globals: selection.map(({ id }) => id), refusals };
+  } catch (error) {
+    if (selection.length < 2) throw error;
+    // A failed choice cannot stop independent definitions in the same signed part.
+    const accepted: Selection = [];
+    let result = plan(accepted);
+    for (const item of [...selection].sort((a, b) => a.id.localeCompare(b.id))) {
+      try {
+        result = plan([...accepted, item]);
+        accepted.push(item);
+      } catch (refusal) {
+        refusals.push({
+          id: item.id,
+          error: refusal instanceof Error ? refusal.message : String(refusal),
+        });
+      }
+    }
+    if (!accepted.length) throw error;
+    return { ...result, globals: accepted.map(({ id }) => id), refusals };
+  }
+}
+
+/** Rewrite an existing marker using the same alias inputs as its last authored publish. */
+export function rewritePushed(
+  pub: Publisher,
+  tree: Tree,
+  pushed: Record<string, string>,
+  rewritten: ReadonlyMap<number, Tooltip>,
+) {
+  if (!rewritten.size) return;
+  const aliases = activeAliases(pub.aliasesAt(tree), pub.movesAt(tree));
+  for (const [hash, doc] of rewritten) {
+    const old = pub.read<Tooltip>(tree, `live/tooltips/${hash}.json`)!;
+    for (const context of [aliases, {}]) {
+      if (pushed[hash] !== sha256(publishableHashInput(old, context))) continue;
+      pushed[hash] = sha256(publishableHashInput(doc, context));
+      break;
+    }
+  }
+}
+
+export function bundleInPlaceReview(pub: Publisher, tree: Tree, fence: GlobalsInPlaceFence) {
   const live = pub.head(pub.options.liveBranch);
   if (!pub.git.ancestor(fence.migratedLive, live))
     throw new Error('LIVE has no in-place migration');
   const input = liveGlobalsInput(pub, live);
   assertInPlaceLibraries(input);
-  const saved = inPlaceSource(pub, revision, fence);
-  const released = reviewRevisions(pub, live, fence);
-  const baseline = {
-    entries: migrationBaseline(pub, fence),
-    options: {
-      definitions: legacyGlobalsInPlaceDefinitions(
-        liveGlobalsInput(pub, fence.legacyLive).perks as Parameters<
-          typeof legacyGlobalsInPlaceDefinitions
-        >[0],
-      ),
-    },
-  };
-  const sources = new Map([[revision, saved]]);
-  const aliases = pub.aliasesAt(tree);
-  const moves = pub.movesAt(tree);
-  const now = pub.options.now();
-  const rows: GlobalsInPlaceReview['rows'] = {};
-  for (const tooltip of Object.values(tooltips)) {
-    const { hash } = tooltip;
-    if (globalsInPlaceLibraryText(hash) !== undefined || resolveAlias(hash, aliases) !== hash)
-      continue;
-    const before = input.perks[hash];
-    const removed = isMovedInactive(hash, moves);
-    if (!removed && isTextlessDescription(tooltip)) continue;
-    let after;
+  const { published, saved } = stores(pub, tree);
+  const pending = pendingEntries(published.store, saved);
+  const globalsPending: GlobalsPending = pending.map((entry) => {
+    const previous = published.store.entries.find(({ id }) => id === entry.id);
+    const digest = definitionDigest(entry);
+    let affected: number[] = [];
     let refusal: string | undefined;
-    const fallbacks: MissingGlobalTranslation[] = [];
     try {
-      if (!removed) {
-        assertInPlaceDocuments([tooltip], saved.options);
-        after = exportLegacy(
-          [tooltip],
-          now,
-          undefined,
-          {},
-          {
-            globalsInPlace: saved.options,
-            onGlobalsFallback: (_hash, fallback) => fallbacks.push(fallback),
-          },
-        )[hash];
-      }
+      const plan = planInPlaceRelease(pub, tree, input, [{ id: entry.id, expected: digest }], true);
+      affected = [...new Set([...Object.keys(plan.refills).map(Number), ...plan.rewritten.keys()])];
     } catch (error) {
-      refusal = String(error);
+      refusal = error instanceof Error ? error.message : String(error);
     }
-    const differs = !refusal && resolvedPrimaryDiffers(before, after);
-    if (!differs && !refusal && !fallbacks.length) continue;
-    const prior = released.get(hash);
-    if (prior && !sources.has(prior)) sources.set(prior, inPlaceSource(pub, prior, fence));
-    rows[hash] = {
-      differs,
-      causes:
-        !removed && ((before && 'editor' in before) || fallbacks.length)
-          ? rowCauses(tooltip, now, prior ? sources.get(prior)! : baseline, saved, fallbacks)
-          : [],
-      diff: differs ? inPlaceDiff(before, after) : {},
+    const cell = (value: GlobalRecord | undefined, lang: Lang) =>
+      value?.tombstone ? null : (value?.definitions[lang]?.body ?? null);
+    return {
+      id: entry.id,
+      name: entry.name,
+      kind: entry.kind,
+      change: entry.tombstone
+        ? 'removed'
+        : !previous || previous.tombstone
+          ? 'new'
+          : previous.name !== entry.name
+            ? 'renamed'
+            : 'changed',
+      digest,
+      affected,
+      languages: Object.fromEntries(
+        languages.flatMap((lang) => {
+          const before = cell(previous, lang),
+            after = cell(entry, lang);
+          const beforeAvailable =
+            !!previous &&
+            !previous.tombstone &&
+            !!globalsInPlaceDefinition(previous.definitions, lang);
+          const afterAvailable =
+            !entry.tombstone && !!globalsInPlaceDefinition(entry.definitions, lang);
+          return before !== after ||
+            beforeAvailable !== afterAvailable ||
+            (previous?.name !== entry.name && (before !== null || after !== null))
+            ? [[lang, { before, after }]]
+            : [];
+        }),
+      ),
       ...(refusal ? { refusal } : {}),
     };
+  });
+  const pushed = pushedSchema.parse(pub.read(tree, 'live/pushed.json'));
+  const renames = renamesOf(published.store, pending);
+  const rewritten = new Map<number, Tooltip>();
+  if (renames.length) {
+    for (const document of publishedDocuments(pub, tree, input)) {
+      const updated = rewriteTooltip(document, renames);
+      if (updated !== document) rewritten.set(document.hash, updated);
+    }
+    rewritePushed(pub, tree, pushed, rewritten);
   }
-  return { revision, rows };
+  return { globalsPending, pushed };
 }

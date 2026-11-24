@@ -521,14 +521,16 @@ export class GlobalsPublisher {
       .object({ perks: livePerksSchema })
       .parse(this.publisher.read(this.git.tree(liveCommit), 'liveDescriptions.json')).perks;
     const inPlace = globalsFence(this.publisher, tree)?.state === 'active';
-    const live: GlobalImpactSnapshot = inPlace
-      ? { repository: this.options.repo, revision, aliases: {}, types, tooltips: {}, mode: 'live' }
-      : this.liveSnapshot(
-          revision,
-          livePerks,
-          { ...this.documents(tree, 'live/tooltips'), ...projectGlobals(published.store) },
-          types,
-        );
+    const live = this.liveSnapshot(
+      revision,
+      livePerks,
+      {
+        ...(inPlace ? { 1: { hash: 1, associated: [], text: {} } } : {}),
+        ...this.documents(tree, 'live/tooltips'),
+        ...projectGlobals(published.store),
+      },
+      types,
+    );
     const exported = inPlace
       ? {}
       : exportLegacy(Object.values(live.tooltips), 0, this.options.facts, live.aliases);
@@ -552,7 +554,7 @@ export class GlobalsPublisher {
     }
     return {
       saved,
-      published: inPlace ? { ...published.store, entries: [] } : published.store,
+      published: published.store,
       authored: {
         repository: this.options.repo,
         revision,
@@ -1393,7 +1395,7 @@ export class GlobalsPublisher {
     }
     const snapshots = [
       captured.authored,
-      ...(inPlace ? [] : [captured.live]),
+      captured.live,
       ...this.upcoming(tree).flatMap((documents) =>
         (['authored', 'live'] as const).map((mode) => ({
           ...captured.authored,

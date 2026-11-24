@@ -15,10 +15,10 @@ import {
   aliasGroupsSchema,
   sandboxPointersPath,
   sandboxPointersSchema,
-  globalRecordSchema,
-  globalsInPlaceDefinitions,
   globalsInPlaceFenceSchema,
   globalsInPlacePath,
+  permissionsSchema,
+  stableStringify,
   type Tooltip,
 } from '../../packages/core/src/index.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
@@ -27,8 +27,10 @@ import { Publisher, type Options } from './publisher.js';
 import {
   assertInPlaceDocuments,
   exportGlobalsProof,
+  planInPlaceRelease,
   proveInPlaceInputs,
 } from './globalsInPlace.js';
+import type { Repository, Tree } from './git.js';
 import type { LegacyInput } from '../../packages/export/src/index.js';
 const [repo, commit, receiptPath, configPath, adapterPath, outArg] = process.argv.slice(2);
 if (!outArg)
@@ -74,38 +76,43 @@ const hashes = tooltips.map((tooltip) => tooltip.hash);
 const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
 const payload = JSON.parse(request.payload);
 const fence = globalsInPlaceFenceSchema.optional().parse(atSource(globalsInPlacePath));
-const reviewed = request.sourceIntent
-  ? fence
-    ? JSON.parse(request.sourceIntent.payload).sourceCommit
-    : undefined
-  : payload.globalsRevision;
-if (receipt.globalsRevision !== reviewed || Boolean(fence) !== Boolean(reviewed))
-  throw new Error('Receipt shared text revision differs from the reviewed publication');
-const globalsInPlace =
+if (Boolean(receipt.inPlace) !== Boolean(fence) || (fence && fence.state !== 'active'))
+  throw new Error('Receipt belongs to a different shared-text mode');
+const sourceTree = (): Tree =>
+  Object.fromEntries(
+    git('ls-tree', '-rz', receipt.sourceCommit)
+      .split('\0')
+      .filter(Boolean)
+      .map((line) => {
+        const tab = line.indexOf('\t');
+        return [line.slice(tab + 1), line.slice(0, tab).split(' ')[2]];
+      }),
+  );
+const plan =
   fence &&
   (() => {
-    if (fence.state !== 'active' || !/^[a-f0-9]{40}$/.test(reviewed))
-      throw new Error('Expected the reviewed shared text revision');
-    git('merge-base', '--is-ancestor', reviewed, receipt.sourceCommit);
+    const tree = sourceTree();
+    const readOnly = {
+      blob: (oid: string) => git('cat-file', 'blob', oid),
+    } as Repository;
+    const publisher = new Publisher(readOnly, {
+      ...config,
+      liveBranch: fence.destination,
+    } as Options);
+    const selections = payload.kind === 'push' ? (payload.globals ?? []) : [];
+    const role = permissionsSchema.parse(atSource('config/permissions.json')).users[
+      payload.requester.id
+    ]?.role;
+    const release = planInPlaceRelease(publisher, tree, base, selections, role === 'maintainer');
     if (
-      git('rev-parse', `${reviewed}:${globalsInPlacePath}`).trim() !==
-      git('rev-parse', `${receipt.sourceCommit}:${globalsInPlacePath}`).trim()
+      stableStringify(release.globals) !== stableStringify(receipt.inPlace.globals) ||
+      stableStringify(release.refusals) !== stableStringify(receipt.inPlace.refusals ?? [])
     )
-      throw new Error('The reviewed shared text belongs to another migration');
-    const entries = git('ls-tree', '--name-only', '-r', reviewed, '--', 'globals/entries')
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map((path) => {
-        const entry = globalRecordSchema.parse(read(reviewed, path));
-        if (path !== `globals/entries/${entry.id}.json`)
-          throw new Error('Invalid shared text identity');
-        return entry;
-      });
-    return {
-      definitions: globalsInPlaceDefinitions(entries),
-    };
+      throw new Error('Receipt shared definitions differ from the request');
+    return release;
   })();
+const globalsInPlace = plan?.options;
+const live = plan ? ({ ...base, perks: { ...base.perks, ...plan.refills } } as LegacyInput) : base;
 if (globalsInPlace) assertInPlaceDocuments(tooltips, globalsInPlace);
 const selectedMoves = selectedInactiveMoves(moves, hashes, aliases);
 const exported = exportWithInactiveMoves(
@@ -118,30 +125,33 @@ const exported = exportWithInactiveMoves(
 );
 const requester = payload.requester;
 stampUploads(exported, new Set<number>(receipt.changed), base.perks, receipt.now, requester.login);
-const merge = (entries: typeof exported): LegacyInput => ({
-  ...base,
-  perks: applyInactiveLive(
-    mergeLivePerks(
-      base.perks,
-      entries,
-      picks === undefined
-        ? undefined
-        : {
-            keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
-            aliases,
-            catalog: config.facts,
-          },
-      groups === undefined ? undefined : { aliases, catalog: config.facts },
-      groups === undefined ? undefined : aliasGroupsSchema.parse(groups).removed,
-    ),
-    moves,
-    hashes,
-    aliases,
-    base.perks,
-  ),
-});
+const merge = (entries: typeof exported): LegacyInput =>
+  receipt.inPlace && !hashes.length
+    ? live
+    : {
+        ...base,
+        perks: applyInactiveLive(
+          mergeLivePerks(
+            live.perks,
+            entries,
+            picks === undefined
+              ? undefined
+              : {
+                  keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
+                  aliases,
+                  catalog: config.facts,
+                },
+            groups === undefined ? undefined : { aliases, catalog: config.facts },
+            groups === undefined ? undefined : aliasGroupsSchema.parse(groups).removed,
+          ),
+          moves,
+          hashes,
+          aliases,
+          live.perks,
+        ),
+      };
 const merged = merge(exported);
-if (globalsInPlace) {
+if (globalsInPlace && hashes.length) {
   const { raw, fallbacks } = exportGlobalsProof(
     tooltips,
     receipt.now,

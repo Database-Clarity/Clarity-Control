@@ -18,7 +18,10 @@ export const publishBodySchema = z
       .max(3000)
       .refine((a) => new Set(a).size === a.length),
     expected: z.record(hashKey, digest),
-    globals: z.array(globalPublishSelectionSchema).min(1).max(3000)
+    globals: z
+      .array(globalPublishSelectionSchema)
+      .min(1)
+      .max(3000)
       .refine((items) => new Set(items.map(({ id }) => id)).size === items.length)
       .optional(),
   })
@@ -48,7 +51,12 @@ export const publishPayloadSchema = z
   .strict()
   .superRefine((v, ctx) => {
     if (
-      !publishBodySchema.safeParse({ opId: v.opId, hashes: v.hashes, expected: v.expected, globals: v.globals }).success
+      !publishBodySchema.safeParse({
+        opId: v.opId,
+        hashes: v.hashes,
+        expected: v.expected,
+        globals: v.globals,
+      }).success
     )
       ctx.addIssue({ code: 'custom', message: 'Invalid publish intent' });
   });
@@ -77,9 +85,11 @@ export async function publishIntentDigest(value: PublishIntent): Promise<string>
       requester: { id: value.requester.id },
       hashes: [...value.hashes].sort((a, b) => a - b),
       expected: value.expected,
-      ...(value.globals === undefined ? {} : {
-        globals: [...value.globals].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-      }),
+      ...(value.globals === undefined
+        ? {}
+        : {
+            globals: [...value.globals].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+          }),
     }),
   );
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (b) =>
