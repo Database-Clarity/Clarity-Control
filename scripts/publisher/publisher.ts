@@ -1008,10 +1008,10 @@ export class Publisher {
           globalsInPlace,
         );
       }
+      const output = this.publicationOutput(inPlace, exported);
       if (
-        stableStringify({ ...inPlace?.refills, ...exported }) !==
-          stableStringify(receipt.exported) ||
-        stableStringify(inPlace ? this.inPlaceReceipt(inPlace, exported) : null) !==
+        stableStringify(output.exported) !== stableStringify(receipt.exported) ||
+        stableStringify(output.inPlace ?? null) !==
           stableStringify(receipt.inPlace ?? null) ||
         stableStringify(
           receipt.entries
@@ -1728,14 +1728,14 @@ export class Publisher {
           ...(this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {}),
           outcome: 'published',
           entries,
-          exported: { ...inPlace?.refills, ...checked.exported },
+          exported: checked.exported,
           changed: entries
             .filter(({ hash, digest }) => !neutral?.has(hash) && pushed[hash] !== digest)
             .map(({ hash }) => hash),
           requester: payload.requester,
           intentDigest: payload.intentDigest,
           ...(globals ? { globals } : {}),
-          ...(inPlace ? { inPlace: this.inPlaceReceipt(inPlace, checked.exported) } : {}),
+          ...(checked.inPlace ? { inPlace: checked.inPlace } : {}),
         };
         candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
       }
@@ -1882,7 +1882,7 @@ export class Publisher {
     inPlace?: ReturnType<Publisher['inPlaceOptions']>,
   ):
     | { error: string; proposalRejected?: true; retryable?: true }
-    | { now: number; exported: ReturnType<typeof exportLegacy> } {
+    | ({ now: number } & Pick<Receipt, 'exported' | 'inPlace'>) {
     const moves = selectedInactiveMoves(
       this.movesAt(tree),
       tooltips.map((t) => t.hash),
@@ -1952,7 +1952,7 @@ export class Publisher {
         error: `The export of tooltip ${unlowered} still holds unlowered markup`,
         proposalRejected: true,
       };
-    return { now, exported };
+    return { now, ...this.publicationOutput(inPlace, exported) };
   }
   private inPlaceOptions(tree: Tree, payload: PublishRequestPayload, live: string) {
     try {
@@ -1987,16 +1987,20 @@ export class Publisher {
       throw new ConsumerOutputRejected(String(error));
     }
   }
-  private inPlaceReceipt(
-    plan: ReturnType<typeof planInPlaceRelease>,
+  private publicationOutput(
+    plan: ReturnType<typeof planInPlaceRelease> | undefined,
     exported: Receipt['exported'],
-  ) {
+  ): Pick<Receipt, 'exported' | 'inPlace'> {
+    if (!plan) return { exported };
     return {
-      globals: plan.globals,
-      refills: Object.keys(plan.refills)
-        .filter((hash) => !exported[hash])
-        .map(Number),
-      ...(plan.refusals.length ? { refusals: plan.refusals } : {}),
+      exported: { ...plan.refills, ...exported },
+      inPlace: {
+        globals: plan.globals,
+        refills: Object.keys(plan.refills)
+          .filter((hash) => !exported[hash])
+          .map(Number),
+        ...(plan.refusals.length ? { refusals: plan.refusals } : {}),
+      },
     };
   }
   createCandidate(opId: string, blob: string, live: string, r: Receipt, previous?: string) {
@@ -2211,7 +2215,7 @@ export class Publisher {
       changed: entries
         .filter(({ hash, digest }) => pushed[hash] !== digest)
         .map(({ hash }) => hash),
-      ...(inPlace ? { inPlace: this.inPlaceReceipt(inPlace, checked.exported) } : {}),
+      ...(checked.inPlace ? { inPlace: checked.inPlace } : {}),
       ...(globals ? { globals } : {}),
     };
   }
