@@ -86,14 +86,16 @@ build-time; it is turned on only together with the Worker's `/publish` writes (d
   in IndexedDB (`clarity-publisher`, separate from the drafts database) BEFORE the first request. Every
   retry (lost 202, 5xx/offline backoff, reload, another tab) re-sends the same opId and byte-identical
   body; the Worker is idempotent per opId. If the record cannot be stored, nothing is sent.
-- Statuses per operation: Sending… (stored, not yet acknowledged) → Publishing… (202) → Published / Already
+- Statuses per operation: Sending… (stored, awaiting acceptance) → Queued (202) → Published / Already
   live (`done`/`unchanged`: markers update through the same acknowledgment overlay as before) / Changed
   (`stale`: nothing went live) / Rejected / Failed. A 400 or a pending operation the Worker no longer knows
   asks `/publish/status` or re-sends the same body, never a new opId. 401 pauses until sign-in.
 - Polling is one `GET /publish/status?opId=` per pending operation: 4 s for 30 s, 10 s to 3 min, 30 s to 30 min,
   then 60 s; paused while the tab is hidden; tabs share one stream (`polledAt` claims in the store).
-- After 3 minutes pending the line becomes Waiting with a Retry button, and the tab auto-kicks ONCE
-  (`autoKicked` is stored, so a reload never repeats it). Retry kicks again at most every 30 s. Requests that
+- After 3 minutes pending the line becomes Waiting with a Retry button. Automatic recovery needs
+  a fresh pending status and 5 minutes without a new bundle or part progress. It targets the first
+  unfinished part with a 10-minute cooldown shared by the publish across tabs and reloads.
+  Manual Retry remains available every 30 s. Requests that
   other editors queued (`bundle.publishQueue`, informational) appear as one "N publish requests waiting"
   line with Retry.
 - Tooltips inside a queued operation show the word "Publishing…" and cannot be selected again. Finished operations

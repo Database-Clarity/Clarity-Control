@@ -92,8 +92,7 @@ export function PushConfirm({
       </p>
       {background && (
         <p className={styles.confirmSummary}>
-          Publishing runs in the background and takes a minute or two. You can keep working;
-          progress shows on the Review page.
+          Publishing runs in the background. Check the Review page to see what went live.
         </p>
       )}
       <ul className={styles.confirmList} aria-label="Tooltips going live" tabIndex={0}>
