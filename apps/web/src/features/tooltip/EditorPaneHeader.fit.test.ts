@@ -37,6 +37,12 @@ describe('desktop tool line fit', () => {
     expect(nextFit(625.640625, 625, spare, 3, 37.5)).toEqual(fit(4));
     expect(nextFit(554.859375, 625, spare, 4, 37.5)).toEqual(fit(4));
   });
+  it('counts no More while only the marks have become a count', () => {
+    expect(nextFit(600, 513, [100, 102], 0, more, 1)).toEqual(fit(1));
+    expect(nextFit(500, 513, [100, 102], 1, more, 1)).toEqual(fit(1));
+    expect(nextFit(500, 605, [100, 102], 1, more, 1)).toEqual(fit(0));
+    expect(nextFit(680, 513, [100, 102], 0, more, 1)).toEqual(fit(2));
+  });
   it('is stable: an answer never flips on the measurement it produces', () => {
     for (const inline of [520, 560, 620, 700]) {
       const first = nextFit(inline, 513, tools, 0, more);

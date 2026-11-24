@@ -128,7 +128,7 @@
 @media (min-width: 701px) {
   .bar:has(> .versions) {
     flex-wrap: wrap;
-    row-gap: 0;
+    row-gap: 0.1875rem;
     height: auto;
     min-height: 1.75rem;
     padding-block: 1px;

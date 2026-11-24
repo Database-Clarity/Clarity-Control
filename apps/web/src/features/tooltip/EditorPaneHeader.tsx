@@ -11,6 +11,7 @@ import type { GroupedPerk } from './grouping';
 import { editLabel, type OverrideTarget } from './variants';
 import styles from './TooltipPage.module.scss';
 import { MarksControl, useMarksShown } from '../marks/MarksControl';
+import { useMarksStore } from '../marks/store';
 
 /** "Read-only: sign in to edit." -> "Read-only". */
 export const shortReason = (reason: string) => reason.split(':')[0].trim();
@@ -131,14 +132,17 @@ export function EditorPaneHeader({
   );
 }
 
-/** The desktop tools More can take, in the order they go there (the rarest first). */
+/**
+ * The desktop tools More can take, in the order they go there (the rarest first). "marksLabels" is
+ * a step, not a tool: the marks' names become a count ("Marks (2)") on the line.
+ */
 export const spillOrder = [
   'grouped',
   'inactive',
   'worklist',
+  'marksLabels',
   'overrides',
   'marks',
-  'marksShort',
 ] as const;
 export type SpillTool = (typeof spillOrder)[number];
 /** How many of the line's spare tools sit in More, and whether the line still wraps. */
@@ -154,7 +158,7 @@ export interface RowFit {
  * with its gap. As few tools go to More as the line needs, one at a time in spill order; a line
  * that still does not fit wraps as a last resort, so every action stays reachable. A tool comes
  * back only with a pixel to spare: scrollWidth rounds, so at an exact fit the two layouts could
- * each ask for the other forever.
+ * each ask for the other forever. The first `inPlace` entries only shorten the line: no More.
  */
 export function nextFit(
   need: number,
@@ -162,12 +166,14 @@ export function nextFit(
   widths: readonly number[],
   moved: number,
   more: number,
+  inPlace = 0,
 ): RowFit {
   const sum = (count: number) => widths.slice(0, count).reduce((total, width) => total + width, 0);
+  const moreAt = (count: number) => (count > inPlace ? more : 0);
   // The line with every tool inline: what is in More now comes back, More itself goes.
-  const all = need + sum(moved) - (moved ? more : 0);
+  const all = need + sum(moved) - moreAt(moved);
   for (let count = 0; count <= widths.length; count++)
-    if (all - sum(count) + (count ? more : 0) <= room + (count < moved ? -0.5 : 0.5))
+    if (all - sum(count) + moreAt(count) <= room + (count < moved ? -0.5 : 0.5))
       return { moved: count, wrap: false };
   return { moved: widths.length, wrap: true };
 }
@@ -228,6 +234,8 @@ function useRowFit(
   right: React.RefObject<HTMLSpanElement>,
   tools: readonly SpillTool[],
   key: string,
+  /** The marks' names: other marks are measured again. */
+  marksKey: string,
 ) {
   const [fit, setFit] = useState<RowFit>({ moved: 0, wrap: false });
   const fitRef = useRef(fit);
@@ -248,7 +256,8 @@ function useRowFit(
       widths.current[tool.dataset.spill as SpillTool] =
         (tool.getBoundingClientRect().width + gap) / rem;
     const { moved } = fitRef.current;
-    const trigger = moved ? (element.lastElementChild as HTMLElement | null) : null;
+    const inPlace = toolsRef.current[0] === 'marksLabels' ? 1 : 0;
+    const trigger = moved > inPlace ? (element.lastElementChild as HTMLElement | null) : null;
     if (trigger) more.current = (trigger.getBoundingClientRect().width + gap) / rem;
     const box = getComputedStyle(header);
     const room =
@@ -257,9 +266,15 @@ function useRowFit(
       lineNeed(header, element),
       room,
       // A tool never seen inline yet (none: every tool starts inline) counts as nothing.
-      toolsRef.current.map((tool) => (widths.current[tool] ?? 0) * rem),
+      toolsRef.current.map((tool) => {
+        const width = widths.current[tool] ?? 0;
+        if (tool !== 'marksLabels') return width * rem;
+        // The names only become the count: about as wide as "Marks (2)" until that was seen.
+        return Math.max(0, width - (widths.current.marks ?? 4.5)) * rem;
+      }),
       Math.min(moved, toolsRef.current.length),
       (more.current || 1.5 + gap / rem) * rem,
+      inPlace,
     );
     if (next.moved !== fitRef.current.moved || next.wrap !== fitRef.current.wrap) {
       fitRef.current = next;
@@ -267,7 +282,10 @@ function useRowFit(
     }
   };
   // What the line holds changed: measure before paint, so it never shows a clipped frame.
-  useLayoutEffect(() => measure.current(), [key]);
+  useLayoutEffect(() => {
+    delete widths.current.marksLabels;
+  }, [marksKey]);
+  useLayoutEffect(() => measure.current(), [key, marksKey]);
   useLayoutEffect(() => {
     const header = right.current?.parentElement;
     if (!header || typeof ResizeObserver !== 'function') return;
@@ -321,17 +339,18 @@ function DesktopToolRow({
   // With a version open the line is at its fullest: the first edit must not move the text.
   const reserveDraft = reserve || (!!activeOverride && !reason);
   const marksShown = useMarksShown(markHash);
-  // Beside an open version the marks are a count, so the line holds them at common widths.
-  const marksTool = activeOverride ? 'marksShort' : 'marks';
+  const marked = useMarksStore((state) => (markHash ? state.index.get(markHash) : undefined));
+  const marksKey = marked?.map((mark) => mark.label).join('|') ?? '';
   const right = useRef<HTMLSpanElement>(null);
   const present: Record<SpillTool, boolean> = {
     grouped: !!grouped,
     inactive: !!inactiveControl,
     worklist: !!worklistControl,
+    // Beside an open version the marks are always a count.
+    marksLabels: marksShown && !!marksKey && !activeOverride,
     // Edit enhanced goes last; an open override's Back to base always stays on the line.
     overrides: !activeOverride && overrides.length > 0,
-    marks: marksShown && !activeOverride,
-    marksShort: marksShown && !!activeOverride,
+    marks: marksShown,
   };
   const tools = spillOrder.filter((tool) => present[tool]);
   const fit = useRowFit(
@@ -353,8 +372,10 @@ function DesktopToolRow({
       Boolean(inactiveControl),
       marksShown,
     ].join('|'),
+    marksKey,
   );
   const inMore = new Set(tools.slice(0, fit.moved));
+  const marksCount = inMore.delete('marksLabels') || !!activeOverride;
   const groupedControl = grouped && (
     <Popover
       label={groupedLabel}
@@ -374,7 +395,7 @@ function DesktopToolRow({
     </Popover>
   );
   const marksControl = marksShown && markHash !== undefined && (
-    <MarksControl hash={markHash} className={styles.ghost} compact={!!activeOverride} />
+    <MarksControl hash={markHash} className={styles.ghost} compact={marksCount} />
   );
   const markupTools = markup && (
     <button
@@ -442,14 +463,14 @@ function DesktopToolRow({
       <span
         ref={right}
         className={styles.paneRight}
-        data-tool-fit={fit.moved ? 'spill' : 'full'}
+        data-tool-fit={inMore.size ? 'spill' : 'full'}
         data-wrap={fit.wrap || undefined}
       >
         {worklistControl && !inMore.has('worklist') && (
           <span data-spill="worklist">{worklistControl}</span>
         )}
-        {marksControl && !inMore.has(marksTool) && (
-          <span data-spill={marksTool}>{marksControl}</span>
+        {marksControl && !inMore.has('marks') && (
+          <span data-spill={marksCount || !marksKey ? 'marks' : 'marksLabels'}>{marksControl}</span>
         )}
         {inactiveControl && !inMore.has('inactive') && (
           <span data-spill="inactive">{inactiveControl}</span>
@@ -495,9 +516,9 @@ function DesktopToolRow({
               ])
             }
             extra={
-              inMore.has('worklist') || inMore.has('inactive') || inMore.has(marksTool) ? (
+              inMore.has('worklist') || inMore.has('inactive') || inMore.has('marks') ? (
                 <>
-                  {inMore.has(marksTool) && marksControl}
+                  {inMore.has('marks') && marksControl}
                   {inMore.has('worklist') && worklistControl}
                   {inMore.has('inactive') && (inactiveMenuControl || inactiveControl)}
                 </>

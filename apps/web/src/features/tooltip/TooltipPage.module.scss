@@ -329,10 +329,11 @@
 // A container query cannot see what the line holds, so each step's width is set per content: the
 // natural widths at UI 100 (they scale with the rem) of the full line with a draft's dot and
 // Discard, Grouped N (maintainers), and the toggles, plus a little slack for text rendering.
-$override-full: 46.1rem; // language 9, tag 4.9, draft 5.1, Markup 8.6, Marks 3.6, Grouped + inactive 7.3, Back 5.5, gaps
+$override-full: 47.1rem; // language 9, tag 5.3, draft 5.1, Markup 8.6, Marks (2) 4.3, Grouped + inactive 7.3, Back 5.5, gaps
 $override-draft: 5.1rem; // the dot, Discard, and their gaps
 $override-grouped: 5.8rem; // "Grouped N", inactive icon, and their gaps, less the More they leave behind
 $override-toggles: 10.2rem; // Compendium, Reports, and their gaps
+$override-three-toggles: 14.2rem; // and English
 // Each step and the width it saves; "grouped" saves nothing without the control.
 $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) (markup 1.875rem)
   (back 2.75rem);
@@ -415,7 +416,7 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) 
 }
 @each $draft in (true, false) {
   @each $grouped in (true, false) {
-    @each $toggles in (true, false) {
+    @each $toggles in (0, 2, 3) {
       $state: ':has(> .overrideTag)';
       $needed: $override-full;
       @if $draft {
@@ -432,9 +433,13 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) 
       }
       // The toggles stay in the line (hidden) outside toggle mode: the workspace's mode says.
       $mode: ".workspace:not([data-mode='toggle'], [data-mode='phone'])";
-      @if $toggles {
+      @if $toggles == 2 {
         $mode: ".workspace[data-mode='toggle']";
         $needed: $needed + $override-toggles;
+      } @else if $toggles == 3 {
+        $mode: ".workspace[data-mode='toggle']";
+        $state: $state + ':has(> .paneToggles > :nth-child(3))';
+        $needed: $needed + $override-three-toggles;
       }
       @each $step, $saves in $override-steps {
         @if $step != grouped or $grouped {
@@ -453,7 +458,8 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) 
 // Queue mode with a version open: where the control shares the line (38rem up), every step applies
 // until the line holds them all.
 @container pane-header (max-width: 48rem) {
-  .workspace[data-mode='split'] .paneHeader:has(> .overrideTag):has(> .queue) {
+  // :has(> .paneRight) only matches the steps' specificity above.
+  .workspace[data-mode='split'] .paneHeader:has(> .overrideTag):has(> .queue):has(> .paneRight) {
     @each $step in (key, lang, lang-narrow, markup, back) {
       @include override-step($step);
     }
