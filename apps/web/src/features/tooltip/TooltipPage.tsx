@@ -569,6 +569,7 @@ function TooltipWorkspace({
   const reviewedEnglish = activeBase.text.en;
   const canConfirmTranslation =
     lang !== 'en' &&
+    !revision &&
     !batchEditing &&
     !sessions[activeHash] &&
     access.reason === null &&

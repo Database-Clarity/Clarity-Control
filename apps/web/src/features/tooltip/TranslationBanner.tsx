@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Lang, Tooltip } from '@clarity/core';
+import { translationStateOf, type Lang, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { needsUpdate, type Update } from '../translations/pendingState';
 import { useChangeSize } from '../translations/useChangeSizes';
@@ -122,11 +122,19 @@ export function TranslationBanner({
       ? { hash: saved.hash, sourceUpdatedAt: update.sourceUpdatedAt, current: update.english }
       : undefined,
   );
+  const reviewed = update && onConfirm && translationStateOf(saved, lang);
   return (
     <TranslationBannerView
       update={update ?? undefined}
       words={words}
-      onConfirm={update && update.reason !== 'numbers' ? onConfirm : undefined}
+      onConfirm={
+        update?.reason !== 'numbers' &&
+        reviewed &&
+        reviewed.state === 'outdated' &&
+        reviewed.reason !== 'numbers'
+          ? onConfirm
+          : undefined
+      }
       onUndo={onUndo}
     />
   );
