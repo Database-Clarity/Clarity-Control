@@ -689,7 +689,7 @@ describe('in-place shared text publication', () => {
 
     expect((await remove('de')).status).toBe(200);
     await f.request([], A, selection(pending(f).find(({ id }) => id === original.id)!));
-    await f.pub.run(false);
+    await f.pub.run();
     expect(live(f).perks[141]).toMatchObject({
       editor: { en: { main: '20' }, de: { main: '20', englishFallback: true } },
     });
@@ -701,7 +701,6 @@ describe('in-place shared text publication', () => {
       editor: { de: { main: 'English 6.5 20', englishFallback: true } },
     });
 
-    await f.globals.drain();
     expect((await port.edit(original.id, originalTranslation, 'de')).status).toBe(200);
     const restore = A.replace(/1$/, '3');
     await f.request([], restore, selection(pending(f).find(({ id }) => id === original.id)!));
@@ -734,6 +733,19 @@ describe('in-place shared text publication', () => {
     f.change({ [globalsInPlacePath]: undefined });
     expect((await withdraw(translator, 'de')).status).toBe(403);
     expect((await withdraw(maintainer, 'de')).status).toBe(503);
+  });
+
+  it('rechecks use of a withdrawn English definition when its global is approved', async () => {
+    const f = await inPlaceFixture();
+    const before = live(f);
+    delete f.entry.definitions.en;
+    f.change({ [f.entryPath]: f.entry });
+    const beta = pending(f).find(({ id }) => id === f.entry.id)!;
+    expect(beta.refusal).toContain('still uses Beta');
+    await f.request([], A, selection(beta));
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('rejected');
+    expect(live(f)).toEqual(before);
   });
 
   it('rejects a released catalogue that disagrees with legacy LIVE before writing the hold', async () => {

@@ -1089,6 +1089,11 @@ export class GlobalsPublisher {
         delete tree[retry];
     }
   }
+  async recordInPlaceProofs(tree: Tree, head: string, live: string) {
+    if (syncSchema.parse(this.read(tree, globalsReleasePaths.sync)).status !== 'current') return;
+    const sources = await this.sources(tree, live, head);
+    await this.proofs(tree, head, sources, live, []);
+  }
   async drain(expectedHead?: string) {
     // One coalesced pass over all requests, not one drain per trigger or retry file.
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -1526,6 +1531,7 @@ export class GlobalsPublisher {
         ];
         const path = `globals/proofs/removal/${entry.id}-${lang ?? 'all'}.json`;
         delete tree[path];
+        if (inPlace && lang && lang !== 'en') continue;
         const referenced = snapshots.some((snapshot) => {
           const change = {
             cause: {

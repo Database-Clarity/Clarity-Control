@@ -454,6 +454,10 @@ function publishedDocuments(pub: Publisher, tree: Tree, live: LegacyInput): Tool
   });
 }
 
+function withdrawsEnglish(entry: GlobalRecord, previous: GlobalRecord | undefined) {
+  return !!entry.tombstone || (!!previous?.definitions.en && !entry.definitions.en);
+}
+
 function assertWithdrawal(
   selected: GlobalRecord,
   previous: GlobalRecord | undefined,
@@ -461,7 +465,7 @@ function assertWithdrawal(
   published: GlobalStore,
   documents: readonly Tooltip[],
 ) {
-  if (!selected.tombstone || !previous || previous.tombstone) return;
+  if (!previous || previous.tombstone) return;
   const names = new Set([selected.name, previous.name]);
   const reads = (text: string) =>
     globalReferenceSpans(text, selected.kind).some(({ name }) => names.has(name));
@@ -492,31 +496,27 @@ function selectedRelease(
       refills: {},
       rewritten: new Map<number, Tooltip>(),
     };
+  const previous = new Map(published.store.entries.map((entry) => [entry.id, entry]));
   const selected = selection.map(({ id, expected }) => {
     const entry = saved.entries.find((candidate) => candidate.id === id);
     if (!entry || definitionDigest(entry) !== expected)
       throw new Error(`Shared definition ${entry?.name || id} changed. Review it again.`);
-    if (entry.tombstone && !maintainer)
+    if (withdrawsEnglish(entry, previous.get(id)) && !maintainer)
       throw new Error(`Only a maintainer can publish the removal of ${entry.name}.`);
     return entry;
   });
   const liveDocs = publishedDocuments(pub, tree, live);
   const globals = new GlobalsPublisher(pub);
-  const removalDocs = selected.some((entry) => entry.tombstone)
+  const withdrawals = selected.filter((entry) => withdrawsEnglish(entry, previous.get(entry.id)));
+  const removalDocs = withdrawals.length
     ? [
         ...liveDocs,
         ...Object.values(globals.documents(tree, 'tooltips')),
         ...globals.upcoming(tree).flatMap(Object.values),
       ]
     : [];
-  for (const entry of selected)
-    assertWithdrawal(
-      entry,
-      published.store.entries.find(({ id }) => id === entry.id),
-      saved,
-      published.store,
-      removalDocs,
-    );
+  for (const entry of withdrawals)
+    assertWithdrawal(entry, previous.get(entry.id), saved, published.store, removalDocs);
 
   const renames = renamesOf(published.store, selected);
   const beforeEntries = rewriteEntries(published.store.entries, renames);

@@ -1256,6 +1256,8 @@ export class Publisher {
         tree['live/pushed.json'] = this.git.writeBlob(json(pushed));
         if (receipt.globals) {
           await new GlobalsPublisher(this).record(tree, receipt.globals, h, candidate!);
+        } else if (inPlace) {
+          await new GlobalsPublisher(this).recordInPlaceProofs(tree, h, candidate!);
         }
       }
       if (tree[p.request] && tree[p.request] !== blob) {
