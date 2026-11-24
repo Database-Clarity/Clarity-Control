@@ -209,7 +209,7 @@ export function classifyRows(
         classifyRendered(
           exportedText(before, lang),
           exportedText(saved, lang),
-          diffGlobals(data, {}, lang, saved.hash),
+          diffGlobals(data, {}, lang, saved.hash, 'live'),
         ),
       ),
     ).then((outputs) => {

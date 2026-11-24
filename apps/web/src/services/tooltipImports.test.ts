@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { parseMarkup, type Tooltip } from '@clarity/core';
+import { exportLegacy, isLegacyAliasStub, parseMarkup, type Tooltip } from '@clarity/core';
 import { previewNumberGlobals, tooltipImports } from './tooltipImports';
 import type { Drafts } from './draftStorage';
 
@@ -7,6 +7,46 @@ const tooltip = (hash: number, text: string): Tooltip => ({
   hash,
   text: { en: { text, updatedAt: '2026-10-27T00:00:00Z', updatedBy: 'owner' } },
   associated: [],
+});
+
+test('Review uses the exported dependency language and authored lookup keeps its own cell', () => {
+  const translated = (
+    hash: number,
+    en: string,
+    de: string,
+    sourceUpdatedAt = '2025-01-01T00:00:00Z',
+  ) => {
+    const doc = tooltip(hash, en);
+    doc.text.de = { ...doc.text.en!, text: de, sourceUpdatedAt };
+    return doc;
+  };
+  const retired = translated(14, 'New 7.', 'Alt #{=1}.', '2026-10-27T00:00:00Z');
+  retired.text.en!.numbers = { ids: [2], next: 3, retired: { 1: null } };
+  const saved = {
+    2: translated(2, 'var damage = 10', 'var damage = 5'),
+    3: translated(3, 'title Detail (\nimport main from 11\n)', 'title Detail (\nAlt\n)'),
+    11: translated(11, 'Nested', ''),
+    12: translated(12, 'Fresh', '', '2026-10-27T00:00:00Z'),
+    13: tooltip(13, 'Missing German'),
+    14: retired,
+  };
+  const live = tooltipImports(saved, {}, 'de', {}, { lookupOnly: true, live: true });
+  const authored = tooltipImports(saved, {}, 'de', {}, { lookupOnly: true });
+  const exported = exportLegacy(Object.values(saved), 0);
+  for (const key of Object.keys(saved)) {
+    const entry = exported[key];
+    expect(isLegacyAliasStub(entry)).toBe(false);
+    if (!isLegacyAliasStub(entry)) expect(live[key]).toBe(entry.editor.de?.main ?? '');
+  }
+  expect(authored[2]).toBe('var damage = 5');
+  expect(authored[11]).toBe('');
+  const text = '#damage damage\n<title Info [Detail] />';
+  const render = (imports: typeof live) =>
+    JSON.stringify(parseMarkup(text, { variables: imports[2], titles: imports[3], imports }).lines);
+  expect(render(live)).toContain('10 damage');
+  expect(render(live)).toContain('Nested');
+  expect(render(authored)).toContain('5 damage');
+  expect(render(authored)).toContain('Alt');
 });
 
 test('constructing editor globals never reads translation text; fallback inspection waits for parsing', () => {

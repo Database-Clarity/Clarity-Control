@@ -144,6 +144,34 @@ describe('row words from the published text (real renderer)', () => {
     const newer = entry(tooltip(goldenTricorn.after + '\nMore'));
     expect(kindOf(newer, published, useKinds.getState().byHash)).toBeUndefined();
   });
+
+  it('checks translated output against the same fallback variables as Review detail', async () => {
+    const before = tooltip('Same');
+    const fresh = { ...before.text.en!, sourceUpdatedAt: before.text.en!.updatedAt };
+    before.text.de = { ...fresh, text: '#damage' };
+    const saved = { ...before, text: { ...before.text, de: { ...fresh, text: '5' } } };
+    const variables: Tooltip = {
+      hash: 2,
+      associated: [],
+      text: {
+        en: { ...fresh, text: 'var damage = 10' },
+        de: { ...fresh, text: 'var damage = 5', sourceUpdatedAt: '2025-01-01T00:00:00Z' },
+      },
+    };
+    const row = entry(saved);
+    const published = { status: 'ready' as const, tooltip: before };
+    const data = {
+      bundle: { tooltips: { 2: variables, 7: saved } },
+      items: {},
+      aliases: {},
+      categories: [],
+    } as unknown as EditorData;
+    useKinds.setState({ byHash: {} });
+    classifyRows([{ entry: row, published }], data);
+    await expect
+      .poll(() => kindOf(row, published, useKinds.getState().byHash))
+      .toMatchObject({ kind: 'Text changed', languages: ['de'] });
+  });
 });
 
 it('reads what goes live: a fallback flip and a number change are text changes', () => {

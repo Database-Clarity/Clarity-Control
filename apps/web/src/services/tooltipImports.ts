@@ -60,9 +60,10 @@ export function previewNumberGlobals(
   return result;
 }
 
-function resolvedImport(tooltip: Tooltip, lang: Lang, text: string): string {
+function resolvedImport(tooltip: Tooltip, lang: Lang, text: string, live = false): string {
+  if (live && usesEnglishFallback(tooltip, lang)) text = tooltip.text.en!.text;
   if (lang === 'en' || !text.includes('#{=')) return text;
-  if (usesEnglishFallback(tooltip, lang)) return tooltip.text.en?.text ?? '?';
+  if (!live && usesEnglishFallback(tooltip, lang)) return tooltip.text.en?.text ?? '?';
   try {
     return resolveNumberTokens(
       text,
@@ -76,6 +77,19 @@ function numberValuesCached(tooltip: Tooltip, lang: Lang) {
   return previewNumberGlobals(tooltip, lang, emptyNumberGlobals).numberInput!.values;
 }
 const emptyNumberGlobals: MarkupGlobals = { variables: '', titles: '' };
+
+// Review classification and detail share immutable dependency revisions.
+const liveImportTexts = new WeakMap<Tooltip, Map<Lang, string>>();
+function liveImport(tooltip: Tooltip, lang: Lang): string {
+  let texts = liveImportTexts.get(tooltip);
+  if (!texts) liveImportTexts.set(tooltip, (texts = new Map()));
+  let text = texts.get(lang);
+  if (text === undefined) {
+    text = resolvedImport(tooltip, lang, tooltip.text[lang]?.text ?? '', true);
+    texts.set(lang, text);
+  }
+  return text;
+}
 
 // Saved text and alias membership are immutable for a loaded catalogue. Index them once,
 // rather than resolving every saved hash again whenever one draft gains a character.
@@ -103,7 +117,7 @@ export function tooltipImports(
   drafts: Drafts,
   lang: Lang,
   aliases: Aliases,
-  options?: { lookupOnly?: boolean },
+  options?: { lookupOnly?: boolean; live?: boolean },
 ): Record<string, string> {
   // Render-only consumers resolve individual documents, never a suggestion
   // catalogue. Keep their first lookup independent of catalogue size.
@@ -116,7 +130,10 @@ export function tooltipImports(
     };
     const read = (key: string) => {
       const tooltip = tooltipAt(key);
-      return tooltip ? resolvedImport(tooltip, lang, tooltip.text[lang]?.text ?? '') : undefined;
+      if (!tooltip) return undefined;
+      return options.live && lang !== 'en'
+        ? liveImport(tooltip, lang)
+        : resolvedImport(tooltip, lang, tooltip.text[lang]?.text ?? '');
     };
     const proxy = new Proxy<Record<string, string>>(
       {},

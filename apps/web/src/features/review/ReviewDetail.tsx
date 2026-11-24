@@ -319,7 +319,7 @@ function TextChange({
   classification: Classification | undefined;
 }) {
   const data = useDataStore((state) => state.data);
-  const globals = useMemo(() => diffGlobals(data, {}, lang, hash), [data, lang, hash]);
+  const globals = useMemo(() => diffGlobals(data, {}, lang, hash, 'live'), [data, lang, hash]);
   const { result, busy } = useRenderedDiff(before, after, globals);
   const variants = classification?.variants;
   const scope = classification?.scope;

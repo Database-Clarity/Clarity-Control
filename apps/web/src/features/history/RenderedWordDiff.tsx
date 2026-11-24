@@ -27,9 +27,13 @@ export function diffGlobals(
   drafts: Drafts,
   lang: Lang,
   hash: number,
+  mode: 'authored' | 'live' = 'authored',
 ): MarkupGlobals {
   const imports = data
-    ? tooltipImports(data.bundle.tooltips, drafts, lang, data.aliases, { lookupOnly: true })
+    ? tooltipImports(data.bundle.tooltips, drafts, lang, data.aliases, {
+        lookupOnly: true,
+        live: mode === 'live',
+      })
     : {};
   const type = data?.categories.find(
     (category) => category.id === data.items[hash]?.categoryId,
