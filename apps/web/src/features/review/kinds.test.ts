@@ -235,6 +235,59 @@ it('keeps the answer for the latest imports when they change during a running ch
   expect(kindOf(row, published, useKinds.getState().byHash)?.kind).toBe('Text changed');
 });
 
+it('refreshes Review output when an alias alone changes its fallback source', async () => {
+  const before = tooltip('Same');
+  const fresh = { ...before.text.en!, sourceUpdatedAt: before.text.en!.updatedAt };
+  before.text.de = { ...fresh, text: 'import main from 20' };
+  const saved = { ...before, text: { ...before.text, de: { ...fresh, text: '5' } } };
+  const row = entry(saved);
+  const published = { status: 'ready' as const, tooltip: before };
+  const rows = [{ entry: row, published }];
+  const data = {
+    bundle: {
+      tooltips: {
+        7: saved,
+        8: {
+          ...tooltip('5'),
+          hash: 8,
+          text: { en: { ...fresh, text: '5' }, de: { ...fresh, text: '5' } },
+        },
+        9: {
+          ...tooltip('10'),
+          hash: 9,
+          text: {
+            en: { ...fresh, text: '10' },
+            de: { ...fresh, text: '5', sourceUpdatedAt: '2025-01-01T00:00:00Z' },
+          },
+        },
+      },
+    },
+    items: {},
+    aliases: { 20: { to: 8, kind: 'sandbox' } },
+    categories: [],
+  } as unknown as EditorData;
+  const moved: EditorData = { ...data, aliases: { 20: { to: 9, kind: 'sandbox' } } };
+  const word = () => kindOf(row, published, useKinds.getState().byHash)?.kind;
+  useKinds.setState({ byHash: {} });
+  classifyRows(rows, data);
+  await expect.poll(word).toBe('No visible change');
+
+  classifyRows(rows, moved);
+  await expect.poll(word).toBe('Text changed');
+
+  // The alias moves back and then returns to the already checked target before the check replies.
+  classifyRows(rows, data);
+  classifyRows(rows, moved);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(word()).toBe('Text changed');
+
+  // Different aliases also supersede an in-flight check before any result has been cached.
+  useKinds.setState({ byHash: {} });
+  classifyRows(rows, data);
+  classifyRows(rows, moved);
+  await expect.poll(word).toBe('Text changed');
+});
+
 it('counts a publish by kind, with the Oxford comma', () => {
   expect(kindCounts(['New', 'New', 'No visible change'])).toBe(
     '2 new tooltips and 1 with no visible change',

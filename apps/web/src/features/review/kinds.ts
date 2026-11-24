@@ -138,6 +138,7 @@ interface Classified {
   savedJson: string;
   published: Tooltip | null;
   tooltips: EditorData['bundle']['tooltips'];
+  aliases: EditorData['aliases'];
   value: Classification | undefined;
 }
 interface KindsState {
@@ -171,7 +172,12 @@ function sameSaved(done: Classified, saved: Tooltip) {
 /** The latest check asked for per row; an older check's answer never replaces a newer one. */
 const running = new Map<
   RowKey,
-  { saved: Tooltip; before: Tooltip; tooltips: EditorData['bundle']['tooltips'] }
+  {
+    saved: Tooltip;
+    before: Tooltip;
+    tooltips: EditorData['bundle']['tooltips'];
+    aliases: EditorData['aliases'];
+  }
 >();
 
 /**
@@ -183,6 +189,10 @@ export function classifyRows(
   data: EditorData,
 ) {
   const byHash = useKinds.getState().byHash;
+  const {
+    aliases,
+    bundle: { tooltips },
+  } = data;
   for (const { entry, published } of rows) {
     if (localKind(entry) || published?.status !== 'ready' || !published.tooltip) continue;
     const saved = entry.tooltip,
@@ -193,15 +203,23 @@ export function classifyRows(
       done &&
       done.saved === saved &&
       done.published === before &&
-      done.tooltips === data.bundle.tooltips
+      done.tooltips === tooltips &&
+      done.aliases === aliases
+    ) {
+      // A return to the checked snapshot supersedes a check still running for another snapshot.
+      running.delete(key);
+      continue;
+    }
+    // New objects (a reload) or new imports: check again; the old word shows meanwhile.
+    const pending = running.get(key);
+    if (
+      pending?.saved === saved &&
+      pending.before === before &&
+      pending.tooltips === tooltips &&
+      pending.aliases === aliases
     )
       continue;
-    // New objects (a reload) or new imports: check again; the old word shows meanwhile.
-    const tooltips = data.bundle.tooltips;
-    const pending = running.get(key);
-    if (pending?.saved === saved && pending.before === before && pending.tooltips === tooltips)
-      continue;
-    const request = { saved, before, tooltips };
+    const request = { saved, before, tooltips, aliases };
     running.set(key, request);
     const changed = textLanguages(before, saved);
     void Promise.all(
@@ -231,6 +249,7 @@ export function classifyRows(
             savedJson: JSON.stringify(saved),
             published: before,
             tooltips,
+            aliases,
             value: unproven ? { kind: 'Definition changed' as const } : value,
           },
         },
