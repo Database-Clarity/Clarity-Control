@@ -235,10 +235,21 @@ class ManualSourceAdvanced extends Error {
     readonly candidate: string,
     readonly requestBlob: string,
     readonly source: string,
+    readonly head: string,
+    readonly hashes: readonly number[],
   ) {
     super('The manual publish source kept changing. The request is still queued.');
   }
 }
+class NamedPartRefusal extends ConsumerOutputRejected {
+  constructor(
+    message: string,
+    readonly outcomes?: unknown,
+  ) {
+    super(`${message} Nothing in this part went live. Review and publish the part again.`);
+  }
+}
+const derivedGlobalPath = (path: string) => /^globals\/(?:proofs|review-pages)\//.test(path);
 export class Publisher {
   private readonly checkedOutputs = new Set<string>();
   constructor(
@@ -711,6 +722,7 @@ export class Publisher {
       if (
         path === marksPath ||
         (localized !== 'en' && langSchema.safeParse(localized).success) ||
+        /^exports\/projects\/[a-z0-9][a-z0-9-]*\.json$/.test(path) ||
         /^current-saves\/(?:[0-7][0-9A-HJKMNP-TV-Z]{25}\/(?:\d+|request|conflicts)|requesters\/\d+)\.json$/.test(
           path,
         )
@@ -721,6 +733,7 @@ export class Publisher {
         /^globals\/(?:layout\.json$|sync\.json$|(?:entries|causes|intents|names|reviews)\/)/.test(
           path,
         ) ||
+        derivedGlobalPath(path) ||
         path.startsWith('schedule/') ||
         [snippetsPath, inactiveMovesPath, aliasGroupsPath, sandboxPointersPath].includes(path)
       ) {
@@ -810,7 +823,13 @@ export class Publisher {
           const advance =
             signed.kind === 'batch' ? 'blocked' : this.manualSourceAdvance(source, h, tree, opId);
           if (advance === 'rebuild')
-            throw new ManualSourceAdvanced(atomicLive.candidate, receipt.requestBlob, source);
+            throw new ManualSourceAdvanced(
+              atomicLive.candidate,
+              receipt.requestBlob,
+              source,
+              h,
+              signed.hashes,
+            );
           if (advance === 'blocked')
             throw new ConsumerOutputRejected('Global receipt identity mismatch');
         }
@@ -1032,18 +1051,54 @@ export class Publisher {
     const p = paths(opId);
     let rebuilding: ManualSourceAdvanced | undefined;
     for (let attempt = 0; ; attempt++) {
-      const s = this.head(this.options.dataBranch);
-      const tree = this.git.tree(s);
-      if (rebuilding && !tree[p.log] && tree[p.request] !== rebuilding.requestBlob)
-        throw rebuilding;
+      let s = this.head(this.options.dataBranch);
+      let tree = this.git.tree(s);
       try {
+        if (rebuilding && !tree[p.log]) {
+          if (
+            tree[p.request] !== rebuilding.requestBlob ||
+            (s !== rebuilding.head &&
+              this.manualSourceAdvance(rebuilding.head, s, tree, opId) === 'blocked')
+          )
+            throw new RefRace('Manual publish source no longer matches the retry fence');
+          const checked = await new GlobalsPublisher(this).drain(s);
+          const materialized = this.git.tree(checked);
+          const previous = this.git.tree(rebuilding.source);
+          const paths = new Set([...Object.keys(previous), ...Object.keys(tree)]);
+          if (
+            [...paths].some(
+              (path) =>
+                derivedGlobalPath(path) &&
+                previous[path] !== tree[path] &&
+                tree[path] !== materialized[path],
+            )
+          )
+            throw new NamedPartRefusal(
+              `Could not verify the global proofs for ${this.partNames(previous, rebuilding.hashes)}.`,
+            );
+          s = this.head(this.options.dataBranch);
+          tree = this.git.tree(s);
+          if (
+            s !== checked &&
+            !tree[p.log] &&
+            this.manualSourceAdvance(checked, s, tree, opId) !== 'bookkeeping'
+          )
+            throw new RefRace('Manual publish source moved after sync');
+        }
         return await this.publishOperation(opId, s, tree, rebuilding);
       } catch (error) {
         if (error instanceof ManualSourceAdvanced && attempt < 2) {
-          this.git.cas(p.candidate, error.candidate, undefined);
           rebuilding = error;
-          await new GlobalsPublisher(this).drain();
           continue;
+        }
+        if (rebuilding && error instanceof RefRace) {
+          const landed = this.receipt(this.head(this.options.liveBranch), opId);
+          if (
+            landed?.requestBlob === rebuilding.requestBlob &&
+            this.git.tree(this.head(this.options.dataBranch))[p.log]
+          )
+            return;
+          if (attempt < 2) continue;
         }
         if (!(error instanceof ConsumerOutputRejected)) throw error;
         // A terminal content refusal closes the signed request without changing LIVE.
@@ -1051,7 +1106,14 @@ export class Publisher {
           opId,
           undefined,
           undefined,
-          { status: 'rejected', error: String(error) },
+          error instanceof NamedPartRefusal
+            ? {
+                status: 'rejected',
+                code: 'selected-rows-changed',
+                error: error.message,
+                outcomes: error.outcomes,
+              }
+            : { status: 'rejected', error: String(error) },
           tree[p.request],
         );
         try {
@@ -1063,6 +1125,19 @@ export class Publisher {
         return;
       }
     }
+  }
+  private partNames(previous: Tree, hashes: readonly number[], current: Tooltip[] = []) {
+    return [
+      ...new Set(
+        hashes.map(
+          (hash) =>
+            current.find((tooltip) => tooltip.hash === hash)?.custom?.name ||
+            this.read<Tooltip>(previous, `tooltips/${hash}.json`)?.custom?.name ||
+            this.options.facts[hash]?.name ||
+            `Tooltip ${hash}`,
+        ),
+      ),
+    ].join(', ');
   }
   private async publishOperation(
     opId: string,
@@ -1089,7 +1164,8 @@ export class Publisher {
     }
     const blob = tree[p.request];
     let candidate = this.candidate(opId, blob);
-    if (!candidate) {
+    if (rebuilding && !candidate) throw new RefRace('Manual publish candidate moved');
+    if (!candidate || candidate.c === rebuilding?.candidate) {
       let payload: PublishRequestPayload;
       try {
         payload = await this.verifyRequest(blob, opId, tree);
@@ -1176,34 +1252,13 @@ export class Publisher {
         if (outcomes.some((e) => e.status !== 'accepted')) {
           if (rebuilding) {
             const previous = this.git.tree(rebuilding.source);
-            const changed = [
-              ...new Set(
-                outcomes
-                  .filter(({ status }) => status !== 'accepted')
-                  .map(({ hash }) => {
-                    const document = tooltips.find((tooltip) => tooltip.hash === hash);
-                    return (
-                      document?.custom?.name ||
-                      this.read<Tooltip>(previous, `tooltips/${hash}.json`)?.custom?.name ||
-                      this.options.facts[hash]?.name ||
-                      `Tooltip ${hash}`
-                    );
-                  }),
-              ),
-            ];
-            await this.record(
-              opId,
-              undefined,
-              undefined,
-              {
-                status: 'rejected',
-                code: 'selected-rows-changed',
-                error: `Saved text changed after review for ${changed.join(', ')}. Nothing in this part went live. Review and publish the part again.`,
-                outcomes,
-              },
-              blob,
+            const hashes = outcomes
+              .filter(({ status }) => status !== 'accepted')
+              .map(({ hash }) => hash);
+            throw new NamedPartRefusal(
+              `Saved text changed after review for ${this.partNames(previous, hashes, tooltips)}.`,
+              outcomes,
             );
-            return;
           }
           await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
           return;
@@ -1259,7 +1314,7 @@ export class Publisher {
           intentDigest: payload.intentDigest,
           ...(globals ? { globals } : {}),
         };
-        candidate = this.createCandidate(opId, blob, live, r);
+        candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
       }
     }
     let rebases = 0;
@@ -1404,18 +1459,20 @@ export class Publisher {
       };
     return { now, exported };
   }
-  createCandidate(opId: string, blob: string, live: string, r: Receipt) {
+  createCandidate(opId: string, blob: string, live: string, r: Receipt, previous?: string) {
     const p = paths(opId);
     const c = this.buildCandidate(live, r);
     let candidate: ReturnType<Publisher['candidate']>;
     for (let i = 0; i < 6 && !candidate; i++) {
       try {
-        this.git.cas(p.candidate, undefined, c);
+        this.git.cas(p.candidate, previous, c);
       } catch {
         /* ambiguous: always read back */
       }
       candidate = this.candidate(opId, blob);
+      if (candidate?.c === previous) candidate = undefined;
     }
+    if (!candidate && previous) throw new RefRace('Replacement candidate moved');
     if (!candidate) throw new Error('Candidate create unresolved');
     return candidate;
   }
