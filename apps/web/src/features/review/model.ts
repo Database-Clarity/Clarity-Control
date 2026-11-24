@@ -58,6 +58,7 @@ const snapshots = new WeakMap<
     inactiveMoves: EditorData['bundle']['inactiveMoves'];
     globalsPending: EditorData['bundle']['globalsPending'];
     settled: ReadonlySet<string>;
+    ahead: ReadonlySet<string>;
   }
 >();
 const queues = new WeakMap<PendingTooltip[], SidebarPendingChange[]>();
@@ -89,6 +90,10 @@ const noGlobals: ReadonlySet<string> = new Set();
 const sameGlobals = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
   a.size === b.size && [...a].every((id) => b.has(id));
 
+/** A global's save changes no loaded data, only what its listed row is compared with. */
+const globalsAhead = ({ bundle }: EditorData) =>
+  bundle.globalsPending ? savedGlobalsAhead(bundle) : noGlobals;
+
 export function preparedPending(
   data: EditorData,
   pushed = data.bundle.pushed,
@@ -110,7 +115,8 @@ function sameInputs(snapshot: NonNullable<ReturnType<typeof snapshots.get>>, dat
     snapshot.items === data.items &&
     snapshot.categories === data.categories &&
     snapshot.inactiveMoves === data.bundle.inactiveMoves &&
-    snapshot.globalsPending === data.bundle.globalsPending
+    snapshot.globalsPending === data.bundle.globalsPending &&
+    sameGlobals(snapshot.ahead, globalsAhead(data))
   );
 }
 
@@ -139,6 +145,7 @@ export function pendingTooltips(
     inactiveMoves: data.bundle.inactiveMoves,
     globalsPending: data.bundle.globalsPending,
     settled,
+    ahead: globalsAhead(data),
   };
   snapshots.set(data, snapshot);
   void snapshot.pending.then(
@@ -225,7 +232,7 @@ async function computePending(
   const globals = globalEntries(data, {
     order: (categories.get('none') ?? categoryDisplay('none')).order,
     settled,
-    ahead: data.bundle.globalsPending ? savedGlobalsAhead(data.bundle) : noGlobals,
+    ahead: globalsAhead(data),
   });
   return [...entries, ...globals]
     .filter((entry): entry is PendingTooltip => entry !== null)

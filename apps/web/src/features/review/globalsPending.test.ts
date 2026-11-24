@@ -252,6 +252,12 @@ it('clears a published global until the bundle caught up or holds another defini
 it('holds a global saved after its row was built', async () => {
   const data = await state();
   const saved = { ...data.bundle.globals!.entries[0]!, revision: 'r2' };
+  // Compared before the save: a save changes no loaded data, and must still hold the row.
+  expect(
+    (await pendingTooltips(data)).every(
+      ({ name, unpublishable }) => name === 'Moved' || !unpublishable,
+    ),
+  ).toBe(true);
   rememberSavedGlobal(saved, 'newer-head');
   const entries = await pendingTooltips(data);
   expect(entries.find(({ name }) => name === 'G_refill')?.unpublishable).toContain('Refresh');

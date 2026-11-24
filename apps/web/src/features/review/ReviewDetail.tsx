@@ -217,7 +217,9 @@ const changesText = ({ part }: PendingTooltip) =>
 function sameTextLanguages({ change, languages: cells }: PendingGlobal) {
   return change === 'renamed'
     ? []
-    : languages.filter((lang) => cells[lang] && cells[lang].before === cells[lang].after);
+    : languages.filter(
+        (lang) => lang !== 'en' && cells[lang] && cells[lang].before === cells[lang].after,
+      );
 }
 
 /** A pending global: the published tooltips that get its new text when it publishes. */
