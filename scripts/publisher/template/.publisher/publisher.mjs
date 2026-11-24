@@ -32085,7 +32085,10 @@ function provesInPlace(before, after, hashes = /* @__PURE__ */ new Set([
 }
 
 // scripts/publisher/globalsInPlace.ts
+init_braces();
+init_comments();
 init_prepare();
+init_syntax();
 init_zod();
 import { createHash as createHash2 } from "node:crypto";
 
@@ -32597,23 +32600,25 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
     if (entry.kind !== "variables" || entry.tombstone || old && !old.tombstone && old.name === to)
       continue;
     const name2 = /* @__PURE__ */ new Set([to]);
-    const conflicts = (source3) => inPlaceLabelVariable(source3, name2, to);
+    const rename = old && !old.tombstone;
+    const conflicts = (source3) => {
+      if (inPlaceLabelVariable(source3, name2, to) !== void 0) return true;
+      if (!rename) return false;
+      const text = removeMarkupComments(source3);
+      if (!text.includes(to)) return false;
+      return Object.hasOwn(extractVariables(text), to) || variableReferences(text).some(({ name: name3 }) => name3 === to);
+    };
+    const reason = rename ? `already uses or declares ${to}. Choose a different name.` : `already uses #${to} inside a title or link. Choose a different name.`;
     for (const tooltip of liveDocs)
       for (const cell of Object.values(tooltip.text))
         if (conflicts(cell.text))
-          throw new Error(
-            `Tooltip ${tooltip.custom?.name || tooltip.hash} already uses #${to} inside a title or link. Choose a different name.`
-          );
+          throw new Error(`Tooltip ${tooltip.custom?.name || tooltip.hash} ${reason}`);
     for (const row of Object.values(live.perks))
       if ("editor" in row && Object.values(row.editor).some((cell) => conflicts(cell.main) || conflicts(cell.secondary)))
-        throw new Error(
-          `Tooltip ${row.name || row.hash} already uses #${to} inside a title or link. Choose a different name.`
-        );
+        throw new Error(`Tooltip ${row.name || row.hash} ${reason}`);
     for (const publishedEntry of published.store.entries)
       if (!publishedEntry.tombstone && Object.values(publishedEntry.definitions).some(({ body: body2 }) => conflicts(body2)))
-        throw new Error(
-          `Shared definition ${publishedEntry.name} already uses #${to} inside a title or link. Choose a different name.`
-        );
+        throw new Error(`Shared definition ${publishedEntry.name} ${reason}`);
   }
   const beforeEntries = rewriteEntries(published.store.entries, renames);
   const before = reconcileGlobalStore(
@@ -32641,21 +32646,6 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
     if (kind === "variables") names.add(from);
     if (kind === "titles") titleNames.add(from);
   }
-  for (const entry of selected) {
-    if (entry.tombstone) continue;
-    for (const [lang, { body: body2 }] of Object.entries(entry.definitions)) {
-      const issue2 = sharedVariableLabelIssue(body2, names) ?? inPlaceReferenceIssue(body2, names, titleNames);
-      if (issue2) throw new Error(`${entry.name} (${lang}): ${issue2}`);
-      for (const kind of ["exports", "variables", "titles"]) {
-        const unavailable = options.unavailable?.[kind];
-        if (!unavailable?.size) continue;
-        const reference = globalReferenceSpans(body2, kind).find(
-          ({ name: name2 }) => unavailable.has(name2)
-        );
-        if (reference) throw new Error(`Publish the shared change for ${reference.name} first.`);
-      }
-    }
-  }
   const rewritten = /* @__PURE__ */ new Map();
   const updatedDocs = liveDocs.map((prior) => {
     const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
@@ -32681,6 +32671,21 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
           options.definitions.variables,
           publishedNames
         );
+  for (const entry of selected) {
+    if (entry.tombstone) continue;
+    for (const [lang, { body: body2 }] of Object.entries(entry.definitions)) {
+      const issue2 = sharedVariableLabelIssue(body2, names) ?? inPlaceReferenceIssue(body2, names, titleNames);
+      if (issue2) throw new Error(`${entry.name} (${lang}): ${issue2}`);
+      for (const kind of ["exports", "variables", "titles"]) {
+        const unavailable = options.unavailable?.[kind];
+        if (!unavailable?.size) continue;
+        const reference = globalReferenceSpans(body2, kind).find(
+          ({ name: name2 }) => unavailable.has(name2)
+        );
+        if (reference) throw new Error(`Publish the shared change for ${reference.name} first.`);
+      }
+    }
+  }
   const publishedDocs = new Map(updatedDocs.map((doc) => [doc.hash, doc]));
   const source2 = (hash2) => {
     const row = live.perks[hash2];
