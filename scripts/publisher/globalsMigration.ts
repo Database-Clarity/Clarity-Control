@@ -109,6 +109,15 @@ function assertDrained(pub: Publisher, git: LocalRepository, data: string) {
   }
   if (git.git(['for-each-ref', '--format=%(refname)', 'refs/heads/publish-candidate/']).trim())
     throw new Error('Recover old publisher candidates before migration.');
+  const live = git.tree(pub.head(pub.options.liveBranch));
+  for (const path of Object.keys(live).filter((file) => file.startsWith('.publish/receipts/'))) {
+    const log = pub.read<{ result?: { status?: string } }>(
+      tree,
+      path.replace('.publish/receipts/', 'publish/log/'),
+    );
+    if (log?.result?.status !== 'done' && log?.result?.status !== 'unchanged')
+      throw new Error(`Recover the RECORD for ${path} with the old publisher first.`);
+  }
 }
 
 const json = (value: unknown) => JSON.stringify(value, null, 2) + '\n';
