@@ -8,6 +8,11 @@ import type { AliasGroups } from './aliasGroups.js';
 import { validateTextWithReads } from './validation/index.js';
 import { numberTokens, numberValues, resolveNumberTokens } from './numbers/map.js';
 import { validateNumberTooltip } from './validation/numbers.js';
+import {
+  globalsInPlaceLibraryText,
+  resolveGlobalsInPlace,
+  type GlobalsInPlaceOptions,
+} from './globals/inPlace.js';
 
 function exportFacts(facts: LegacyFacts | undefined): Partial<LegacyFacts> {
   if (!facts) return {};
@@ -173,11 +178,16 @@ export function mergeLivePerks(
   return merged;
 }
 
+export interface LegacyExportOptions {
+  globalsInPlace?: GlobalsInPlaceOptions;
+}
+
 export function exportLegacy(
   tooltips: readonly Tooltip[],
   now: number,
   catalog?: LegacyCatalog,
   aliases: Aliases = {},
+  options?: LegacyExportOptions,
 ): Record<string, LegacyExportEntry> {
   if (!Number.isFinite(now) || now < 0 || !Number.isInteger(now)) {
     throw new TypeError('now must be nonnegative integer epoch milliseconds');
@@ -205,6 +215,8 @@ export function exportLegacy(
     if (canonical[tooltip.hash]) throw new Error(`Duplicate tooltip hash: ${tooltip.hash}`);
     const english = tooltip.text.en;
     const editor: LegacyEntry['editor'] = {};
+    const globals = options?.globalsInPlace;
+    const libraryText = globals ? globalsInPlaceLibraryText(tooltip.hash) : undefined;
     const descriptions: NonNullable<LegacyEntry['updateTracker']>['descriptions'] = {
       ...tooltip.legacy?.updateTracker?.descriptions,
     };
@@ -220,12 +232,18 @@ export function exportLegacy(
         exported.text.includes('#{=') && english
           ? resolveNumberTokens(exported.text, numberValues(english, language))
           : exported.text;
-      const text = lowerConsumerMarkup(resolved);
-      editor[language] = {
-        main: text,
-        secondary: text,
-        ...(englishFallback ? { englishFallback: true } : {}),
-      };
+      if (libraryText === undefined) {
+        const text = lowerConsumerMarkup(
+          globals ? resolveGlobalsInPlace(resolved, language, globals) : resolved,
+        );
+        editor[language] = {
+          main: text,
+          secondary: text,
+          ...(englishFallback ? { englishFallback: true } : {}),
+        };
+      } else if (libraryText) {
+        editor[language] = { main: libraryText, secondary: '' };
+      }
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
         lastUpdate: Date.parse(exported.updatedAt),
@@ -234,6 +252,7 @@ export function exportLegacy(
           : {}),
       };
     }
+    if (libraryText && !editor.en) editor.en = { main: libraryText, secondary: '' };
     const facts =
       catalog?.[tooltip.hash] ??
       (tooltip.custom ? { name: tooltip.custom.name, type: tooltip.custom.categoryId } : undefined);
