@@ -27365,6 +27365,38 @@ function effectiveSharedNotes(source2, globals, names) {
   }
   return [...reads];
 }
+function inPlaceVariableUses(text) {
+  const refs = variableReferences(text);
+  if (!refs.length) return refs;
+  const comments = text.includes("//") || text.includes("/*") ? markupCommentContext(text).comments : [];
+  return refs.filter(
+    ({ name: name2, from }) => name2 !== "e" && !comments.some((span2) => span2.from <= from && from < span2.to)
+  );
+}
+function inPlaceReferenceIssue(source2, variables, titles) {
+  if (variables.size && source2.includes("#")) {
+    const locals = localInPlaceVariables(source2);
+    const tracked = new Set(globalReferenceSpans(source2, "variables").map(({ from }) => from));
+    for (const { name: name2, from } of inPlaceVariableUses(source2))
+      if (variables.has(name2) && !Object.hasOwn(locals, name2) && !tracked.has(from))
+        return `Move #${name2} out of the label, URL, or ambiguous markup so it can be tracked.`;
+  }
+  if (titles.size && source2.includes("<") && source2.includes("[")) {
+    const globals = { variables: globalsInPlaceLibraryText(2), titles: "" };
+    const local = extractBlocks(source2.replace(/\r/g, ""), "title");
+    const reads = new Set(
+      effectiveSharedNotes(lowerConsumerMarkup(source2), globals, titles).filter(
+        (name3) => !Object.hasOwn(local, name3)
+      )
+    );
+    if (!reads.size) return;
+    let unchecked = source2;
+    for (const { name: name3, from, to } of globalReferenceSpans(source2, "titles").reverse())
+      if (reads.has(name3)) unchecked = unchecked.slice(0, from) + "!" + unchecked.slice(to);
+    const [name2] = effectiveSharedNotes(lowerConsumerMarkup(unchecked), globals, reads);
+    if (name2) return `Use the standard title markup for ${name2} so the note can be tracked.`;
+  }
+}
 function protectCommentedGlobalImports(source2) {
   if (!source2.includes("/*") || !source2.includes("import ")) return source2;
   const { comments } = markupCommentContext(source2);
@@ -27408,18 +27440,10 @@ function resolveGlobalsInPlace(source2, language, { definitions, unavailable }) 
       return expanded2;
     }
   );
-  const variableUses = (text2) => {
-    const refs = variableReferences(text2);
-    if (!refs.length) return refs;
-    const comments = text2.includes("//") || text2.includes("/*") ? markupCommentContext(text2).comments : [];
-    return refs.filter(
-      ({ name: name2, from }) => name2 !== "e" && !comments.some((span2) => span2.from <= from && from < span2.to)
-    );
-  };
   const fill = (text2) => {
     let result = "";
     let at = 0;
-    for (const { name: name2, from, to } of variableUses(text2)) {
+    for (const { name: name2, from, to } of inPlaceVariableUses(text2)) {
       const body2 = lookup("variables", name2)?.trim();
       if (body2 === void 0) continue;
       result += text2.slice(at, from) + (body2 === "empty" ? "" : body2);
@@ -27428,7 +27452,7 @@ function resolveGlobalsInPlace(source2, language, { definitions, unavailable }) 
     return at ? result + text2.slice(at) : text2;
   };
   if (unavailable?.variables?.size)
-    for (const { name: name2 } of variableUses(source2)) requirePublished("variables", name2);
+    for (const { name: name2 } of inPlaceVariableUses(source2)) requirePublished("variables", name2);
   const expanded = source2.includes("import ") ? expand(source2, true) : source2;
   const text = fill(expanded);
   const names = new Set(Object.keys(definitions.titles ?? {}));
@@ -32328,7 +32352,7 @@ function assertInPlaceDocuments(documents, options) {
   for (const tooltip of documents)
     for (const [lang, cell] of Object.entries(tooltip.text)) {
       const context = `Tooltip ${tooltip.custom?.name || tooltip.hash} (${lang})`;
-      const issue2 = sharedVariableLabelIssue(cell.text, names) ?? globalsInPlaceSaveIssue(cell.text, titleNames);
+      const issue2 = sharedVariableLabelIssue(cell.text, names) ?? inPlaceReferenceIssue(cell.text, names, titleNames) ?? globalsInPlaceSaveIssue(cell.text, titleNames);
       if (issue2) throw new Error(`${context}: ${issue2}`);
       assertLinkVariableValues(cell.text, context, options.definitions.variables, publishedNames);
     }
@@ -32494,7 +32518,12 @@ function refillLanguage(current, approved) {
 function withdrawalIssue(selected, previous, saved, published, documents) {
   if (!previous || previous.tombstone) return;
   const names = /* @__PURE__ */ new Set([selected.name, previous.name]);
-  const reads = (text) => globalReferenceSpans(text, selected.kind).some(({ name: name2 }) => names.has(name2)) || selected.kind === "titles" && text.includes("<title") && text.includes("#") && effectiveSharedNotes(lowerConsumerMarkup(text), { variables: "", titles: "" }, names).length > 0;
+  const empty2 = /* @__PURE__ */ new Set();
+  const reads = (text) => globalReferenceSpans(text, selected.kind).some(({ name: name2 }) => names.has(name2)) || !!inPlaceReferenceIssue(
+    text,
+    selected.kind === "variables" ? names : empty2,
+    selected.kind === "titles" ? names : empty2
+  ) || selected.kind === "titles" && text.includes("<title") && text.includes("#") && effectiveSharedNotes(lowerConsumerMarkup(text), { variables: "", titles: "" }, names).length > 0;
   const reader = documents.find((doc) => Object.values(doc.text).some((cell) => reads(cell.text)));
   if (reader) return `Tooltip ${reader.custom?.name || reader.hash} still uses ${selected.name}.`;
   const dependency = [...saved.entries, ...published.entries].find(
@@ -32540,6 +32569,28 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
     if (issue2) throw new Error(issue2);
   }
   const renames = renamesOf(published.store, selected);
+  const changedVariables = /* @__PURE__ */ new Set();
+  const changedTitles = /* @__PURE__ */ new Set();
+  for (const entry of selected) {
+    const old = previous.get(entry.id);
+    if (old && !old.tombstone && !entry.tombstone && old.name === entry.name) continue;
+    const names2 = entry.kind === "variables" ? changedVariables : entry.kind === "titles" ? changedTitles : void 0;
+    names2?.add(entry.name);
+    if (old && !old.tombstone) names2?.add(old.name);
+  }
+  if (changedVariables.size || changedTitles.size) {
+    const check2 = (source3, context) => {
+      const issue2 = inPlaceReferenceIssue(source3, changedVariables, changedTitles);
+      if (issue2) throw new Error(`${context}: ${issue2}`);
+    };
+    for (const doc of liveDocs)
+      for (const [lang, { text }] of Object.entries(doc.text))
+        check2(text, `Tooltip ${doc.custom?.name || doc.hash} (${lang})`);
+    for (const entry of published.store.entries)
+      if (!entry.tombstone)
+        for (const [lang, { body: body2 }] of Object.entries(entry.definitions))
+          check2(body2, `${entry.name} (${lang})`);
+  }
   for (const entry of selected) {
     const to = entry.name;
     const old = previous.get(entry.id);
@@ -32581,12 +32632,19 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
   );
   const options = releaseOptions(next, saved);
   const names = variableNames(options);
+  const titleNames = /* @__PURE__ */ new Set([
+    ...Object.keys(options.definitions.titles ?? {}),
+    ...options.unavailable?.titles ?? []
+  ]);
   const publishedNames = new Set(Object.keys(options.definitions.variables ?? {}));
-  for (const { kind, from } of renames) if (kind === "variables") names.add(from);
+  for (const { kind, from } of renames) {
+    if (kind === "variables") names.add(from);
+    if (kind === "titles") titleNames.add(from);
+  }
   for (const entry of selected) {
     if (entry.tombstone) continue;
     for (const [lang, { body: body2 }] of Object.entries(entry.definitions)) {
-      const issue2 = sharedVariableLabelIssue(body2, names);
+      const issue2 = sharedVariableLabelIssue(body2, names) ?? inPlaceReferenceIssue(body2, names, titleNames);
       if (issue2) throw new Error(`${entry.name} (${lang}): ${issue2}`);
       for (const kind of ["exports", "variables", "titles"]) {
         const unavailable = options.unavailable?.[kind];
@@ -38286,11 +38344,12 @@ async function dryRunGlobalsMigration(pub, inputs, checkpoint) {
   const before = liveGlobalsInput(pub, legacyLive);
   const entries = [...published.entries, ...saved.entries].filter(({ tombstone }) => !tombstone);
   const names = new Set(entries.filter(({ kind }) => kind === "variables").map(({ name: name2 }) => name2));
+  const titles = new Set(entries.filter(({ kind }) => kind === "titles").map(({ name: name2 }) => name2));
   const definitionStores = [saved, published].map(
     (store) => globalsInPlaceDefinitions(store.entries).variables
   );
   const checkLabel = (text, context) => {
-    const issue2 = sharedVariableLabelIssue(text, names);
+    const issue2 = sharedVariableLabelIssue(text, names) ?? inPlaceReferenceIssue(text, names, titles);
     if (issue2) throw new Error(`${context}: ${issue2}`);
     for (const variables of definitionStores)
       assertLinkVariableValues(text, context, variables, names);
