@@ -153,7 +153,7 @@ it('retries up to 500 proofs and stops with the refused hashes and reason once n
     [1, 50],
   ]);
   expect(ops().every(({ groupId }) => groupId === first.groupId)).toBe(true);
-  expect(groupPublishes(ops())[0]?.combining).toBe(true);
+  expect(groupPublishes(ops())[0]?.op.status).toBe('pending');
   expect(h.api.post).toHaveBeenCalledTimes(24); // 11 sends, 11 receipt reads, and 2 new sends.
   await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
   const failed = groupPublishes(ops())[0]?.op;
@@ -267,7 +267,7 @@ it('holds the whole group while any older-tab receipt is unread, then shows no d
   await vi.advanceTimersByTimeAsync(30 * 60_000);
   const group = groupPublishes(ops())[0]!;
   const view = describeOp(group.op, undefined, Date.now(), String, group.checking);
-  expect(view).toMatchObject({ chip: 'Combining…', waiting: false, finished: false });
+  expect(view).toMatchObject({ chip: 'Checking…', waiting: false, finished: false });
   expect(activeHashes(ops()).size).toBe(51);
   expect(h.api.kick).not.toHaveBeenCalled();
 
@@ -349,7 +349,7 @@ it('stores a rejection seen by status polling as an unread receipt: no Retry, no
   await vi.advanceTimersByTimeAsync(10 * 60_000);
   const group = groupPublishes(ops())[0]!;
   const view = describeOp(group.op, undefined, Date.now(), String, group.checking);
-  expect(view).toMatchObject({ chip: 'Combining…', waiting: false });
+  expect(view).toMatchObject({ chip: 'Checking…', waiting: false });
   await driver.kickWaiting(op().opId);
   expect(h.api.kick).not.toHaveBeenCalled();
   // Reads back off like any receipt (first POST is the original send).
@@ -675,7 +675,7 @@ it('polls cheaply: bounded requests over ten minutes, none while the tab is hidd
   expect(h.api.status.mock.calls.length).toBe(before);
 });
 
-it('auto-kicks exactly once after three minutes, across reloads', async () => {
+it('auto-kicks after five minutes, then waits at least ten more minutes across a reload', async () => {
   const h = harness();
   const driver = h.make();
   await driver.start('1');
@@ -683,26 +683,29 @@ it('auto-kicks exactly once after three minutes, across reloads', async () => {
   await settle();
   await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs - 5_000);
   expect(h.api.kick).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(10_000);
+  await vi.advanceTimersByTimeAsync(35_000);
   expect(h.api.kick).toHaveBeenCalledTimes(1);
   expect(h.api.kick).toHaveBeenCalledWith(created.opId);
   driver.stop();
   const again = h.make();
   await again.start('1');
-  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  const kickedAt = h.store.records.get(created.opId)!.kickedAt!;
+  await vi.advanceTimersByTimeAsync(kickedAt + publishTiming.autoKickGapMs - Date.now() - 1);
   expect(h.api.kick).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(31_000);
+  expect(h.api.kick).toHaveBeenCalledTimes(2);
 });
 
-it('reserves automatic kicks for later queued chunks, including across a reload', async () => {
+it('detects a completed part and shares the kick cooldown across four parts and a reload', async () => {
   const h = harness();
   const first = h.make();
   await first.start('1');
   await first.create(
-    Array.from({ length: 101 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+    Array.from({ length: 151 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
   );
-  await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs + 1000);
-  const [head, middle, last] = ops();
-  expect(h.api.post).toHaveBeenCalledTimes(3);
+  await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs + 30_000);
+  const [head, middle] = ops();
+  expect(h.api.post).toHaveBeenCalledTimes(4);
   expect(h.api.kick.mock.calls).toEqual([[head!.opId]]);
   first.stop();
 
@@ -710,11 +713,34 @@ it('reserves automatic kicks for later queued chunks, including across a reload'
   const finished = new Set([head!.opId]);
   h.api.status.mockImplementation(async (id) => (finished.has(id) ? 'done' : 'pending'));
   await reloaded.start('1');
-  await vi.advanceTimersByTimeAsync(30_000);
+  await vi.advanceTimersByTimeAsync(publishTiming.autoKickGapMs - 60_000);
+  expect(ops()[0]?.status).toBe('done');
+  expect(h.api.kick.mock.calls).toEqual([[head!.opId]]);
+  await vi.advanceTimersByTimeAsync(90_000);
   expect(h.api.kick.mock.calls).toEqual([[head!.opId], [middle!.opId]]);
-  finished.add(middle!.opId);
-  await vi.advanceTimersByTimeAsync(30_000);
-  expect(h.api.kick.mock.calls).toEqual([[head!.opId], [middle!.opId], [last!.opId]]);
+});
+
+it('waits five minutes after a new bundle or a part finishes, and requires a successful status check', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const head = await driver.create(
+    Array.from({ length: 51 }, (_, hash) => ({ hash, digest: digest(1), previous: undefined })),
+  );
+  await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs - 90_000);
+  await h.store.observeBundle(Date.now(), Date.now());
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(h.api.kick).not.toHaveBeenCalled();
+  h.api.status.mockImplementation(async (id) => (id === head.opId ? 'done' : 'pending'));
+  await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs - 30_000);
+  expect(ops()[0]?.status).toBe('done');
+  expect(h.api.kick).not.toHaveBeenCalled();
+  h.api.status.mockRejectedValue(new PublishHttpError(0, 'Offline'));
+  await vi.advanceTimersByTimeAsync(90_000);
+  expect(h.api.kick).not.toHaveBeenCalled();
+  h.api.status.mockResolvedValue('pending');
+  await vi.advanceTimersByTimeAsync(31_000);
+  expect(h.api.kick.mock.calls).toEqual([[ops()[1]!.opId]]);
 });
 
 it('two tabs share one poll stream and one auto-kick', async () => {
@@ -738,6 +764,25 @@ it('two tabs share one poll stream and one auto-kick', async () => {
   await settle();
   await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs + 60_000);
   expect(together).toBeLessThanOrEqual(single.api.status.mock.calls.length + 2);
+});
+
+it('shares observed bundle progress with a stale tab after the observing tab closes', async () => {
+  const h = harness();
+  const tabA = h.make();
+  await tabA.start('1');
+  const created = await tabA.create(inputs);
+  await settle();
+  await vi.advanceTimersByTimeAsync(4 * 60_000);
+  await h.store.observeBundle(Date.now() - 30_000, Date.now());
+  tabA.stop();
+
+  const tabB = h.make();
+  await h.store.observeBundle(created.createdAt, Date.now());
+  await tabB.start('1');
+  await vi.advanceTimersByTimeAsync(publishTiming.autoKickMs - 1);
+  expect(h.api.kick).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(31_000);
+  expect(h.api.kick.mock.calls).toEqual([[created.opId]]);
 });
 
 it('manual Retry kicks, but not more than once per gap', async () => {
@@ -959,7 +1004,7 @@ it('shows Sync pending and retries the same reviewed request until proof is read
   });
   const created = await driver.create(inputs);
   await settle();
-  expect(usePublishState.getState().notes[created.opId]).toMatch(/^Sync pending/);
+  expect(usePublishState.getState().notes[created.opId]).toMatch(/^Waiting for saved changes/);
   expect(op().status).toBe('created');
   expect(h.api.kick).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(readyAfter + 30_000);
@@ -969,7 +1014,7 @@ it('shows Sync pending and retries the same reviewed request until proof is read
   expect(usePublishState.getState().notes[created.opId]).toBeUndefined();
 });
 
-it.each(['unknown', 'pending'] as const)(
+it.each(['unknown', 'pending', 'unavailable'] as const)(
   'keeps the sync deadline through reload and reconciles a Worker status of %s',
   async (remote) => {
     const h = harness();
@@ -985,7 +1030,8 @@ it.each(['unknown', 'pending'] as const)(
     first.stop();
     vi.setSystemTime(deadline - 300);
     const reloaded = h.make();
-    h.api.status.mockResolvedValue(remote);
+    if (remote === 'unavailable') h.api.status.mockRejectedValue(new Error('Offline'));
+    else h.api.status.mockResolvedValue(remote);
     // Keep the same rejection if this tab manages one last send before the deadline.
     h.api.post.mockRejectedValue(
       new PublishHttpError(409, 'Sync pending', true, publicationSyncPendingCode),
@@ -993,9 +1039,12 @@ it.each(['unknown', 'pending'] as const)(
     await reloaded.start('1');
     await vi.advanceTimersByTimeAsync(800);
     expect(h.api.status).toHaveBeenCalledWith(created.opId);
-    expect(op().status).toBe(remote === 'unknown' ? 'failed' : 'pending');
-    if (remote === 'unknown') {
-      expect(op().error).toContain('Sync is still pending for tooltips 10, 20.');
+    expect(op().status).toBe(remote === 'pending' ? 'pending' : 'failed');
+    if (remote !== 'pending') {
+      expect(op().error).toContain('Automatic retries ended.');
+      expect(op().error).toContain(
+        remote === 'unknown' ? 'No publish request was found.' : 'The final status check failed.',
+      );
       const sends = h.api.post.mock.calls.length;
       await vi.advanceTimersByTimeAsync(60_000);
       expect(h.api.post).toHaveBeenCalledTimes(sends);

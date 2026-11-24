@@ -405,7 +405,7 @@ it('opens the export a cold filtered link names once its word is known', async (
   expect(host.querySelectorAll('a[data-review-hash^="1:"]')).toHaveLength(2);
 });
 
-it('follows one reviewed request through Sync pending, Publishing, and Published', async () => {
+it('follows one reviewed request through Checking, Queued, and Published', async () => {
   await mount();
   expect(host.textContent).toContain('1 change waiting to go live');
   await selectAll();
@@ -429,7 +429,9 @@ it('follows one reviewed request through Sync pending, Publishing, and Published
   expect(body.expected).toEqual({ 10: await publishableHash(tooltip) });
   await waitFor(() => {
     const activity = host.querySelector('[aria-label="Publish activity"]')!;
-    expect(activity.textContent).toContain('Sync pending. Publishing will continue automatically.');
+    expect(activity.textContent).toContain(
+      'Waiting for saved changes to be checked. Retrying automatically.',
+    );
     expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
   });
   postAnswer = accepted;
@@ -441,7 +443,7 @@ it('follows one reviewed request through Sync pending, Publishing, and Published
   expect(calls.some((c) => c.path === '/push-live')).toBe(false);
   await waitFor(() => {
     const activity = host.querySelector('[aria-label="Publish activity"]')!;
-    expect(activity.textContent).toContain('Publishing…');
+    expect(activity.textContent).toContain('Queued');
     expect(activity.textContent).toContain('1 tooltip');
   });
   // Still pending in the list, but cannot be picked again.
@@ -525,11 +527,10 @@ it('keeps the operation and offers Retry once it has waited three minutes', asyn
     expect(host.querySelector('[aria-label="Publish activity"]')!.textContent).toContain('Waiting');
     expect(buttons('Retry')).toHaveLength(1);
   });
-  // The automatic kick already went out once; the button is a second, user-driven one.
-  expect(calls.filter((c) => c.path === '/publish/kick')).toHaveLength(1);
-  vi.setSystemTime(Date.now() + publishTiming.manualKickGapMs + 1_000);
+  // Manual recovery is available before the automatic kick threshold.
+  expect(calls.filter((c) => c.path === '/publish/kick')).toHaveLength(0);
   await click('Retry');
-  await waitFor(() => expect(calls.filter((c) => c.path === '/publish/kick')).toHaveLength(2));
+  await waitFor(() => expect(calls.filter((c) => c.path === '/publish/kick')).toHaveLength(1));
 });
 
 it('lists requests other editors queued from the bundle, with Retry', async () => {
@@ -570,9 +571,7 @@ it('rebuilds the in-flight state from storage after a reload and never mints a s
   await mount();
   await waitFor(() => expect(posts().length).toBeGreaterThanOrEqual(2));
   expect(new Set(posts().map((c) => (c.body as { opId: string }).opId))).toEqual(new Set([first]));
-  expect(host.querySelector('[aria-label="Publish activity"]')!.textContent).toContain(
-    'Publishing…',
-  );
+  expect(host.querySelector('[aria-label="Publish activity"]')!.textContent).toContain('Queued');
 });
 
 it('shows no publish controls or activity to accounts that cannot publish', async () => {

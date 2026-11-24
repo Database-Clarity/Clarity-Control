@@ -419,7 +419,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     const fingerprint = f.options.keyFingerprint,
       data = f.git.head(D);
     f.options.keyFingerprint = 'unverified';
-    await expect(f.pub.operation(A)).rejects.toThrow('Invalid credit envelope');
+    await expect(f.pub.operation(A)).rejects.toThrow('Invalid signature or key pin');
     expect(f.git.head(D)).toBe(data);
     f.options.keyFingerprint = fingerprint;
     await f.pub.operation(A);
@@ -516,6 +516,111 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.pub.run();
     f.assertDone(B);
   });
+
+  it.each([false, true])(
+    'rejects a candidate with the wrong signed marker (inactive=%s)',
+    async (inactive) => {
+      const f = await setup();
+      if (inactive) {
+        f.change(D, {
+          'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } },
+        });
+        await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
+      } else await f.request(A);
+      const create = f.pub.createCandidate.bind(f.pub);
+      f.pub.createCandidate = (opId, blob, live, receipt) => {
+        receipt.entries[0].digest = '0'.repeat(64);
+        return create(opId, blob, live, receipt);
+      };
+      const before = f.git.head(L);
+      await f.pub.operation(A);
+      expect(f.git.head(L)).toBe(before);
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+        result: {
+          status: 'rejected',
+          error: expect.stringContaining('Tooltip 123 would publish a different revision'),
+        },
+      });
+    },
+  );
+
+  it('recovers a signed alias marker using the generator at the frozen source', async () => {
+    const f = await setup();
+    f.options.aliases = { 555: { to: 123, kind: 'frame' } };
+    f.options.facts[555] = { name: 'Frame alias', type: 'perk' };
+    f.change(D, {
+      '.publisher/config.json': {
+        generatorSha: f.options.generatorSha,
+        aliases: f.options.aliases,
+        facts: f.options.facts,
+      },
+    });
+    const digest = await inactivePublishableHash(f.tooltip, f.options.aliases);
+    await f.request(A, [555], { 555: digest });
+    const create = f.pub.createCandidate.bind(f.pub);
+    f.pub.createCandidate = (opId, blob, live, receipt) => {
+      const candidate = create(opId, blob, live, receipt);
+      f.git.cas(L, live, candidate.c);
+      f.options.generatorSha = 'c'.repeat(40);
+      f.options.aliases = {};
+      return candidate;
+    };
+    await f.pub.operation(A);
+    const { result } = f.pub.read<{ result: { status: string; error?: string } }>(
+      f.git.tree(f.git.head(D)!),
+      paths(A).log,
+    )!;
+    expect(result.status, result.error).toMatch(/done|unchanged/);
+    f.assertDone(A);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'live/pushed.json')).toMatchObject({
+      123: digest,
+    });
+  });
+
+  it.each([
+    ['snapshot', false],
+    ['metadata', false],
+    ['export', false],
+    ['export', true],
+  ] as const)(
+    'fails closed for a receipt with a valid signed marker and a mismatched %s (landed=%s)',
+    async (part, landed) => {
+      const f = await setup();
+      await f.request(A);
+      const create = f.pub.createCandidate.bind(f.pub);
+      f.pub.createCandidate = (opId, blob, live, receipt) => {
+        const changed = structuredClone(f.tooltip);
+        if (part === 'metadata') changed.text.en!.updatedBy = 'someone-else';
+        else changed.text.en!.text = 'different text';
+        if (part !== 'export') receipt.entries[0].tooltipBlob = f.git.writeBlob(encode(changed));
+        if (part !== 'snapshot')
+          receipt.exported = exportLegacy([changed], receipt.now, f.options.facts);
+        const candidate = create(opId, blob, live, receipt);
+        if (landed) f.git.cas(L, live, candidate.c);
+        return candidate;
+      };
+      const live = f.git.head(L);
+      if (landed) {
+        await expect(f.pub.operation(A)).rejects.toThrow(
+          'Publication already landed. Operator required',
+        );
+        expect(f.git.tree(f.git.head(D)!)[paths(A).log]).toBeUndefined();
+        expect(f.git.tree(f.git.head(D)!)[paths(A).request]).toBeDefined();
+      } else {
+        await f.pub.operation(A);
+        expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+          result: {
+            status: 'rejected',
+            error: expect.stringMatching(
+              /receipt marker|frozen source snapshot|export or upload markers/,
+            ),
+          },
+        });
+      }
+      expect(f.git.head(L) === live).toBe(!landed);
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), 'live/pushed.json')).toEqual({});
+    },
+  );
 
   it.each([true, false])(
     'inactive: an unrelated publish cannot restore an absent pick stub (inactive=%s)',

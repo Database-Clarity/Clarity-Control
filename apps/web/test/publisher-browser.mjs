@@ -65,16 +65,17 @@ try {
         const clipped = [];
         for (const chip of section.querySelectorAll('li > span:first-child'))
           if (chip.scrollWidth > chip.clientWidth + 1) clipped.push(chip.textContent);
-        const lines = (element) => {
+        const wraps = (element) => {
           const range = document.createRange();
           range.selectNodeContents(element);
-          return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+          const rects = [...range.getClientRects()].filter(({ width, height }) => width && height);
+          return rects.some((a) => rects.some((b) => a.bottom <= b.top));
         };
         // Controls (toolbar, dialog-free page buttons, activity actions) stay on one line; the long
         // wrapped row-name buttons inside the pending list are existing, intentionally wrapping text.
         const wrapped = [...document.querySelectorAll('article button')]
           .filter((b) => !b.closest('ul') || b.closest('[aria-label="Publish activity"]'))
-          .filter((b) => lines(b) > 1)
+          .filter(wraps)
           .map((b) => b.textContent);
         const toolbarButtons = [];
         return {
@@ -100,7 +101,7 @@ try {
     assert.deepEqual(before.tallControls, [], `${width}: tall controls`);
     // An unread receipt with every part finished: its real state, never a Retry that does nothing.
     assert.deepEqual(
-      before.rows.filter((r) => r.chip === 'Combining…').map((r) => r.action),
+      before.rows.filter((r) => r.chip === 'Checking…').map((r) => r.action),
       [''],
       `${width}: combining row`,
     );
@@ -126,8 +127,8 @@ try {
     assert.equal(after.top, before.top, `${width}: strip moved on status change`);
     assert.ok(after.docWidth <= width);
     // Confirm dialog wording (publisher flow) renders without overflow too.
-    await page.getByRole('button', { name: 'Select page' }).click();
-    await page.getByRole('button', { name: 'Publish selected' }).click();
+    await page.locator('footer[aria-label="Decide"] button').first().click();
+    await page.locator('[data-review-publish]').click();
     await page.waitForSelector('dialog[open]');
     const dialog = await page.evaluate(() => ({
       text: document.querySelector('dialog[open]').textContent,

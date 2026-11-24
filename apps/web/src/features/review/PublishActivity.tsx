@@ -8,7 +8,7 @@ import { useSyncedSettings } from '../../stores/settings';
 import type { Bundle } from '../../services/bundle';
 import styles from './Review.module.scss';
 
-/** Re-renders every 15 s while something runs, so "Publishing" can become "Waiting" without any request. */
+/** Refreshes relative times and the Retry threshold while a request is outstanding. */
 function useNow(running: boolean): number {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -40,37 +40,28 @@ export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
     <section className={styles.activity} aria-label="Publish activity">
       {storageError && <p role="alert">{storageError}</p>}
       <ul>
-        {groupPublishes(ops).map(({ op, members, combining, checking }) => {
-          const note = members.map((member) => notes[member.opId]).find(Boolean);
-          const view = describeOp(
-            op,
-            note ?? (combining ? 'Combining parts…' : undefined),
-            now,
-            when,
-            checking,
-          );
-          if (members.length > 1 && !view.finished) {
-            const done = members
-              .filter((member) => member.status === 'done' || member.status === 'unchanged')
-              .reduce((count, member) => count + member.hashes.length, 0);
-            view.detail = `${done} of ${op.hashes.length} tooltips confirmed live. ${view.detail}`;
-          }
+        {groupPublishes(ops).map(({ op, members, liveCount, checking }) => {
+          const pending = members.find((member) => member.status === 'pending');
+          const active = pending ?? members.find((member) => member.status === 'created');
+          const note = active
+            ? notes[active.opId]
+            : members.map((member) => notes[member.opId]).find(Boolean);
+          const view = describeOp(op, note, now, when, checking, liveCount);
+          const startedAt = exact(op.groupCreatedAt ?? op.createdAt);
           return (
             <li key={op.opId} data-tone={view.tone} data-status={op.status}>
               <span className={styles.activityChip}>{view.chip}</span>
               <span
                 className={styles.activityText}
-                title={`${view.lead} (${exact(op.createdAt)}) — ${view.detail}`}
+                title={`${view.lead} (${startedAt}) — ${view.detail}`}
               >
                 <b>{view.lead}</b> {view.detail}
               </span>
               <span className={styles.activityAction}>
-                {view.waiting && (
+                {view.waiting && pending && (
                   <button
                     type="button"
-                    onClick={() => {
-                      for (const member of members) void publishDriver.kickWaiting(member.opId);
-                    }}
+                    onClick={() => void publishDriver.kickWaiting(pending.opId)}
                   >
                     Retry
                   </button>
@@ -78,7 +69,7 @@ export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
                 {view.finished && (
                   <button
                     type="button"
-                    aria-label={`Dismiss publish from ${exact(op.createdAt)}`}
+                    aria-label={`Dismiss publish from ${startedAt}`}
                     onClick={() => {
                       for (const member of members) void publishDriver.dismiss(member.opId);
                     }}

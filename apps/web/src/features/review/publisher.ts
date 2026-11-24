@@ -3,15 +3,17 @@ import { kickPublish, getPublishStatus, postPublish } from '../../services/publi
 import { publisherEnabled } from '../../services/publisher/flag';
 import { createIndexedDbOpStore } from '../../services/publisher/opStore';
 import { useAuthStore } from '../../stores/auth';
+import { useDataStore } from '../../stores/data';
 import { canPush } from './model';
 import { PublishDriver } from './publishDriver';
 import { useReviewSession } from './session';
 
 const channelName = 'clarity-publisher';
+const store = createIndexedDbOpStore();
 
 /** The tab's publisher. Inert (never touches storage or the network) unless the flag is on. */
 export const publishDriver = new PublishDriver({
-  store: createIndexedDbOpStore(),
+  store,
   api: { post: postPublish, status: getPublishStatus, kick: kickPublish },
   now: () => Date.now(),
   setTimer: (run, ms) => setTimeout(run, ms),
@@ -49,6 +51,15 @@ export function startPublisher(): void {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void publishDriver.refresh();
   });
+  const observeBundle = (generatedAt: string | undefined) =>
+    generatedAt
+      ? store.observeBundle(Date.parse(generatedAt), Date.now()).catch(() => undefined)
+      : undefined;
+  useDataStore.subscribe((state, previous) => {
+    const generatedAt = state.data?.bundle.generatedAt;
+    if (generatedAt !== previous.data?.bundle.generatedAt && canPush(useAuthStore.getState().user))
+      void observeBundle(generatedAt);
+  });
   let key: string | null | undefined;
   const sync = () => {
     const { user, token } = useAuthStore.getState();
@@ -56,8 +67,10 @@ export function startPublisher(): void {
     const next = canPush(user) ? `${String(user!.id)}|${token ?? ''}` : null;
     if (next === key) return;
     key = next;
-    if (next) void publishDriver.start(String(user!.id));
-    else publishDriver.stop();
+    if (next) {
+      void observeBundle(useDataStore.getState().data?.bundle.generatedAt);
+      void publishDriver.start(String(user!.id));
+    } else publishDriver.stop();
   };
   useAuthStore.subscribe(sync);
   sync();

@@ -8,13 +8,14 @@ import {
 } from '../globals/model.js';
 import { projectGlobals } from '../globals/projection.js';
 
-/** Retain all existing literal bytes and recipes; add only newly introduced declarations.
- * New language cells start empty, using the real entry's metadata; existing
- * layout bytes and metadata remain intact.
+/** Retain literal bytes and recipes, and add newly introduced declarations.
+ * Saved drafts keep the new language's complete stamp while entry-only releases
+ * use the original publication metadata.
  */
 export function reconcileGlobalStore(
   layout: GlobalStore['aggregates'],
   entries: GlobalRecord[],
+  { preserveNewLanguageSourceStamp = false } = {},
 ): GlobalStore {
   const aggregates = structuredClone(layout);
   for (const aggregate of aggregates) {
@@ -24,18 +25,27 @@ export function reconcileGlobalStore(
         (entry) => !entry.tombstone && entry.kind === kind && entry.definitions[lang],
       );
       let cell = aggregate.languages[lang];
-      if (!cell && definitions.length) {
-        const definition = definitions[0].definitions[lang]!;
-        cell = aggregate.languages[lang] = {
-          metadata: { updatedAt: definition.updatedAt, updatedBy: definition.updatedBy },
-          segments: [{ literal: '' }],
-        };
-      }
-      if (!cell) continue;
       const latest = definitions
         .map((entry) => entry.definitions[lang]!)
         .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
         .at(-1);
+      if (!cell && latest) {
+        const definition = preserveNewLanguageSourceStamp
+          ? latest
+          : definitions[0].definitions[lang]!;
+        const { updatedAt, updatedBy, sourceUpdatedAt } = definition;
+        cell = aggregate.languages[lang] = {
+          metadata: {
+            updatedAt,
+            updatedBy,
+            ...(preserveNewLanguageSourceStamp && sourceUpdatedAt !== undefined && {
+              sourceUpdatedAt,
+            }),
+          },
+          segments: [{ literal: '' }],
+        };
+      }
+      if (!cell) continue;
       if (latest && Date.parse(latest.updatedAt) > Date.parse(cell.metadata.updatedAt)) {
         const {
           body: _body,
