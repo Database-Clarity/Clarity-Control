@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { inventoryGlobals, projectGlobals } from '../../packages/core/src/globals/projection.js';
 import {
   composeGlobalRelease,
@@ -1783,8 +1783,6 @@ describe('dependency-safe global release', () => {
     },
   );
   it.each([
-    ['a tooltip edit', { 'tooltips/40.json': tooltip(40, '#Alpha raced') }],
-    ['a tooltip removal', { 'tooltips/40.json': undefined }],
     ['a change to the upload markers', { 'live/pushed.json': { '40': 'tampered' } }],
     ['a non-proof retry', { 'globals/retries/3283270b-d921-468b-8d09-6b4a90659d30.json': {} }],
     ['an unrelated addition', { toString: { other: true } }],
@@ -1805,6 +1803,318 @@ describe('dependency-safe global release', () => {
       expect(f.read('globals/live/converter-v2-test.json').store).toEqual(f.published);
     },
   );
+  it.each([
+    ['marks', { 'config/marks.json': { types: [], entries: {} } }, false],
+    [
+      'a Compendium decision',
+      {
+        'config/marks.json': {
+          types: [],
+          entries: {},
+          compendium: { 42: { kind: 'no-match', by: 1, at: new Date(now).toISOString() } },
+        },
+      },
+      false,
+    ],
+    ['a glossary edit', { 'glossary/de.json': { v: 1, lang: 'de', terms: {} } }, false],
+    ['a localized snippet edit', { 'snippets/de.json': {} }, false],
+    ['an export project save', { 'exports/projects/partner.json': { version: 1 } }, false],
+    [
+      'a staged save',
+      {
+        [`current-saves/${A}/0.json`]: 'e30=',
+        'current-saves/requesters/1.json': { active: { requestId: A, parts: 1 }, starts: [now] },
+      },
+      false,
+    ],
+    ['a team snippet edit', { 'config/snippets.json': { snippets: [] } }, true],
+    ['another tooltip edit', { 'tooltips/41.json': tooltip(41, 'Saved concurrently') }, true],
+  ] as const)(
+    'records the signed part during %s (rebuild=%s)',
+    async (_label, changes, rebuild) => {
+      const f = await fixture();
+      const pin = f.read('.publisher/PIN');
+      f.change({
+        '.publisher/PIN': {
+          ...pin,
+          capabilities: [...pin.capabilities, globalsConfigWithoutMarks],
+        },
+      });
+      await f.globals.drain();
+      await f.request([42]);
+      const source = f.git.head(D);
+      f.git.beforeAtomic = () => f.change(changes);
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+      for (const [path, value] of Object.entries(changes)) expect(f.read(path)).toEqual(value);
+      const receipt = f.pub.read<{ sourceCommit: string }>(
+        f.git.tree(f.git.head(L)!),
+        paths(A).receipt,
+      );
+      expect(receipt?.sourceCommit === source).toBe(!rebuild);
+      expect(f.current()[paths(A).request]).toBeUndefined();
+    },
+  );
+  it.each([tooltip(40, '#Alpha raced'), undefined])(
+    'names the selected row changed during an atomic multirow part',
+    async (changed) => {
+      const f = await fixture();
+      f.options.facts[40].name = 'Changed entry';
+      f.options.facts[42].name = 'Still ready';
+      await f.globals.drain();
+      f.approve(40);
+      await f.globals.drain();
+      await f.request([40, 42]);
+      const before = f.git.head(L);
+      f.git.beforeAtomic = () => f.change({ 'tooltips/40.json': changed });
+      await f.pub.operation(A);
+      const result = f.read(paths(A).log).result;
+      expect(result.status).toBe('rejected');
+      expect(result.code).toBe('selected-rows-changed');
+      expect(result.error).toContain('Changed entry');
+      expect(result.error).not.toContain('Still ready');
+      expect(result.error).toContain('You can publish them again.');
+      expect(result.outcomes).toContainEqual({ hash: 42, status: 'accepted' });
+      expect(f.git.head(L)).toBe(before);
+      expect(f.pub.read(f.current(), 'tooltips/40.json')).toEqual(changed);
+    },
+  );
+  it.each([false, true])(
+    'recovers an exhausted signed request (another save after startup sync=%s)',
+    async (anotherSave) => {
+      const f = await fixture();
+      await f.globals.drain();
+      await f.request([42]);
+      const live = f.git.head(L);
+      const record = f.pub.record.bind(f.pub);
+      let changes = 0;
+      f.pub.record = async (...args) => {
+        if (args[6]) f.change({ 'tooltips/41.json': tooltip(41, `Racing save ${++changes}`) });
+        return record(...args);
+      };
+      await expect(f.pub.operation(A)).rejects.toThrow('request is still queued');
+      expect(changes).toBe(3);
+      expect(f.current()[paths(A).request]).toBeDefined();
+      expect(f.current()[paths(A).log]).toBeUndefined();
+      expect(f.git.head(L)).toBe(live);
+      f.pub.record = record;
+      const restarted = new Publisher(f.git, f.options);
+      if (anotherSave) {
+        await f.globals.drain();
+        f.change({ 'tooltips/41.json': tooltip(41, 'Saved after startup sync') });
+        await restarted.operation(A);
+      } else {
+        await restarted.run();
+      }
+      expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+    },
+  );
+  it('rebuilds after another unrelated save immediately after retry sync', async () => {
+    const f = await fixture();
+    await f.globals.drain();
+    await f.request([42]);
+    f.git.beforeAtomic = () => f.change({ 'tooltips/41.json': tooltip(41, 'First save') });
+    const drain = GlobalsPublisher.prototype.drain;
+    const spy = vi
+      .spyOn(GlobalsPublisher.prototype, 'drain')
+      .mockImplementationOnce(async function (this: GlobalsPublisher, head) {
+        const checked = await drain.call(this, head);
+        f.change({ 'tooltips/41.json': tooltip(41, 'Second save') });
+        return checked;
+      });
+    try {
+      await f.pub.operation(A);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+    expect(f.read('tooltips/41.json')).toEqual(tooltip(41, 'Second save'));
+  });
+  it('rebuilds when the Worker saves a global entry and its projection during RECORD', async () => {
+    const f = await fixture();
+    const port = await mutationPort(f);
+    await f.globals.drain();
+    await f.request([42]);
+    const alpha = f.saved.entries.find((entry) => entry.name === 'Alpha')!;
+    const record = f.pub.record.bind(f.pub);
+    let saved = false;
+    f.pub.record = async (...args) => {
+      if (args[6] && !saved) {
+        saved = true;
+        expect((await port.edit(alpha.id, 'var Alpha = 777')).status).toBe(200);
+        expect(f.current()[`globals/projections/${alpha.id}.json`]).toBeDefined();
+      }
+      return record(...args);
+    };
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+    expect(f.read(`globals/entries/${alpha.id}.json`).definitions.en.body).toContain('777');
+  });
+  it.each(['before', 'after'] as const)(
+    'fences a second DATA move %s rebuild sync',
+    async (when) => {
+      const f = await fixture();
+      await f.globals.drain();
+      await f.request([42]);
+      const live = f.git.head(L);
+      f.git.beforeAtomic = () =>
+        f.change({ 'tooltips/41.json': tooltip(41, 'Saved concurrently') });
+      const drain = GlobalsPublisher.prototype.drain;
+      const move = () => f.change({ 'live/pushed.json': { 42: 'a'.repeat(64) } });
+      const spy = vi
+        .spyOn(GlobalsPublisher.prototype, 'drain')
+        .mockImplementationOnce(async function (this: GlobalsPublisher, head) {
+          if (when === 'before') move();
+          const checked = await drain.call(this, head);
+          if (when === 'after') move();
+          return checked;
+        });
+      try {
+        await expect(f.pub.operation(A)).rejects.toBeInstanceOf(RefRace);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(f.git.head(L)).toBe(live);
+      expect(f.git.head(paths(A).candidate)).toBeDefined();
+      expect(f.current()[paths(A).request]).toBeDefined();
+      expect(f.current()[paths(A).log]).toBeUndefined();
+    },
+  );
+
+  it('keeps the signed candidate recoverable after an interruption following sync', async () => {
+    const f = await fixture();
+    f.options.facts[42].name = 'Selected perk';
+    await f.globals.drain();
+    await f.request([42]);
+    const live = f.git.head(L);
+    f.git.beforeAtomic = () => f.change({ 'tooltips/42.json': tooltip(42, 'Saved concurrently') });
+    const drain = GlobalsPublisher.prototype.drain;
+    const spy = vi
+      .spyOn(GlobalsPublisher.prototype, 'drain')
+      .mockImplementationOnce(async function (this: GlobalsPublisher, head) {
+        await drain.call(this, head);
+        throw new Error('Interrupted after sync');
+      });
+    try {
+      await expect(f.pub.operation(A)).rejects.toThrow('Interrupted after sync');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(f.git.head(paths(A).candidate)).toBeDefined();
+    await new Publisher(f.git, f.options).operation(A);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      code: 'selected-rows-changed',
+      error: expect.stringContaining('Selected perk'),
+    });
+    expect(f.git.head(L)).toBe(live);
+  });
+
+  it('names a refusal for forged proof bytes claiming the current sources', async () => {
+    const f = await fixture();
+    f.options.facts[42].name = 'Selected perk';
+    await f.globals.drain();
+    await f.request([42]);
+    const live = f.git.head(L);
+    const sources = publicationSourcesPath(f.options.liveBranch);
+    const currentSources = f.current()[sources];
+    f.git.beforeAtomic = () =>
+      f.change({ 'globals/proofs/publication/converter-v2-test/42-en.json': { wrong: true } });
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      code: 'selected-rows-changed',
+      error: expect.stringContaining('global proofs for Selected perk'),
+    });
+    expect(f.git.head(L)).toBe(live);
+    expect(f.current()[sources]).toBe(currentSources);
+  });
+
+  it('keeps the candidate that won an exact replacement lease', async () => {
+    const f = await fixture();
+    await f.globals.drain();
+    await f.request([42]);
+    f.git.beforeAtomic = () => f.change({ 'tooltips/41.json': tooltip(41, 'Saved concurrently') });
+    const create = f.pub.createCandidate.bind(f.pub);
+    let winner: string | undefined;
+    f.pub.createCandidate = (...args) => {
+      const [opId, , live, receipt, previous] = args;
+      if (previous) {
+        winner = f.pub.buildCandidate(live, receipt);
+        f.git.beforeCas = () => f.git.cas(paths(opId).candidate, previous, winner);
+      }
+      return create(...args);
+    };
+    await f.pub.operation(A);
+    expect(winner).toBeDefined();
+    expect(f.read(paths(A).log).candidateCommit).toBe(winner);
+    expect(f.git.head(L)).toBe(winner);
+  });
+
+  it('reconciles when another recovery finishes the same request during sync', async () => {
+    const f = await fixture();
+    await f.globals.drain();
+    await f.request([42]);
+    f.git.beforeAtomic = () => f.change({ 'tooltips/41.json': tooltip(41, 'Saved concurrently') });
+    const drain = GlobalsPublisher.prototype.drain;
+    const spy = vi
+      .spyOn(GlobalsPublisher.prototype, 'drain')
+      .mockImplementationOnce(async function (this: GlobalsPublisher, head) {
+        const checked = await drain.call(this, head);
+        await new Publisher(f.git, f.options).operation(A);
+        return checked;
+      });
+    try {
+      await f.pub.operation(A);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(f.read(paths(A).log).candidateCommit).toBe(f.git.head(L));
+    expect(f.git.additions(f.git.head(D)!, paths(A).log)).toHaveLength(1);
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+  });
+
+  it.each([true, false])(
+    'reconciles a candidate removed after observation only if recorded (recorded=%s)',
+    async (recorded) => {
+      const f = await fixture();
+      await f.globals.drain();
+      await f.request([42]);
+      f.pub.record = async () => {
+        throw new RefRace('Runner interrupted');
+      };
+      await expect(f.pub.operation(A)).rejects.toThrow('Runner interrupted');
+      expect(f.git.head(paths(A).candidate)).toBeDefined();
+      f.change({ 'tooltips/41.json': tooltip(41, 'Saved before recovery') });
+      const pending = new Map(f.git.refs);
+
+      await new Publisher(f.git, f.options).operation(A);
+      const completed = new Map(f.git.refs);
+      expect(f.read(paths(A).log).candidateCommit).toBe(completed.get(L));
+      f.git.refs = pending;
+
+      const runner = new Publisher(f.git, f.options);
+      const readCandidate = runner.candidate.bind(runner);
+      vi.spyOn(runner, 'candidate').mockImplementationOnce((...args) => {
+        const observed = readCandidate(...args);
+        expect(observed).toBeDefined();
+        if (recorded) f.git.refs = completed;
+        else f.git.refs.delete(paths(A).candidate);
+        return observed;
+      });
+      if (recorded) {
+        await expect(runner.operation(A)).resolves.toBeUndefined();
+        expect(f.git.head(D)).toBe(completed.get(D));
+        expect(f.git.head(L)).toBe(completed.get(L));
+        expect(f.git.additions(f.git.head(D)!, paths(A).log)).toHaveLength(1);
+      } else {
+        await expect(runner.operation(A)).rejects.toThrow('Candidate disappeared');
+        expect(f.current()[paths(A).request]).toBeDefined();
+        expect(f.current()[paths(A).log]).toBeUndefined();
+      }
+    },
+  );
+
   it.each(['100755', undefined])(
     'rejects a retry kick with mode %s from a mode-aware adapter',
     async (mode) => {
@@ -1847,7 +2157,7 @@ describe('dependency-safe global release', () => {
       { ...git.tree(source), [`publish/kicks/${sibling}-12345.json`]: git.writeBlob('{}') },
       'Kick sibling publish',
     );
-    expect(pub['onlyPublishBookkeeping'](source, kicked, git.tree(kicked), A)).toBe(true);
+    expect(pub['manualSourceAdvance'](source, kicked, git.tree(kicked), A)).toBe('bookkeeping');
 
     const empty = git.git(['mktree'], '').trim();
     const config = git.git(['rev-parse', `${kicked}:config`]).trim();
@@ -1861,7 +2171,7 @@ describe('dependency-safe global release', () => {
       .git(['commit-tree', changedRoot, '-p', source], 'Kick and change config identity')
       .trim();
     expect(git.tree(changed)).toEqual(git.tree(kicked));
-    expect(pub['onlyPublishBookkeeping'](source, changed, git.tree(changed), A)).toBe(false);
+    expect(pub['manualSourceAdvance'](source, changed, git.tree(changed), A)).toBe('blocked');
   });
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();

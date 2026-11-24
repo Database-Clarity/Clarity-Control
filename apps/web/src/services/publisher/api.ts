@@ -6,6 +6,7 @@ export type RemoteStatus = 'pending' | 'done' | 'unchanged' | 'stale' | 'rejecte
 export interface PublishAnswer {
   status: RemoteStatus;
   refusal?: string;
+  regroupable?: false;
 }
 export const terminalStatuses = ['done', 'unchanged', 'stale', 'rejected', 'failed'] as const;
 
@@ -81,11 +82,17 @@ export async function postPublish(body: {
   const complete = completeSchema.safeParse(value);
   if (!complete.success) throw new PublishHttpError(502, 'Unexpected publish response');
   const result = z
-    .object({ status: terminal, error: z.unknown().optional() })
+    .object({ status: terminal, code: z.unknown().optional(), error: z.unknown().optional() })
     .safeParse(complete.data.result);
   // A completed log whose status we do not understand is still a finished operation.
   const resolved = result.success ? result.data.status : 'failed';
   const error = result.data?.error;
+  if (
+    resolved === 'rejected' &&
+    result.data?.code === 'selected-rows-changed' &&
+    typeof error === 'string'
+  )
+    return { status: resolved, refusal: error, regroupable: false };
   // The Publisher records this terminal refusal before making any live change.
   const prefix = 'ConsumerOutputRejected: ';
   return resolved === 'rejected' && typeof error === 'string' && error.startsWith(prefix)

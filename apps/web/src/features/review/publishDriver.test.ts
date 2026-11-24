@@ -212,6 +212,34 @@ it.each([false, true])(
   },
 );
 
+it('shows a named changed row without resending its part after another part succeeds', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  await driver.create(
+    Array.from({ length: 101 }, (_, index) => ({
+      hash: index + 1000,
+      digest: digest(1),
+      previous: undefined,
+    })),
+  );
+  await settle();
+  const done = h.api.post.mock.calls[0]![0];
+  const failed = h.api.post.mock.calls[1]![0];
+  const changed = h.api.post.mock.calls[2]![0];
+  const reason = 'Saved text changed after review for Demo Perk.';
+  h.api.status.mockImplementation(async (id) =>
+    id === done.opId ? 'done' : id === failed.opId ? 'failed' : 'rejected',
+  );
+  h.api.post.mockResolvedValue({ status: 'rejected', refusal: reason, regroupable: false });
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  expect(h.api.post.mock.calls.map(([body]) => body)).toEqual([done, failed, changed, changed]);
+  expect(groupPublishes(ops())[0]?.op.error).toContain(reason);
+  expect(ops().find((op) => op.opId === changed.opId)?.receiptChecked).toBe(true);
+  expect(ops().find((op) => op.opId === done.opId)?.status).toBe('done');
+  driver.stop();
+});
+
 it('records that a rejection without a regroupable reason was checked', async () => {
   const h = harness();
   const first = h.make();
@@ -229,6 +257,25 @@ it('records that a rejection without a regroupable reason was checked', async ()
   expect(h.api.post.mock.calls[1]).toEqual(h.api.post.mock.calls[0]);
   await vi.advanceTimersByTimeAsync(2 * publishTiming.pollMs(0));
   expect(h.api.post).toHaveBeenCalledTimes(2);
+  resumed.stop();
+});
+
+it('reads the named refusal for a pending request stored before round metadata', async () => {
+  const h = harness();
+  const first = h.make();
+  await first.start('1');
+  const created = await first.create(inputs);
+  await settle();
+  first.stop();
+  const stored = h.store.records.get(created.opId)!;
+  delete stored.round;
+  const resumed = h.make();
+  const reason = 'Saved text changed after review for Demo Perk.';
+  h.api.status.mockResolvedValue('rejected');
+  h.api.post.mockResolvedValue({ status: 'rejected', refusal: reason, regroupable: false });
+  vi.setSystemTime(Date.now() + 10_000);
+  await resumed.start('1');
+  expect(op()).toMatchObject({ status: 'rejected', error: reason, receiptChecked: true });
   resumed.stop();
 });
 

@@ -38,6 +38,8 @@ export interface PublishOp {
   error?: string;
   /** Authoritative fail-closed refusal recovered from an immutable request receipt. */
   refusal?: string;
+  /** A named terminal refusal cannot be resolved by combining requests. */
+  regroupable?: false;
   /** Also set for checked rejections that do not qualify for regrouping. */
   receiptChecked?: true;
   updatedAt: number;
@@ -216,6 +218,7 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
     merged.status = current.status;
     merged.error = current.error;
     merged.refusal = current.refusal;
+    merged.regroupable = current.regroupable;
     merged.receiptChecked = current.receiptChecked;
   }
   return merged;

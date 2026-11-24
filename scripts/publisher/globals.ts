@@ -1066,12 +1066,14 @@ export class GlobalsPublisher {
         delete tree[retry];
     }
   }
-  async drain() {
+  async drain(expectedHead?: string) {
     // One coalesced pass over all requests, not one drain per trigger or retry file.
     for (let attempt = 0; attempt < 3; attempt++) {
       const head = this.publisher.head(this.options.dataBranch),
         original = this.git.tree(head);
-      if (!hasGlobals(original)) return;
+      if (expectedHead !== undefined && head !== expectedHead)
+        throw new RefRace('Global sync source moved');
+      if (!hasGlobals(original)) return head;
       const tree = { ...original };
       try {
         const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
@@ -1101,7 +1103,7 @@ export class GlobalsPublisher {
         );
         if (this.publisher.head(this.options.liveBranch) !== live)
           throw new RefRace('Global live inputs raced');
-        if (stableStringify(tree) === stableStringify(original)) return;
+        if (stableStringify(tree) === stableStringify(original)) return head;
         const commit = this.git.commit(
           head,
           tree,
@@ -1109,7 +1111,7 @@ export class GlobalsPublisher {
           appCredits,
         );
         this.git.cas(`refs/heads/${this.options.dataBranch}`, head, commit);
-        return;
+        return commit;
       } catch (error) {
         if (error instanceof RefRace) continue;
         // Failure preserves every cause/row. Independent occupied-name proofs keep
