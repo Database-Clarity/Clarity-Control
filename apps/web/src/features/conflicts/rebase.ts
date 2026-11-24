@@ -66,6 +66,15 @@ export function rebaseConflict(
   let markers = 0;
   for (const field of fields.filter(isTextField)) {
     const lang = fieldLanguage(field);
+    if (
+      lang !== 'en' &&
+      conflict.translationRevisions?.[lang] &&
+      next.text[lang]?.text === base.text[lang]?.text
+    ) {
+      if (head.text[lang]) merged.text[lang] = head.text[lang];
+      else delete merged.text[lang];
+      continue;
+    }
     const result = mergeTextWithMarkers(
       base.text[lang]?.text ?? '',
       next.text[lang]?.text ?? '',
@@ -134,21 +143,9 @@ function reconcileOne(
   const draft = changedAt ? { base, changedAt } : { base };
   const merge = merge3(origin, theirs.next, mine.next);
   const revisions: TranslationRevisions = {};
-  if (ancestor?.translationRevisions || mine.translationRevisions || theirs.translationRevisions) {
-    for (const lang of languages) {
-      if (lang === 'en') continue;
-      const a = ancestor?.translationRevisions?.[lang];
-      const m = mine.translationRevisions?.[lang];
-      const t = theirs.translationRevisions?.[lang];
-      const mineChanged = stableStringify(m ?? null) !== stableStringify(a ?? null);
-      const theirsChanged = stableStringify(t ?? null) !== stableStringify(a ?? null);
-      const winner = mineChanged && (!theirsChanged || changedAt === mine.changedAt) ? m : t;
-      if (winner) revisions[lang] = winner;
-    }
-  }
-  const rebased = merge.ok
-    ? undefined
-    : rebaseConflict(
+  const next = merge.ok
+    ? merge.merged
+    : (rebaseConflict(
         {
           hash: mine.next.hash,
           base: origin,
@@ -157,8 +154,21 @@ function reconcileOne(
           fields: merge.conflicts.map(({ field }) => field),
         },
         () => '(other tab)',
-      );
-  const next = merge.ok ? merge.merged : (rebased?.next ?? mine.next);
+      )?.next ?? mine.next);
+  if (ancestor?.translationRevisions || mine.translationRevisions || theirs.translationRevisions) {
+    for (const lang of languages) {
+      if (lang === 'en') continue;
+      const a = ancestor?.translationRevisions?.[lang];
+      const m = mine.translationRevisions?.[lang];
+      const t = theirs.translationRevisions?.[lang];
+      const mineChanged = stableStringify(m ?? null) !== stableStringify(a ?? null);
+      const theirsChanged = stableStringify(t ?? null) !== stableStringify(a ?? null);
+      const useMine = mineChanged && (!theirsChanged || changedAt === mine.changedAt);
+      const winner = useMine ? m : t;
+      const original = useMine ? mine.base : theirs.base;
+      if (winner && original.text[lang]?.text === next.text[lang]?.text) revisions[lang] = winner;
+    }
+  }
   const translationRevisions = retainedRevisions(revisions, base, next);
   return { ...draft, next, ...(translationRevisions && { translationRevisions }) };
 }

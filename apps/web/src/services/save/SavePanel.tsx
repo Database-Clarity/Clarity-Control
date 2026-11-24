@@ -213,7 +213,8 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const noTranslationImpact = showImpact && noImpact;
   // The languages whose live output this save turns into the English fallback (validated).
   const fallback = useMemo(
-    () => liveFallback(changes, new Date().toISOString(), noTranslationImpact, data?.bundle.tooltips),
+    () =>
+      liveFallback(changes, new Date().toISOString(), noTranslationImpact, data?.bundle.tooltips),
     [changes, noTranslationImpact, data?.bundle.tooltips],
   );
   // Linked Compendium cells that changed since they were shown, and the ones the reviewer ticked.
@@ -398,7 +399,14 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         setError(`${result.error}. ${status}${result.reload ? '' : ' Retry when ready.'}`);
       } else {
         if (source) useCompendiumStore.setState({ data: source });
-        onSaved(`Saved ${saved} tooltip(s). Latest commit ${result.commit.slice(0, 8)}.`);
+        const skipped = result.skippedConfirmations;
+        onSaved(
+          `Saved ${saved} tooltip(s). Latest commit ${result.commit.slice(0, 8)}.${
+            skipped
+              ? ` Skipped ${skipped} translation confirmation(s). Check whether the tooltip was archived or needs a number updated.`
+              : ''
+          }`,
+        );
         close();
       }
     } catch (error) {

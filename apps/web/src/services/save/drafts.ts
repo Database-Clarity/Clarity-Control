@@ -101,8 +101,14 @@ export function reconcileSaved(
           )
             delete revised[lang];
         }
-        const translationRevisions = retainedRevisions(revised, head, merged.merged);
-        out[key] = { ...current, base: head, next: merged.merged, translationRevisions };
+        const translationRevisions = retainedRevisions(revised, current.base, merged.merged);
+        if (
+          current.translationRevisions &&
+          !translationRevisions &&
+          stableStringify(head) === stableStringify(merged.merged)
+        )
+          delete out[key];
+        else out[key] = { ...current, base: head, next: merged.merged, translationRevisions };
       }
     }
   }

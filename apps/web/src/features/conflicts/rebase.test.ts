@@ -28,6 +28,32 @@ describe('rebaseConflict', () => {
   const head = tooltip('top\ntheirs\nbottom', { associated: [7] });
   const next = tooltip('top\nmine\nbottom');
 
+  it.each([undefined, entry('Other German')])(
+    'keeps the server translation after a stamp-only conflict',
+    (de) => {
+      const original = { ...base, text: { ...base.text, de: entry('Reviewed German') } };
+      const stamped = {
+        ...original,
+        text: { ...original.text, de: entry('Reviewed German', 'me') },
+      };
+      const remote = { ...base, text: { ...base.text, ...(de && { de }) } };
+      const proof = { commit: 'a'.repeat(40), sourceUpdatedAt: base.text.en!.updatedAt };
+      const result = rebaseConflict({
+        ...conflict(original, remote, stamped, ['text.de']),
+        translationRevisions: { de: proof },
+      })!;
+      expect(result.next.text).toEqual(remote.text);
+      expect(result.markers).toBe(0);
+      expect(
+        reconcileDrafts(
+          { '10': { base: original, next: original } },
+          { '10': { base: original, next: original, translationRevisions: { de: proof } } },
+          { '10': { base: remote, next: remote } },
+        )['10'].translationRevisions,
+      ).toBeUndefined();
+    },
+  );
+
   it('rebases on the server version, writes a block and keeps their other changes', () => {
     const result = rebaseConflict(conflict(base, head, next, ['text.en']))!;
     expect(result.base).toEqual(head);

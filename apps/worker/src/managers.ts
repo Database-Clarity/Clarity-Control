@@ -232,7 +232,10 @@ export async function rollbackUpload(
   if (!hashes || upload.parents.length !== 1)
     throw new HttpError(422, 'Only uploads (saves by people) can be rolled back as a whole');
   const parent = upload.parents[0]!.sha;
-  const marked = new Set(trailerHashes(upload.message, lang, 'Clarity-Still-Correct') ?? []);
+  const marked = new Set([
+    ...(trailerHashes(upload.message, lang, 'Clarity-Still-Correct') ?? []),
+    ...(trailerHashes(upload.message, lang, 'Clarity-Restored-Translation-Revision') ?? []),
+  ]);
   const files = await github.blobs(
     hashes.flatMap((hash) =>
       [parent, input.commit, head].map((ref) => ({ ref, path: `tooltips/${hash}.json` })),

@@ -618,10 +618,83 @@ describe('still correct', () => {
     base.text.de!.text = next.text.de!.text = 'Schaden: #{=1}';
     base.text.en!.numbers = next.text.en!.numbers = { ids: [], next: 2, retired: { 1: '5' } };
     fixture.moveData({ [path]: base });
-    expect((await send(base, next, { de: { ...proof, commit: fixture.dataHead } })).status).toBe(
-      422,
-    );
+    const refused = await send(base, next, { de: { ...proof, commit: fixture.dataHead } });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({
+      error: 'Tooltip 123: invalid de translation revision',
+    });
     expect(fixture.commits).toHaveLength(0);
+  });
+
+  it('keeps a newly obsolete confirmation out of a save with unrelated changes', async () => {
+    const { base, next, proof } = setup();
+    base.text.en!.text = next.text.en!.text = 'Damage: 5.';
+    base.text.de!.text = next.text.de!.text = 'Schaden: #{=1}';
+    fixture.moveData({ [path]: base });
+    proof.commit = fixture.dataHead;
+    const head = structuredClone(base);
+    head.text.en = {
+      ...head.text.en!,
+      text: 'Damage changed.',
+      updatedAt: revised,
+      numbers: { ids: [], next: 2, retired: { 1: '5' } },
+    };
+    const other = { ...tooltip('Unchanged other tooltip'), hash: 321 };
+    fixture.moveData({ [path]: head, 'tooltips/321.json': other });
+    const result = await fixture.request(
+      '/save',
+      'POST',
+      {
+        message: 'Checked translations',
+        changes: [
+          { hash: base.hash, base, next, translationRevisions: { de: proof } },
+          {
+            hash: other.hash,
+            base: other,
+            next: {
+              ...other,
+              text: {
+                ...other.text,
+                de: {
+                  ...next.text.de!,
+                  text: 'Geändert.',
+                  sourceUpdatedAt: other.text.en!.updatedAt,
+                },
+              },
+            },
+          },
+        ],
+      },
+      4,
+    );
+    expect(result.status).toBe(200);
+    expect(fixture.current()[path]).toEqual(head);
+    expect(fixture.commits[0]?.message).toBe('Checked translations\n\nClarity-Changed: 321=de');
+  });
+
+  it('batches historical evidence and reuses it when the branch advances at CAS', async () => {
+    const { base, next, proof } = setup();
+    const input = Array.from({ length: 60 }, (_, index) => ({
+      hash: 10_000 + index,
+      base: { ...base, hash: 10_000 + index },
+      next: { ...next, hash: 10_000 + index },
+      translationRevisions: { de: proof },
+    }));
+    fixture.moveData(
+      Object.fromEntries(input.map(({ hash, base }) => [`tooltips/${hash}.json`, base])),
+    );
+    proof.commit = fixture.dataHead;
+    fixture.moveData();
+    fixture.patchRaces = 1;
+    const result = await fixture.request(
+      '/save',
+      'POST',
+      { changes: input, message: 'Batch confirmation' },
+      4,
+    );
+    expect(result.status).toBe(200);
+    expect(fixture.subrequests).toBeLessThan(48);
+    expect((await result.json()).tooltips).toHaveLength(60);
   });
 });
 

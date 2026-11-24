@@ -9,9 +9,10 @@ import { fitsSaveRequest, metadataOnly, saveRequestLimits } from './requestSize'
 import { stageCurrentSave } from './stagedCurrentSave';
 import { requestSaveChunks } from './validationWorker';
 import { useSaveState, type SaveReview } from './state';
+import { translationStateOf, type Lang } from '@clarity/core';
 
 type CurrentResult = { accepted: Set<number> } & (
-  | { kind: 'saved'; commit: string }
+  | { kind: 'saved'; commit: string; skippedConfirmations?: number }
   | { kind: 'interrupted'; commit?: string }
   | { kind: 'failed'; error: string; reload?: boolean }
   | { kind: 'conflicts'; result: Extract<SaveResult, { kind: 'conflicts' }>; kept: Change[] }
@@ -65,6 +66,7 @@ export async function saveCurrent({
   };
 
   let commit: string | undefined;
+  let skippedConfirmations = 0;
   let snapshot: EditorData | null = data;
   const stopped = (): CurrentResult | undefined => {
     if (accountChanged() || useSaveState.getState().review !== review)
@@ -169,6 +171,18 @@ export async function saveCurrent({
           true,
         );
       }
+      for (const change of chunk) {
+        if (!change.translationRevisions) continue;
+        const tooltip = result.tooltips.find(({ hash }) => hash === change.hash)!;
+        for (const [lang, proof] of Object.entries(change.translationRevisions))
+          if (
+            !proof.restore &&
+            (tooltip.archive ||
+              !tooltip.text.en ||
+              translationStateOf(tooltip, lang as Lang).reason === 'numbers')
+          )
+            skippedConfirmations++;
+      }
       try {
         if (owner)
           await writeSaveReceipt(owner, receipt.id, {
@@ -197,7 +211,12 @@ export async function saveCurrent({
       mark();
     }
     if (!commit) throw new Error('There are no changes to save.');
-    return { kind: 'saved', accepted, commit };
+    return {
+      kind: 'saved',
+      accepted,
+      commit,
+      ...(skippedConfirmations && { skippedConfirmations }),
+    };
   } catch (error) {
     return fail(errorMessage(error));
   }

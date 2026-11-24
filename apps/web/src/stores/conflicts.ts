@@ -10,7 +10,7 @@ import { markersIn, openConflicts, type ConflictSummary } from '../features/conf
 import { useDataStore } from './data';
 import { useDraftStore } from './drafts';
 import { rememberSaved } from './savedOverlay';
-import type { Drafts } from '../services/draftStorage';
+import { retainedRevisions, type Drafts } from '../services/draftStorage';
 
 /**
  * Save conflicts being resolved inline. The text lives in the drafts themselves (marker blocks
@@ -255,7 +255,19 @@ export function createConflictStore(deps: ConflictDeps) {
           const rebased = rebaseConflict(conflict);
           const rows: Record<string, null> = {};
           if (rebased) {
-            replaceDraft(rebased.base, rebased.next, true, conflict.translationRevisions);
+            replaceDraft(
+              rebased.base,
+              rebased.next,
+              true,
+              conflict.translationRevisions &&
+                (conflict.base
+                  ? (retainedRevisions(
+                      conflict.translationRevisions,
+                      conflict.base,
+                      rebased.next,
+                    ) ?? {})
+                  : {}),
+            );
             deps.applyHead(hash, head, serverAt, conflict.headCommit);
             result.markers += rebased.markers;
             result.merged += rebased.mergedLanguages.length;

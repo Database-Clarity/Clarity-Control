@@ -114,6 +114,9 @@ export async function saveChanges(
   authorize?: (access: Access) => void,
 ): Promise<SaveResult> {
   let aliases: Aliases | undefined;
+  const proofFiles = new Map<string, Tooltip | null>();
+  const verifiedCommits = new Set<string>();
+  let verifiedHead: string | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
     const snapshot = await github.publishSnapshot(['config/permissions.json', globalsInPlacePath]);
     const headCommit = snapshot.head;
@@ -166,26 +169,49 @@ export async function saveChanges(
       pin ??= { value: (await github.files([publisherPinPath], headCommit))[0]?.value };
       return pin;
     };
-    const ancestry = new Map<string, Promise<boolean>>();
+    const isAncestor = async (commit: string) => {
+      if (commit === headCommit) return true;
+      const response = await github.request(`/compare/${headCommit}...${commit}?per_page=1`);
+      if (response.status === 404 || response.status === 422) return false;
+      if (!response.ok) throw new HttpError(502, 'Cannot check translation revision history');
+      const { status } = z.object({ status: z.string() }).parse(await response.json());
+      return status === 'behind' || status === 'identical';
+    };
     const readRevision = async (commit: string, hash: number): Promise<Tooltip | null> => {
-      let ancestor = ancestry.get(commit);
-      if (!ancestor) {
-        ancestor = (async () => {
-          if (commit === headCommit) return true;
-          const response = await github.request(`/compare/${headCommit}...${commit}?per_page=1`);
-          if (response.status === 404 || response.status === 422) return false;
-          if (!response.ok) throw new HttpError(502, 'Cannot check translation revision history');
-          const { status } = z.object({ status: z.string() }).parse(await response.json());
-          return status === 'behind' || status === 'identical';
-        })();
-        ancestry.set(commit, ancestor);
+      if (verifiedHead !== headCommit) {
+        if (verifiedHead && !(await isAncestor(verifiedHead))) verifiedCommits.clear();
+        verifiedHead = headCommit;
       }
-      if (!(await ancestor)) return null;
-      const file =
-        commit === headCommit
-          ? current[input.changes.findIndex((change) => change.hash === hash)]
-          : (await github.files([`tooltips/${hash}.json`], commit))[0];
-      return file ? tooltipSchema.parse(file.value) : null;
+      if (!verifiedCommits.has(commit)) {
+        if (!(await isAncestor(commit))) return null;
+        verifiedCommits.add(commit);
+      }
+      const key = `${commit}:${hash}`;
+      if (commit === headCommit) {
+        const file = current[input.changes.findIndex((change) => change.hash === hash)];
+        return file ? tooltipSchema.parse(file.value) : null;
+      }
+      if (!proofFiles.has(key)) {
+        const missing = input.changes.flatMap((change) =>
+          [
+            ...new Set(
+              Object.values(change.translationRevisions ?? {}).map((proof) => proof.commit),
+            ),
+          ]
+            .filter((ref) => ref !== headCommit && !proofFiles.has(`${ref}:${change.hash}`))
+            .map((ref) => ({
+              ref,
+              path: `tooltips/${change.hash}.json`,
+              key: `${ref}:${change.hash}`,
+            })),
+        );
+        const files = await github.blobs(missing);
+        for (const [index, { key }] of missing.entries()) {
+          const file = files[index];
+          proofFiles.set(key, file ? tooltipSchema.parse(file.value) : null);
+        }
+      }
+      return proofFiles.get(key) ?? null;
     };
     const plan = await planSaveChanges(
       input,
@@ -234,8 +260,9 @@ async function verifyTranslationRevisions(
 ) {
   const verified: Lang[] = [];
   const marked: Lang[] = [];
+  const restored: Lang[] = [];
   const revisions = change.translationRevisions;
-  if (!revisions) return { verified, marked };
+  if (!revisions) return { verified, marked, restored };
   const invalid = (lang: Lang) =>
     new HttpError(422, `Tooltip ${change.hash}: invalid ${lang} translation revision`);
   const snapshots = new Map<string, Tooltip | null>();
@@ -254,7 +281,7 @@ async function verifyTranslationRevisions(
       !head?.text.en ||
       !submitted ||
       !after ||
-      !isTranslatable(merged) ||
+      !merged.text.en ||
       after.updatedBy !== history.login ||
       Date.parse(after.updatedAt) > now + 5 * 60_000 ||
       after.sourceUpdatedAt !== proof.sourceUpdatedAt ||
@@ -275,7 +302,7 @@ async function verifyTranslationRevisions(
     if (
       !reviewed ||
       reviewed.hash !== change.hash ||
-      !isTranslatable(reviewed) ||
+      !reviewed.text.en ||
       reviewed.text[lang]?.text !== after.text
     )
       throw invalid(lang);
@@ -283,15 +310,21 @@ async function verifyTranslationRevisions(
     if (proof.restore) {
       if ((reviewed.text[lang]?.sourceUpdatedAt ?? reviewedEnglish) !== proof.sourceUpdatedAt)
         throw invalid(lang);
+      restored.push(lang);
     } else {
       const state = translationStateOf(reviewed, lang);
       if (
+        !isTranslatable(reviewed) ||
         reviewedEnglish !== proof.sourceUpdatedAt ||
         state.state !== 'outdated' ||
-        state.reason === 'numbers' ||
-        translationStateOf(merged, lang).reason === 'numbers'
+        state.reason === 'numbers'
       )
         throw invalid(lang);
+      if (!isTranslatable(merged) || translationStateOf(merged, lang).reason === 'numbers') {
+        merged.text[lang] = before;
+        verified.push(lang);
+        continue;
+      }
       // A later confirmation (or a retry of this one) already covers what was reviewed.
       if (Date.parse(before.sourceUpdatedAt ?? '') >= Date.parse(proof.sourceUpdatedAt)) {
         merged.text[lang] = before;
@@ -301,7 +334,7 @@ async function verifyTranslationRevisions(
     }
     verified.push(lang);
   }
-  return { verified, marked };
+  return { verified, marked, restored };
 }
 
 /** Validate and merge against one pinned head for either the Worker or the publisher Action. */
@@ -323,6 +356,7 @@ export async function planSaveChanges(
   const carried: string[] = [];
   const kept: number[] = [];
   const marked: string[] = [];
+  const restored: string[] = [];
   for (const [index, change] of input.changes.entries()) {
     const canonical = resolveAlias(change.hash, saveAliases);
     if (canonical !== change.hash) {
@@ -411,7 +445,12 @@ export async function planSaveChanges(
       revisionHistory,
     );
     checkTranslationStamps(head, merged, merged.text.en, revisions.verified);
+    if (change.translationRevisions && head && stableStringify(head) === stableStringify(merged)) {
+      tooltips.push(merged);
+      continue;
+    }
     if (revisions.marked.length) marked.push(`${merged.hash}=${revisions.marked.join(',')}`);
+    if (revisions.restored.length) restored.push(`${merged.hash}=${revisions.restored.join(',')}`);
     refuseUnlowerable(merged, await exporterPin(merged), 'saved', head);
     if (
       head &&
@@ -453,6 +492,6 @@ export async function planSaveChanges(
     writes,
     tooltips,
     // Carried languages are attributed per tooltip, immediately after Clarity-Changed.
-    message: `${input.message}\n\n${kept.length ? `Clarity-No-Translation-Impact: ${kept.join(',')}\n` : ''}Clarity-Changed: ${changed.join(';')}${carried.length ? `\nClarity-Carried: ${carried.join(';')}` : ''}${marked.length ? `\nClarity-Still-Correct: ${marked.join(';')}` : ''}`,
+    message: `${input.message}\n\n${kept.length ? `Clarity-No-Translation-Impact: ${kept.join(',')}\n` : ''}Clarity-Changed: ${changed.join(';')}${carried.length ? `\nClarity-Carried: ${carried.join(';')}` : ''}${marked.length ? `\nClarity-Still-Correct: ${marked.join(';')}` : ''}${restored.length ? `\nClarity-Restored-Translation-Revision: ${restored.join(';')}` : ''}`,
   };
 }

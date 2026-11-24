@@ -277,32 +277,78 @@ describe('upload rollback', () => {
     as(id, '/rollback/upload', 'POST', { commit, lang });
   const head = (hash: number) => fixture.current()[`tooltips/${hash}.json`] as Tooltip;
 
-  it('rolls back a confirmation as a new revision of the identical translation', async () => {
+  it('rolls back a confirmation and its restoration on an archived tooltip', async () => {
     const prior = head(123);
     const original = prior.text.de!;
-    fixture.moveData({
-      'tooltips/123.json': {
-        ...prior,
-        text: { ...prior.text, de: { ...original, sourceUpdatedAt: '2026-10-01T00:00:00Z' } },
+    fixture.moveData(
+      {
+        'tooltips/123.json': {
+          ...prior,
+          text: { ...prior.text, de: { ...original, sourceUpdatedAt: '2026-10-01T00:00:00Z' } },
+        },
       },
-    }, 'Historical German');
+      'Historical German',
+    );
     const base = head(123);
-    fixture.moveData({
-      'tooltips/123.json': {
-        ...base,
-        text: { ...base.text, de: {
-          ...base.text.de!, updatedAt: '2026-10-09T00:00:00Z', updatedBy: 'gail',
-          sourceUpdatedAt: base.text.en!.updatedAt,
-        } },
+    fixture.moveData(
+      {
+        'tooltips/123.json': {
+          ...base,
+          text: {
+            ...base.text,
+            de: {
+              ...base.text.de!,
+              updatedAt: '2026-10-09T00:00:00Z',
+              updatedBy: 'gail',
+              sourceUpdatedAt: base.text.en!.updatedAt,
+            },
+          },
+        },
       },
-    }, 'Checked German\n\nClarity-Changed: 123=de\nClarity-Still-Correct: 123=de');
+      'Checked German\n\nClarity-Changed: 123=de\nClarity-Still-Correct: 123=de',
+    );
     const marked = fixture.dataHead;
+    const archive = {
+      removedAt: '2026-10-10T00:00:00Z',
+      lastSeen: { name: 'Old', categoryId: 'weapon-mod', manifestVersion: 'pinned' },
+    };
+    fixture.moveData({ 'tooltips/123.json': { ...head(123), archive } });
     expect(await (await plan(5, 'de', marked)).json()).toMatchObject({ reverted: [123] });
     const result = await apply(5, 'de', marked);
     expect(result.status).toBe(200);
     expect(head(123).text).toEqual({
-      ...base.text, de: { ...base.text.de!, updatedBy: 'erin', updatedAt: expect.any(String) },
+      ...base.text,
+      de: { ...base.text.de!, updatedBy: 'erin', updatedAt: expect.any(String) },
     });
+    expect(head(123).archive).toEqual(archive);
+    const reversal = await apply(5, 'de', fixture.dataHead);
+    expect(reversal.status).toBe(200);
+    expect(head(123).text.de?.sourceUpdatedAt).toBe(base.text.en!.updatedAt);
+    expect(head(123).text.de?.text).toBe(base.text.de!.text);
+  });
+
+  it('rolls back a large confirmation upload within the request budget', async () => {
+    const source = '2026-09-01T00:00:00Z';
+    const prior = Array.from({ length: 60 }, (_, index) =>
+      perk(1000 + index, { de: entry('Deutsch.', source, 'dan', source) }),
+    );
+    fixture.moveData(Object.fromEntries(prior.map((item) => [`tooltips/${item.hash}.json`, item])));
+    const confirms = prior.map((item) => ({
+      ...item,
+      text: {
+        ...item.text,
+        de: entry('Deutsch.', '2026-10-09T00:00:00Z', 'dan', item.text.en!.updatedAt),
+      },
+    }));
+    const trailer = prior.map(({ hash }) => `${hash}=de`).join(';');
+    fixture.moveData(
+      Object.fromEntries(confirms.map((item) => [`tooltips/${item.hash}.json`, item])),
+      `Check German\n\nClarity-Changed: ${trailer}\nClarity-Still-Correct: ${trailer}`,
+    );
+    const result = await apply(5, 'de', fixture.dataHead);
+    expect(result.status).toBe(200);
+    expect(fixture.subrequests).toBeLessThan(48);
+    expect((await result.json()).reverted).toHaveLength(60);
   });
 
   it('previews what reverts and what a later save already changed', async () => {
