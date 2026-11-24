@@ -27,6 +27,7 @@ import { InactiveMoveConfirm } from '../tooltip/InactiveMoveControl';
 import { NoticeStrip } from '../navigation/NoticeStrip';
 import type { ShellNotice } from '../navigation/notices';
 import { TranslationBannerView } from '../tooltip/TranslationBanner';
+import bannerStyles from '../tooltip/TranslationBanner.module.scss';
 import { FinderMarkers } from '../navigation/FinderMarkers';
 import { GearIcon } from '../navigation/SettingsButton';
 import { BrandMark } from '../navigation/Brand';
@@ -397,6 +398,19 @@ const notices: ShellNotice[] = [
   },
   { id: 'saved', level: 'status', text: 'Saved 3 drafts.' },
 ];
+/** The banner in the line the editor keeps for it: its height and its short form come from there. */
+function TranslationLine(props: Parameters<typeof TranslationBannerView>[0]) {
+  return (
+    <div className={styles.wide}>
+      <div className={bannerStyles.row}>
+        <div className={bannerStyles.status}>
+          <TranslationBannerView {...props} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NoticeDemo() {
   const [shown, setShown] = useState(false);
   return (
@@ -944,15 +958,15 @@ export const entries: readonly GalleryEntry[] = [
     note: 'One line above the translate-mode editor, in a row that keeps its height without it. Colour only when English is published instead.',
     states: [
       s('Behind English', () => (
-        <TranslationBannerView update={{ state: 'outdated', ageMs: 864e6 }} words={12} />
+        <TranslationLine update={{ state: 'outdated', ageMs: 864e6 }} words={12} />
       )),
       s('Published in English', () => (
-        <TranslationBannerView
+        <TranslationLine
           update={{ state: 'outdated', ageMs: 120 * 864e5, exportedInEnglish: true }}
         />
       )),
       s('Removed number', () => (
-        <TranslationBannerView update={{ state: 'outdated', reason: 'numbers', ageMs: 0 }} />
+        <TranslationLine update={{ state: 'outdated', reason: 'numbers', ageMs: 0 }} />
       )),
     ],
   },
