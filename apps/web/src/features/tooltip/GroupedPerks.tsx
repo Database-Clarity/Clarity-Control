@@ -1,7 +1,8 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import type { SandboxConflicts } from '@clarity/core';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
-import { applyInactiveMoves, useDataStore } from '../../stores/data';
+import { applyInactiveMoves, sharedSandboxConflicts, useDataStore } from '../../stores/data';
 import {
   loadSandboxPerkText,
   sandboxPerkName,
@@ -26,7 +27,23 @@ export function GroupedPerks({
   currentHash?: number;
 }) {
   const data = useDataStore((state) => state.data);
-  const { blocks, summary } = useMemo(() => entryView(perks, data), [perks, data]);
+  // The data holds the shared perk table only when groups or picks needed it; it is loaded anyway.
+  const [loaded, setLoaded] = useState<SandboxConflicts>();
+  const conflicts = data?.sandboxConflicts ?? loaded;
+  useEffect(() => {
+    if (conflicts) return;
+    let gone = false;
+    void sharedSandboxConflicts().then((table) => {
+      if (!gone) setLoaded(table);
+    });
+    return () => {
+      gone = true;
+    };
+  }, [conflicts]);
+  const { blocks, summary } = useMemo(
+    () => entryView(perks, data, conflicts),
+    [perks, data, conflicts],
+  );
   const moves = data?.bundle.inactiveMoves;
   // Perk effects are not in the item catalog: their names come from the bundled sandbox perk
   // text, loaded once when this list first opens.

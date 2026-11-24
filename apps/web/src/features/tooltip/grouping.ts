@@ -145,7 +145,7 @@ export interface EntryRow {
   /** Set when the row opens this entry; otherwise `unattached` says why it does not. */
   perk?: GroupedPerk;
   unattached?: UnattachedPerk;
-  /** The text's home ("Text is here"), or a version with text of its own. */
+  /** The text's home ("Text is here"), or a version that does not share it. */
   mark?: string;
   /** How it joined, or the other version using it, when its block does not already say so. */
   joined?: string;
@@ -186,9 +186,7 @@ function markOf(
   if (!data || (perk.reason !== 'enhanced' && perk.reason !== 'variant'))
     return { joined: joinedLabel[perk.reason] };
   if (variantForm(canonical, perk.hash, data) === 'derived') return {};
-  return isBlankCopy(canonical, perk.hash, data)
-    ? { joined: 'Has no text' }
-    : { mark: 'Has its own text' };
+  return { mark: isBlankCopy(canonical, perk.hash, data) ? 'Has no text' : 'Has its own text' };
 }
 
 type Side = 'base' | 'enhanced' | 'other';
@@ -200,9 +198,10 @@ function whyUnattached(
   sides: ReadonlySet<Side>,
   canonical: number,
   data: EditorData,
+  conflicts: EditorData['sandboxConflicts'],
 ): UnattachedPerk {
   const pointer = data.bundle.sandboxPointers?.pointers[hash];
-  const users = data.sandboxConflicts?.[hash];
+  const users = conflicts?.[hash];
   const review = !!users || isSandboxDecision(pointer);
   const nameOf = (entry: number) =>
     data.items[entry]?.name.trim() ||
@@ -242,7 +241,11 @@ function whyUnattached(
  * while the popover is open. An attached perk effect shows once, under the version it is attached
  * to; an unattached one under each version whose items list it.
  */
-export function entryView(perks: readonly GroupedPerk[], data: EditorData | null): EntryView {
+export function entryView(
+  perks: readonly GroupedPerk[],
+  data: EditorData | null,
+  conflicts = data?.sandboxConflicts,
+): EntryView {
   const canonical = (perks.find((perk) => perk.reason === 'canonical') ?? perks[0]!).hash;
   const listedBy = new Map<number, Set<Side>>();
   for (const perk of perks)
@@ -269,7 +272,7 @@ export function entryView(perks: readonly GroupedPerk[], data: EditorData | null
       rows[side].push({
         hash,
         kind: 'Perk effect',
-        unattached: whyUnattached(hash, sides, canonical, data!),
+        unattached: whyUnattached(hash, sides, canonical, data!, conflicts),
       });
   const frames = perks.some((perk) => perk.reason === 'frame') ? ' frames' : '';
   const titles: Record<Side, string> = {

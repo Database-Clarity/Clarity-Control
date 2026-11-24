@@ -242,9 +242,7 @@ describe('entryView', () => {
     const mark = (text: string) => {
       const data = ancillary();
       data.bundle.tooltips[61] = { text: { en: { text } } } as never;
-      expect(view(60, data).summary).toMatch(
-        text ? /^3 are grouped here: / : /^3 share this text: /,
-      );
+      expect(view(60, data).summary).toMatch(/^3 are grouped here: /);
       return view(60, data).blocks[1]![1]![0];
     };
     expect(mark('Other')).toEqual(['Item', 61, 'Has its own text']);

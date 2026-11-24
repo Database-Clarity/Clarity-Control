@@ -2,12 +2,18 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadSandboxPerkText, resetSandboxPerkText } from '../manifest/manifestText';
 import { GroupedPerks } from './GroupedPerks';
 import type { EditorData } from '../../stores/data';
 import { useDataStore } from '../../stores/data';
 import { groupedPerks, type GroupedPerk } from './grouping';
+
+// The store's request is one per session; every case uses the same table.
+vi.mock('../../services/generator', async (original) => ({
+  ...(await original<typeof import('../../services/generator')>()),
+  loadSandboxConflicts: vi.fn(async () => ({ 600: [60, 61] })),
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -72,7 +78,10 @@ describe('GroupedPerks', () => {
     expect(name(411682304)).toBe('Name unavailable');
   });
 
-  it('links an unattached perk effect to its Sandbox perks row and uses plain words only', () => {
+  it.each([
+    ['in the data', true],
+    ['loaded separately', false],
+  ])('links an unattached perk effect to its Sandbox perks row (table %s)', async (_, inData) => {
     resetSandboxPerkText({ 600: ['Cooling Baubles', ''] });
     const item = (hash: number, categoryId: string, extra = {}) => ({
       hash,
@@ -83,6 +92,7 @@ describe('GroupedPerks', () => {
       sandboxPerkHashes: [600],
       ...extra,
     });
+    const table = { 600: [60, 61] };
     const data = {
       categories: [
         { id: 'weapon-trait', label: 'T', group: 'W', order: 1, legacyType: 'Weapon Trait' },
@@ -100,13 +110,13 @@ describe('GroupedPerks', () => {
         62: item(62, 'weapon-trait', { sandboxPerkHashes: [620] }),
       },
       aliases: { 62: { to: 60, kind: 'name' }, 620: { to: 62, kind: 'sandbox' } },
-      sandboxConflicts: { 600: [60, 61] },
+      ...(inData ? { sandboxConflicts: table } : {}),
       bundle: { tooltips: {}, permissions: { users: {} }, pushed: {} },
     } as unknown as EditorData;
     useDataStore.setState({ data });
     const host = document.createElement('div');
     root = createRoot(host);
-    act(() =>
+    await act(async () =>
       root!.render(
         <MemoryRouter>
           <GroupedPerks perks={groupedPerks(60, data)} />
