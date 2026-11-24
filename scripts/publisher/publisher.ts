@@ -204,6 +204,7 @@ export interface Options {
   publisherSha: string;
   /** Verified running bundle digest, supplied by CLI rather than persisted config. */
   publisherDigest?: string;
+  publisherConfigDigest?: string;
   verifierDigest?: string;
   generatorSha: string;
   aliases: Aliases;
@@ -720,28 +721,6 @@ export class Publisher {
       const request = nameProofRequestSchema.safeParse(this.read(snapshot, path));
       return request.success && request.data.id === id;
     };
-    const siblingQueueChange = (path: string) => {
-      const id = /^publish\/requests\/([^/]+)\.json$/.exec(path)?.[1];
-      if (!id || id === opId || !publishOpIdSchema.safeParse(id).success) return false;
-      try {
-        const envelope = this.read<{ payload: string }>(reviewed, path);
-        const request = batchPublishPayloadSchema.safeParse(JSON.parse(envelope?.payload ?? ''));
-        if (!request.success || request.data.opId !== id) return false;
-        const batchPath = schedulePaths.batch(request.data.batchId);
-        const before = batchSchema.safeParse(this.read(reviewed, batchPath)).data;
-        const after = batchSchema.safeParse(this.read(tree, batchPath)).data;
-        if (before?.status !== 'scheduled' || before.opId !== id || !after) return false;
-        if (tree[path])
-          return (
-            after.opId === id &&
-            after.status === 'scheduled' &&
-            after.preparedRequestId !== before.preparedRequestId
-          );
-        return after.opId !== id || after.preparation?.returnStatus === 'scheduled';
-      } catch {
-        return false;
-      }
-    };
     let rebuild = false;
     const acceptChange = (path: string) => {
       if (
@@ -749,8 +728,6 @@ export class Publisher {
         (Object.hasOwn(tree, path) && !regular(currentModes, path))
       )
         return false;
-      // The Worker may cancel, reschedule, or withdraw a sibling's ready envelope.
-      if (batch && siblingQueueChange(path)) return true;
       // A concurrent staged Current save consumes its kick with the staged parts.
       if (batch && !tree[path]) {
         const staged = /^publish\/kicks\/current-save-([^/]+)\.json$/.exec(path)?.[1];
@@ -783,7 +760,10 @@ export class Publisher {
         rebuild = true;
         return true;
       }
-      return false;
+      // A signed scheduled request can revalidate its whole plan against the new head.
+      // Keep the same bookkeeping classification and never bypass the Git mode checks.
+      if (batch) rebuild = true;
+      return batch;
     };
 
     for (const [path, oid] of Object.entries(reviewed)) {
@@ -974,7 +954,7 @@ export class Publisher {
     result?: { status: string; code?: 'selected-rows-changed'; error?: string; outcomes?: unknown },
     requestBlob?: string,
     landing?: Landing,
-    atomicLive?: { parent: string; candidate: string },
+    atomicLive?: { parent: string; candidate: string; runtime?: Tree },
     failureHead?: string,
   ) {
     const p = paths(opId);
@@ -1003,6 +983,7 @@ export class Publisher {
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
         const source = receipt.sourceCommit;
         if (receipt.batchId) {
+          this.assertBatchRuntime(tree, atomicLive.runtime);
           const path = schedulePaths.batch(receipt.batchId);
           if (tree[p.request] !== receipt.requestBlob) return;
           if (tree[path] !== this.git.tree(source)[path]) {
@@ -1012,7 +993,10 @@ export class Publisher {
           }
         }
         const signed = await this.verifyRequest(receipt.requestBlob, opId, tree).catch((error) => {
-          if (receipt.batchId) throw new ConsumerOutputRejected(String(error));
+          if (receipt.batchId)
+            throw new ConsumerOutputRejected(
+              error instanceof Error ? error.message : String(error),
+            );
           throw error;
         });
         const liveMoved =
@@ -1281,7 +1265,10 @@ export class Publisher {
     }
     throw new Error('Duplicate closure raced');
   }
-  async operation(opId: string): Promise<void> {
+  async operation(
+    opId: string,
+    runtime = this.git.tree(this.head(this.options.dataBranch)),
+  ): Promise<void> {
     const p = paths(opId);
     let rebuilding: SourceAdvanced | undefined;
     for (let attempt = 0; ; attempt++) {
@@ -1323,7 +1310,7 @@ export class Publisher {
           )
             throw new RefRace('Manual publish source moved after sync');
         }
-        return await this.publishOperation(opId, s, tree, rebuilding);
+        return await this.publishOperation(opId, s, tree, runtime, rebuilding);
       } catch (error) {
         if (error instanceof SourceAdvanced && attempt < 2) {
           rebuilding = error;
@@ -1372,6 +1359,28 @@ export class Publisher {
       }
     }
   }
+  private assertBatchRuntime(tree: Tree, runtime?: Tree) {
+    const paths = ['PIN', 'config.json', 'publisher.mjs', 'verify-publication.mjs'].map(
+      (name) => `.publisher/${name}`,
+    );
+    if (runtime && paths.some((path) => tree[path] !== runtime[path]))
+      throw new RefRace('Publisher installation changed during this run');
+    if (
+      this.options.publisherConfigDigest &&
+      (!tree[paths[1]] ||
+        createHash('sha256').update(this.git.blob(tree[paths[1]])).digest('hex') !==
+          this.options.publisherConfigDigest)
+    )
+      throw new RefRace('Wait for the installed publisher configuration to run');
+    if (tree[paths[0]] || this.options.publisherConfigDigest) {
+      const pin = this.read<{ sourceSha: string; sha256: string }>(tree, paths[0]);
+      if (
+        pin?.sourceSha !== this.options.publisherSha ||
+        (this.options.publisherDigest && pin.sha256 !== this.options.publisherDigest)
+      )
+        throw new RefRace('Wait for the installed publisher to run');
+    }
+  }
   private partNames(previous: Tree, hashes: readonly number[], current: Tooltip[] = []) {
     return [
       ...new Set(
@@ -1389,6 +1398,7 @@ export class Publisher {
     opId: string,
     s: string,
     tree: Tree,
+    runtime: Tree,
     rebuilding?: SourceAdvanced,
   ): Promise<void> {
     const p = paths(opId);
@@ -1411,6 +1421,24 @@ export class Publisher {
     const blob = tree[p.request];
     let candidate = this.candidate(opId, blob);
     if (rebuilding && !candidate) throw new RefRace('Publish candidate moved');
+    if (candidate?.r.batchId) {
+      this.assertBatchRuntime(tree, runtime);
+      const { c, r } = candidate;
+      if (
+        c !== rebuilding?.candidate &&
+        (r.publisherSha !== this.options.publisherSha ||
+          r.generatorSha !== this.options.generatorSha ||
+          r.verifierSha256 !== this.options.verifierDigest)
+      )
+        throw new SourceAdvanced(
+          c,
+          blob,
+          r.sourceCommit,
+          s,
+          r.globals?.roots ?? r.entries.map(({ hash }) => hash),
+          true,
+        );
+    }
     if (!candidate || candidate.c === rebuilding?.candidate) {
       let payload: PublishRequestPayload;
       try {
@@ -1442,6 +1470,7 @@ export class Publisher {
         return;
       }
       if (payload.kind === 'batch') {
+        this.assertBatchRuntime(tree, runtime);
         const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
         if (!r) {
           if (candidate && this.git.tree(this.head(this.options.dataBranch))[p.log]) {
@@ -1551,7 +1580,9 @@ export class Publisher {
         }
         this.assertRequestedDigests(
           entries,
-          payload.hashes.filter((hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases))),
+          payload.hashes.filter(
+            (hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases)),
+          ),
           (hash) => payload.expected[hash],
           aliases,
         );
@@ -1636,7 +1667,7 @@ export class Publisher {
               undefined,
               undefined,
               { at: this.options.now(), source: 'cas' },
-              { parent: l, candidate: c },
+              { parent: l, candidate: c, ...(r.batchId ? { runtime } : {}) },
             );
           } catch (error) {
             if (
@@ -2108,10 +2139,11 @@ export class Publisher {
     }
     const claim = claimed ? this.claimCommit(payload.batchId, opId, s) : s;
     if (claim !== s) {
-      if (this.sourceAdvance(claim, s, tree, opId, true) === 'blocked')
-        throw new RefRace('Claimed batch source no longer matches its publication fence');
       const frozen = this.git.tree(claim);
       const prefix = `schedule/batches/${batch.id}/tooltips/`;
+      const modes = this.git.treeModes?.(s);
+      if (Object.keys(modes ?? {}).some((name) => !Object.hasOwn(tree, name)))
+        throw new RefRace('Cannot preserve an empty Git tree during publication');
       if (
         tree[path] !== frozen[path] ||
         blob !== frozen[paths(opId).request] ||
@@ -2468,6 +2500,7 @@ export class Publisher {
   }
   async run(syncGlobals = true) {
     const start = this.options.now();
+    const runtime = this.git.tree(this.head(this.options.dataBranch));
     try {
       if (syncGlobals) {
         await drainCurrentSaves(this);
@@ -2479,7 +2512,7 @@ export class Publisher {
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 60_000; n++) {
         const [id] = this.queue(this.head(this.options.dataBranch));
         if (!id) break;
-        await this.operation(id);
+        await this.operation(id, runtime);
       }
     } finally {
       this.bundle();

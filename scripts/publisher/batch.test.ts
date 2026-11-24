@@ -602,6 +602,77 @@ describe('scheduled batches (simulator)', () => {
     expect(f.git.head(paths(OP).candidate)).toBeUndefined();
   });
 
+  it.each([
+    [
+      'config/permissions.json',
+      {
+        users: {
+          '1': { login: 'alice', role: 'editor' },
+          '2': { login: 'bob', role: 'translator', languages: ['de'] },
+        },
+      },
+    ],
+    ['agent-guidance/compendium.json', { v: 1 }],
+    ['.publisher/installed.json', { v: 1 }],
+    ['live/pushed.json', { 125: 'a'.repeat(64) }],
+  ] as const)('revalidates %s and drains the push behind the claim', async (path, value) => {
+    const f = await setup();
+    await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+    f.change(D, { 'tooltips/124.json': tip({}, 124) });
+    await f.push(PUSH1, [124], new Date(START).toISOString());
+    const atomic = f.git.casMany.bind(f.git);
+    let changed = false;
+    f.git.casMany = (updates) => {
+      if (!changed) {
+        changed = true;
+        if (path === 'live/pushed.json')
+          f.change(D, { [path]: { ...f.read<Record<string, string>>(path), ...value } });
+        else f.change(D, { [path]: value });
+      }
+      atomic(updates);
+    };
+    await f.pub.run();
+    assertPublished(f);
+    expect(f.receipts(PUSH1)).toHaveLength(1);
+  });
+
+  it.each(['candidate', 'claim'] as const)(
+    'recovers after a publisher install over a crashed %s',
+    async (stage) => {
+      const f = await setup();
+      const currentPin = { sourceSha: f.options.publisherSha, sha256: 'a'.repeat(64) };
+      f.change(D, { '.publisher/PIN': currentPin });
+      await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
+      const cas = f.git.cas.bind(f.git);
+      if (stage === 'claim')
+        f.git.cas = (ref, old, next) => {
+          if (ref === paths(OP).candidate) throw new Error('runner stopped');
+          cas(ref, old, next);
+        };
+      else
+        f.git.casMany = () => {
+          throw new Error('runner stopped');
+        };
+      await expect(f.pub.run()).rejects.toThrow();
+      const upgraded = { sourceSha: 'd'.repeat(40), sha256: 'd'.repeat(64) };
+      f.change(D, { '.publisher/PIN': upgraded });
+      await expect(new Publisher(new LocalRepository(f.root), f.options).run()).rejects.toThrow(
+        'installed publisher',
+      );
+      expect(f.batchFile().status).toBe('publishing');
+      const clock = START + 600_000;
+      await new Publisher(new LocalRepository(f.root), {
+        ...f.options,
+        publisherSha: upgraded.sourceSha,
+        publisherDigest: upgraded.sha256,
+        now: () => clock,
+      }).run();
+      const { batch, receipt } = assertPublished(f);
+      expect(receipt.publisherSha).toBe(upgraded.sourceSha);
+      expect(batch.result?.landedAt).toBe(new Date(clock).toISOString());
+    },
+  );
+
   it('rebuilds when a signed staged Current save consumes its kick during RECORD', async () => {
     const f = await setup();
     const id = PUSH2;

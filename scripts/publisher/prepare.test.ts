@@ -2015,17 +2015,36 @@ it('rebuilds a scheduledGlobalsV1 candidate without replacing its signed depende
     execFileSync('git', ['--git-dir', root, 'config', 'publisher.simulator', 'true']);
     const git = new LocalRepository(root);
     const f = await fixture(git);
+    f.options.facts[125] = { name: 'Unrelated', type: 'perk' };
     await withGlobals(f);
     f.admit('schedule');
     await f.prep.drain();
     const { sourceCommit } = JSON.parse(f.request().envelope.payload) as ScheduleIntent;
     const atomic = git.casMany.bind(git);
     let saved = false;
-    const other = { ...tip('concurrent unrelated Current edit'), hash: 124 };
+    const queued = { ...tip('Manual publication behind the claim'), hash: 124 };
+    f.change({ 'tooltips/124.json': queued });
+    const manualOp = newUlid(NOW);
+    await createRequest(git, {
+      kind: 'push', opId: manualOp, repo: f.options.repo,
+      dataBranch: f.options.dataBranch, liveBranch: f.options.liveBranch,
+      requester: user, hashes: [124], expected: { 124: await publishableHash(queued) },
+    }, () => NOW, (payload) => sign(null, Buffer.from(payload), f.keys.privateKey).toString('base64'));
+    const other = { ...tip('concurrent unrelated Current edit'), hash: 125 };
+    const peerMarker = await publishableHash(f.read<Tooltip>('live/tooltips/2.json'));
     git.casMany = (updates) => {
       if (!saved) {
         saved = true;
-        f.change({ 'tooltips/124.json': other });
+        const permissions = f.read<{ users: Record<string, unknown> }>('config/permissions.json');
+        f.change({
+          'tooltips/125.json': other,
+          'agent-guidance/compendium.json': { v: 1 },
+          '.publisher/installed.json': { v: 1 },
+          'config/permissions.json': {
+            ...permissions, users: { ...permissions.users, '3': { login: 'zed', role: 'translator', languages: ['de'] } },
+          },
+          'live/pushed.json': { ...f.read<Record<string, string>>('live/pushed.json'), 2: peerMarker },
+        });
       }
       atomic(updates);
     };
@@ -2048,8 +2067,9 @@ it('rebuilds a scheduledGlobalsV1 candidate without replacing its signed depende
     const receipt = f.pub.receipt(f.pub.head('converter-v2-test'), R)!;
     expect(receipt.globals?.batchSource).toBe(sourceCommit);
     expect(receipt.sourceCommit).not.toBe(sourceCommit);
-    expect(f.read('tooltips/124.json')).toEqual(other);
+    expect(f.read('tooltips/125.json')).toEqual(other);
     expect(git.additions(f.pub.head('converter-v2-test'), paths(R).receipt)).toHaveLength(1);
+    expect(git.additions(f.pub.head('converter-v2-test'), paths(manualOp).receipt)).toHaveLength(1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

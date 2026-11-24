@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -13,12 +14,21 @@ async function main() {
   const [flag, source, config, output] = process.argv.slice(2);
   if (['--pipeline-dry-run', '--pipeline-publish'].includes(flag) && source && config && output) {
     const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
-    const options = JSON.parse(readFileSync(config, 'utf8'));
+    const bytes = readFileSync(config);
+    const options = JSON.parse(bytes.toString('utf8'));
     if (options.publisherSha !== pin.sourceSha || !/^[0-9a-f]{40}$/.test(options.generatorSha))
       throw new Error('Config requires the publisher source PIN and full generator commit');
     await runPipeline(
       source,
-      { ...options, publisherDigest: pin.sha256, verifierDigest: pin.verifierSha256 },
+      {
+        ...options,
+        publisherDigest: pin.sha256,
+        verifierDigest: pin.verifierSha256,
+        publisherConfigDigest:
+          flag === '--pipeline-publish'
+            ? createHash('sha256').update(bytes).digest('hex')
+            : undefined,
+      },
       output,
       flag === '--pipeline-publish',
     );
