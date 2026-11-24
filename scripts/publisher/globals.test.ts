@@ -563,10 +563,15 @@ describe('in-place shared text publication', () => {
     expect(live(f)).toEqual(before);
   });
 
-  it.each(['Before #Magnitude', 'var Magnitude = 10\nBefore #Beta'])(
-    'refuses a rename onto a name already used in published text: %s',
-    async (source) => {
-      const f = await inPlaceFixture();
+  it.each([
+    ['Beta', 'Magnitude', 'Before #Magnitude'],
+    ['Beta', 'Magnitude', 'var Magnitude = 10\nBefore #Beta'],
+    ['Help', 'LocalNote', 'Before <title Details [LocalNote] />'],
+    ['Help', 'LocalNote', 'title LocalNote (\nLocal content\n)\nBefore <title Details [Help] />'],
+  ])(
+    'refuses renaming %s to %s when its new name is already used in published text: %s',
+    async (from, to, source) => {
+      const f = await inPlaceFixture('title Help (\nHelp content\n)');
       const document = tooltip(142, source);
       f.change({ 'tooltips/142.json': document });
       await f.request([142]);
@@ -574,11 +579,11 @@ describe('in-place shared text publication', () => {
       expect(f.read(paths(A).log).result.status).toBe('done');
       const before = f.pub.head(f.options.liveBranch);
       const snapshot = f.read('live/tooltips/142.json');
-      const original = f.published.entries.find(({ id }) => id === f.entry.id)!;
-      f.change({ [f.entryPath]: { ...original, name: 'Magnitude' } });
-      const row = pending(f).find(({ id }) => id === f.entry.id)!;
+      const original = f.published.entries.find(({ name }) => name === from)!;
+      f.change({ [`globals/entries/${original.id}.json`]: { ...original, name: to } });
+      const row = pending(f).find(({ id }) => id === original.id)!;
       expect(row.refusal).toBe(
-        'Tooltip 142 already uses or declares Magnitude. Choose a different name.',
+        `Tooltip 142 already uses or declares ${to}. Choose a different name.`,
       );
       const rename = A.replace(/1$/, '2');
       await f.request([], rename, selection(row));

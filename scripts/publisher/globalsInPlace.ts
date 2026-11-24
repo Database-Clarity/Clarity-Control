@@ -50,7 +50,7 @@ import { provesInPlace, type LegacyInput } from '../../packages/export/src/index
 import { variableReferences } from '../../packages/core/src/markup/braces.js';
 import { removeMarkupComments } from '../../packages/core/src/markup/comments.js';
 import { markupImports } from '../../packages/core/src/markup/prepare.js';
-import { extractVariables } from '../../packages/core/src/markup/syntax.js';
+import { extractBlocks, extractVariables } from '../../packages/core/src/markup/syntax.js';
 import { createHash } from 'node:crypto';
 import { ZodError } from 'zod';
 import { type Tree } from './git.js';
@@ -719,15 +719,21 @@ function selectedRelease(
   for (const entry of selected) {
     const to = entry.name;
     const old = previous.get(entry.id);
-    if (entry.kind !== 'variables' || entry.tombstone || (old && !old.tombstone && old.name === to))
-      continue;
-    const name = new Set([to]);
+    if (entry.tombstone || (old && !old.tombstone && old.name === to)) continue;
+    const variable = entry.kind === 'variables';
     const rename = old && !old.tombstone;
+    if (!variable && (entry.kind !== 'titles' || !rename)) continue;
+    const name = new Set([to]);
     const conflicts = (source: string) => {
-      if (inPlaceLabelVariable(source, name, to) !== undefined) return true;
+      if (variable && inPlaceLabelVariable(source, name, to) !== undefined) return true;
       if (!rename) return false;
       const text = removeMarkupComments(source);
       if (!text.includes(to)) return false;
+      if (!variable)
+        return (
+          Object.hasOwn(extractBlocks(text, 'title'), to) ||
+          globalReferenceSpans(source, 'titles').some(({ name }) => name === to)
+        );
       return (
         Object.hasOwn(extractVariables(text), to) ||
         variableReferences(text).some(({ name }) => name === to)
