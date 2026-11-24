@@ -1687,16 +1687,24 @@ async function mutationPort(
       body,
     });
   const acknowledge = async (row: ReturnType<typeof rowSchema.parse>, id: string) => {
-    const response = await post(`/${id}/acknowledge`, {
-      operation: 'acknowledge',
-      id,
-      consumerId: row.id,
-      contentDigest: row.review.contentDigest,
-      dependencyDigest: row.review.dependencyDigest,
-      impactDigest: row.impactDigest,
-      decision: 'no-text-change',
+    // This old publisher fixture starts from an acknowledgement stored by the old Worker.
+    expect(row.review.causes.some(({ globalId }) => globalId === id)).toBe(true);
+    f.change({
+      [`globals/reviews/${row.id}.json`]: rowSchema.parse({
+        ...row,
+        review: {
+          ...row.review,
+          acknowledgement: {
+            by: access.login,
+            at: new Date(now).toISOString(),
+            contentDigest: row.review.contentDigest,
+            dependencyDigest: row.review.dependencyDigest,
+            impactDigest: row.impactDigest,
+            decision: 'no-text-change',
+          },
+        },
+      }),
     });
-    expect(response.status, await response.text()).toBe(200);
   };
   return { load, edit, post, acknowledge };
 }
@@ -1876,17 +1884,13 @@ describe('withdrawal alongside a pending fallback change', () => {
       status: 'rejected',
       error: expect.stringContaining('global dependency review required'),
     });
-    const reviewPage = async (id: string) => {
-      const response = await globalsHandler(
-        new Request(`https://api.invalid/globals/${id}/reviews`),
-        port.load,
-      );
-      expect(response.status, await response.clone().text()).toBe(200);
-      return (await response.json()).value.impacts[id];
+    const reviewPage = (id: string) => {
+      const page = f.read(`globals/review-pages/${id}/p0.json`) as { ids: string[] };
+      return page.ids.map((row) => rowSchema.parse(f.read(`globals/reviews/${row}.json`)));
     };
-    expect(await reviewPage(delta.id)).toEqual([]);
-    if (gamma) expect(await reviewPage(gamma)).toEqual([]);
-    const rows = await reviewPage(alpha.id);
+    expect(reviewPage(delta.id)).toEqual([]);
+    if (gamma) expect(reviewPage(gamma)).toEqual([]);
+    const rows = reviewPage(alpha.id);
     expect(rows).toHaveLength(1);
     const row = rowSchema.parse(f.read(`globals/reviews/${rows[0].id}.json`));
     expect(row.review.consumer).toMatchObject({ hash: 41, lang: 'de' });
@@ -1894,7 +1898,7 @@ describe('withdrawal alongside a pending fallback change', () => {
     expect(new Set(row.review.causes.map(({ globalId }) => globalId))).toEqual(
       new Set(responsible),
     );
-    if (scenario === 'redundant') expect(await reviewPage(epsilon.id)).toEqual(rows);
+    if (scenario === 'redundant') expect(reviewPage(epsilon.id)).toEqual(rows);
     expect(row.view.before?.rendered).toContain('80');
     expect(row.view.after?.rendered).toContain('20');
     await port.acknowledge(row, alpha.id);
