@@ -28189,7 +28189,7 @@ function impacts(input2, store, ids, scans, withdrawals) {
       result,
       changes(input2, ids, names).map((change) => change.cause),
       scans,
-      withdrawals?.size && ids.length > 1 ? () => fallbackAlternatives(observedBefore) : void 0
+      withdrawals && ids.length > 1 ? () => fallbackAlternatives(observedBefore) : void 0
     );
   });
 }
