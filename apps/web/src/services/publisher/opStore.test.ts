@@ -90,13 +90,27 @@ for (const [name, make] of [
   });
 
   it(`${name}: two concurrent claims have one winner`, async () => {
-    await store.add(op('A', { status: 'pending' }));
-    const claim = () =>
-      store.update('A', (o) =>
-        o.autoKicked ? undefined : { ...o, autoKicked: true, kickedAt: Math.random() },
+    await store.addMany([
+      op('A', { groupId: 'A', status: 'pending' }),
+      op('B', { groupId: 'A', status: 'pending' }),
+    ]);
+    const claim = (id: string) =>
+      store.claimKick(id, 100, (members) =>
+        members.every(({ kickedAt }) => kickedAt === undefined),
       );
-    const results = await Promise.all([claim(), claim()]);
-    expect(results.filter((r) => r?.autoKicked).length).toBe(2); // both see the final record
-    expect(new Set(results.map((r) => r?.kickedAt)).size).toBe(1); // but only one wrote kickedAt
+    const results = await Promise.all([claim('A'), claim('B')]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    await store.update('A', (o) => ({ ...o, status: 'done' }));
+    expect(await store.claimKick('A', 200, () => true)).toBe(false);
+  });
+
+  it(`${name}: the kick claim sees the newest bundle without listing it as an operation`, async () => {
+    await store.add(op('A', { status: 'pending' }));
+    await store.observeBundle(300, 350);
+    const reloaded = name === 'IndexedDB' ? make() : store;
+    await reloaded.observeBundle(100, 380);
+    await reloaded.observeBundle(300, 390);
+    expect(await reloaded.list('1')).toEqual([op('A', { status: 'pending' })]);
+    expect(await reloaded.claimKick('A', 400, (_, bundleAt) => bundleAt === 350)).toBe(true);
   });
 }

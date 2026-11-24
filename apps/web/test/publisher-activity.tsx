@@ -139,7 +139,7 @@ window.__setOpStatus = (index, status) =>
     ops: state.ops.map((entry, i) => (i === index ? { ...entry, status } : entry)),
   }));
 createRoot(document.getElementById('root')!).render(
-  <MemoryRouter initialEntries={['/review?hash=100']}>
+  <MemoryRouter initialEntries={['/review?hash=117']}>
     <Routes>
       <Route element={<Layout />}>
         <Route path="review" element={<ReviewPage />} />

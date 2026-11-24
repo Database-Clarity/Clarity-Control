@@ -6,13 +6,14 @@ import { PublishHttpError } from '../../services/publisher/api';
 import { isTerminal, type OpStore, type PublishOp } from '../../services/publisher/opStore';
 import { newOpId } from '../../services/publisher/ulid';
 
-/** Timings from design §2/§3: poll cheaply, auto-kick once after 3 minutes, never hammer. */
+/** Poll cheaply and recover a stalled trigger without sending a kick for each part. */
 export const publishTiming = {
   /** Status polling: fast while a run is likely starting, then slower. Per pending operation. */
   pollMs: (ageMs: number) =>
     ageMs < 30_000 ? 4_000 : ageMs < 180_000 ? 10_000 : ageMs < 1_800_000 ? 30_000 : 60_000,
   waitingMs: 180_000,
-  autoKickMs: 180_000,
+  autoKickMs: 5 * 60_000,
+  autoKickGapMs: 10 * 60_000,
   manualKickGapMs: 30_000,
   /**
    * A Worker-reported 500/502 (its own JSON error, not an edge page) is resent this many times in
@@ -199,6 +200,8 @@ const receiptDue = (op: PublishOp) =>
 const syncDeadline = (op: PublishOp) =>
   op.syncPendingSince === undefined ? Infinity : op.syncPendingSince + publishTiming.syncWaitMs;
 
+export const publishProofWait = 'Waiting for saved changes to be checked. Retrying automatically.';
+
 export class PublishDriver {
   private userId: string | null = null;
   /** Includes dismissed group predecessors; their acceptance still orders unsent chunks. */
@@ -340,7 +343,7 @@ export class PublishDriver {
   /** Manual Retry: kick one waiting operation. One pipeline run drains the whole queue. */
   async kickWaiting(opId: string): Promise<void> {
     const claimed = await this.claim(opId, (op, now) =>
-      isTerminal(op.status) ||
+      op.status !== 'pending' ||
       (op.kickedAt !== undefined && now - op.kickedAt < publishTiming.manualKickGapMs)
         ? undefined
         : { ...op, kickedAt: now },
@@ -450,6 +453,7 @@ export class PublishDriver {
 
   private async work(generation: number) {
     if (!this.deps.visible()) return;
+    const pending: PublishOp[] = [];
     for (const op of [...usePublishState.getState().ops]) {
       if (generation !== this.generation) return;
       if (this.paused.has(op.opId)) continue;
@@ -477,15 +481,7 @@ export class PublishDriver {
             ? undefined
             : { ...current, polledAt: at },
         );
-        if (polled) await this.poll(op.opId);
-        if (now - accepted >= publishTiming.autoKickMs && !this.hasUnfinishedPredecessor(op)) {
-          const kicked = await this.claim(op.opId, (current, at) =>
-            current.autoKicked || isTerminal(current.status)
-              ? undefined
-              : { ...current, autoKicked: true, kickedAt: at },
-          );
-          if (kicked) await this.kick(op.opId);
-        }
+        if ((polled && (await this.poll(op.opId))) === 'pending') pending.push(op);
       } else if (needsPublishReceipt(op)) {
         const claimed = await this.claim(op.opId, (current, at) =>
           needsPublishReceipt(current) && at >= receiptDue(current)
@@ -495,7 +491,32 @@ export class PublishDriver {
         if (claimed && generation === this.generation) await this.adopt(op.opId, 'rejected');
       }
     }
+    for (const op of pending) {
+      if (generation !== this.generation) return;
+      if (this.deps.now() - (op.acceptedAt ?? op.createdAt) >= publishTiming.autoKickMs)
+        await this.autoKick(op.opId, generation);
+    }
     if (generation === this.generation) await this.recoverGroups();
+  }
+
+  private async autoKick(opId: string, generation: number) {
+    const now = this.deps.now();
+    const claimed = await this.deps.store
+      .claimKick(opId, now, (members, bundleAt) => {
+        if (generation !== this.generation) return false;
+        const first = members.sort(byAge).find((op) => !isTerminal(op.status));
+        if (first?.opId !== opId) return false;
+        return (
+          now - bundleAt >= publishTiming.autoKickMs &&
+          members.every(
+            (op) =>
+              now - op.updatedAt >= publishTiming.autoKickMs &&
+              now - (op.kickedAt ?? -Infinity) >= publishTiming.autoKickGapMs,
+          )
+        );
+      })
+      .catch(() => false);
+    if (claimed && generation === this.generation) await this.kick(opId);
   }
 
   private recoveries() {
@@ -531,6 +552,8 @@ export class PublishDriver {
           previous: Object.assign({}, ...part.map((op) => op.previous)),
           status: 'created',
           createdAt: now,
+          groupCreatedAt: first.groupCreatedAt ?? first.createdAt,
+          kickedAt: Math.max(...part.map((op) => op.kickedAt ?? 0)) || undefined,
           updatedAt: now,
         };
       });
@@ -569,13 +592,7 @@ export class PublishDriver {
         );
       } else {
         const accepted = op.acceptedAt ?? op.createdAt;
-        next = Math.min(
-          next,
-          (op.polledAt ?? 0) + publishTiming.pollMs(now - accepted),
-          op.autoKicked || this.hasUnfinishedPredecessor(op)
-            ? Infinity
-            : accepted + publishTiming.autoKickMs,
-        );
+        next = Math.min(next, (op.polledAt ?? 0) + publishTiming.pollMs(now - accepted));
       }
     }
     if (next === Infinity) return;
@@ -607,11 +624,12 @@ export class PublishDriver {
    */
   private async settle(opId: string, patch: Partial<PublishOp>, whileCreated = false) {
     const stored = await this.deps.store
-      .update(opId, (op) =>
-        whileCreated && op.status !== 'created'
-          ? undefined
-          : { ...op, ...patch, updatedAt: this.deps.now() },
-      )
+      .update(opId, (op) => {
+        // Keep the first observed confirmation time when two tabs see the same receipt.
+        if (op.status === 'done' || op.status === 'unchanged') return undefined;
+        if (whileCreated && op.status !== 'created') return undefined;
+        return { ...op, ...patch, updatedAt: this.deps.now() };
+      })
       .catch(() => undefined);
     if (!stored) return;
     this.storedOps = this.storedOps.map((op) => (op.opId === opId ? stored : op));
@@ -683,17 +701,6 @@ export class PublishDriver {
 
   private current(opId: string) {
     return usePublishState.getState().ops.find((op) => op.opId === opId);
-  }
-
-  /** The publisher drains in queue order and can hit its per-run budget. Keep a kick for later work. */
-  private hasUnfinishedPredecessor(op: PublishOp): boolean {
-    return (
-      !!op.groupId &&
-      this.storedOps.some(
-        (earlier) =>
-          earlier.groupId === op.groupId && byAge(earlier, op) < 0 && !isTerminal(earlier.status),
-      )
-    );
   }
 
   private unacceptedPredecessors(op: PublishOp): PublishOp[] {
@@ -769,7 +776,8 @@ export class PublishDriver {
               opId,
               {
                 status: 'failed',
-                error: `Sync is still pending for tooltips ${op.hashes.join(', ')}. Check publish status before trying again.`,
+                error:
+                  'Automatic retries ended. The final status check failed. Check live status before trying again.',
               },
               true,
             );
@@ -789,7 +797,7 @@ export class PublishDriver {
             {
               status: 'failed',
               error: syncExpired
-                ? `Sync is still pending for tooltips ${op.hashes.join(', ')}. Publish again after sync finishes.`
+                ? 'Automatic retries ended. No publish request was found. You can publish again.'
                 : 'The Worker has no record of this publish and it is too old to send. Publish again.',
             },
             true,
@@ -863,7 +871,7 @@ export class PublishDriver {
         count: 0,
         at: now + publishTiming.pollMs(now - (waiting.syncPendingSince ?? now)),
       });
-      this.note(op.opId, 'Sync pending. Publishing will continue automatically.');
+      this.note(op.opId, publishProofWait);
       return;
     }
     if (status === 409) {
@@ -981,7 +989,7 @@ export class PublishDriver {
     }
     if (remote === 'pending') {
       this.note(opId, undefined);
-      return;
+      return remote;
     }
     await this.adopt(opId, remote);
   }

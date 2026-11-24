@@ -19,7 +19,7 @@ const view = (patch: Partial<PublishOp>, now = base.createdAt + 1000, note?: str
 
 it('words every status, and says plainly when nothing went live', () => {
   expect(view({}).chip).toBe('Sending…');
-  expect(view({ status: 'pending' }).chip).toBe('Publishing…');
+  expect(view({ status: 'pending' }).chip).toBe('Queued');
   expect(view({ status: 'done' })).toMatchObject({ chip: 'Published', tone: 'ok', finished: true });
   expect(view({ status: 'unchanged' }).chip).toBe('Already live');
   expect(view({ status: 'stale' })).toMatchObject({ chip: 'Changed', tone: 'warn' });
@@ -27,7 +27,7 @@ it('words every status, and says plainly when nothing went live', () => {
   expect(view({ status: 'rejected' })).toMatchObject({ chip: 'Rejected', tone: 'bad' });
   expect(view({ status: 'failed' })).toMatchObject({ chip: 'Failed', tone: 'bad' });
   expect(view({ status: 'failed', error: 'Dropped.' }).detail).toBe('Dropped.');
-  expect(view({ status: 'pending' }).lead).toBe('3 tooltips · @1000000');
+  expect(view({ status: 'pending' }).lead).toBe('3 tooltips');
 });
 
 it('turns a pending operation into Waiting (with Retry) after three minutes, and a note wins the detail', () => {
@@ -74,11 +74,15 @@ it('aggregates partial success as pending, then incomplete when another chunk fa
     status: 'done' as const,
   };
   const pending = { ...base, opId: 'B', hashes: [2], status: 'pending' as const };
-  expect(groupPublishes([base, pending])[0]!.op.status).toBe('pending');
+  expect(groupPublishes([base, pending])[0]!).toMatchObject({
+    op: { status: 'pending' },
+    liveCount: 1,
+  });
   const failed = groupPublishes([base, { ...pending, status: 'stale' }])[0]!.op;
   expect(failed.status).toBe('failed');
   expect(failed.error).toContain('1 of 2 tooltips confirmed live');
-  expect(groupPublishes([base, { ...pending, status: 'done' }])[0]!.op.status).toBe('done');
+  const done = groupPublishes([base, { ...pending, status: 'done', updatedAt: 67_001 }])[0]!.op;
+  expect(describeOp(done, undefined, 68_000, String).detail).toBe('Confirmed live after 1:07.');
 });
 
 it("PUBLISH-502: a grouped failure keeps the first failed part's own reason", () => {
@@ -142,7 +146,7 @@ it('offers Retry only for a queued part, and keeps long final reasons whole', ()
   expect(describe([part, { ...queued, acceptedAt: now - 1000 }]).waiting).toBe(false);
   // Every part finished, one receipt unread: the real state, no Retry.
   const unread = { ...part, opId: 'B', hashes: [2], status: 'rejected' as const };
-  expect(describe([part, unread])).toMatchObject({ chip: 'Combining…', waiting: false });
+  expect(describe([part, unread])).toMatchObject({ chip: 'Checking…', waiting: false });
 
   // Five refused 50-row parts with ten-digit hashes: every sentence and the reason survive.
   const refusedParts = Array.from({ length: 5 }, (_, index) => {

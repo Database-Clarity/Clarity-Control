@@ -233,7 +233,9 @@ function Workspace({
   const body = draftOf(key)?.body ?? saved;
   const dirty = body !== saved;
   const staleDraft = dirty && draftOf(key)?.revision !== entry?.revision;
-  const [pending, setPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'saving' | 'checking' | null>(null);
+  const pending = pendingAction !== null;
+  const pendingLabel = pendingAction === 'saving' ? 'Saving…' : 'Checking…';
   const busy = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
@@ -430,7 +432,7 @@ function Workspace({
   async function run(mutation?: GlobalMutation) {
     if (busy.current) return false;
     busy.current = true;
-    setPending(true);
+    setPendingAction(mutation ? 'saving' : 'checking');
     setError('');
     try {
       const result = mutation
@@ -453,21 +455,24 @@ function Workspace({
         }
         return true;
       } else {
-        setError(result.message);
+        if (mutation && result.kind === 'retry') {
+          const reason = result.message.replace(/^Sync pending(?::\s*|\.?$)/i, '');
+          setError(`Save unconfirmed. Refresh before trying again.${reason ? ` (${reason})` : ''}`);
+        } else setError(result.message);
         setConflict(result.kind === 'conflict');
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Request failed. Retry the action.');
     } finally {
       busy.current = false;
-      setPending(false);
+      setPendingAction(null);
     }
     return false;
   }
   async function refreshSync(retry = false) {
     if ((retry && !entry) || busy.current) return;
     busy.current = true;
-    setPending(true);
+    setPendingAction('checking');
     setError('');
     try {
       // Confirm the opened entry even when the bundle lags or its review page is unavailable.
@@ -497,7 +502,7 @@ function Workspace({
         );
     } finally {
       busy.current = false;
-      if (mounted.current) setPending(false);
+      if (mounted.current) setPendingAction(null);
     }
   }
   async function project() {
@@ -642,7 +647,7 @@ function Workspace({
             })
           }
         >
-          {pending ? 'Saving…' : 'Save'}
+          {pending ? pendingLabel : 'Save'}
         </button>
       }
       worklistControl={actions || undefined}
@@ -672,10 +677,16 @@ function Workspace({
                 ? sync.lastFailure
                 : `Sync failed. ${sync.lastFailure ?? 'Failure details unavailable.'}`
               : sync.status === 'sync-pending'
-                ? 'Sync pending.'
+                ? !snapshot.sync[entry.id]
+                  ? 'Check status unavailable. Refresh to try again.'
+                  : ownCauses.length && !renameQueued
+                    ? dirty
+                      ? 'Waiting for checks on a saved version.'
+                      : 'Saved. Waiting for affected tooltips to be checked.'
+                    : 'Waiting for global changes to be checked.'
                 : null}{' '}
             {blockedDestinations.length > 0 &&
-              `Publishing to ${blockedDestinations.join(' and ')} is blocked until sync finishes.`}
+              `Publishing to ${blockedDestinations.join(' and ')} is paused.`}
           </span>
           <span className={styles.noticeActions}>
             <button
@@ -742,7 +753,7 @@ function Workspace({
           markupRow={markupRow.open}
           readOnly={pending}
           paused={pending}
-          readOnlyReason={pending ? 'Saving…' : null}
+          readOnlyReason={pending ? pendingLabel : null}
           preview={column ? { collapsed: column.collapsed, onShow: column.show } : undefined}
           onChange={(value) => {
             setDraft(value);
@@ -779,7 +790,9 @@ function Workspace({
   /** Plain words for a saved review; a sync that has not finished outranks it. */
   const reviewLabel = (state: string) =>
     !projectedScope && sync.status === 'sync-pending'
-      ? 'Sync pending'
+      ? entry && snapshot.sync[entry.id]
+        ? 'Waiting for checks'
+        : 'Check status unavailable'
       : !projectedScope && sync.status === 'sync-failed'
         ? 'Sync failed'
         : state === 'required'
