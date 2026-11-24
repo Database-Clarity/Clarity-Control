@@ -430,7 +430,7 @@ async function withdrawalFixture() {
 }
 
 describe('withdrawal alongside a pending fallback change', () => {
-  it.each(['language', 'entry', 'resave', 'two withdrawals'] as const)(
+  it.each(['language', 'entry', 'resave', 'last language', 'two withdrawals'] as const)(
     'keeps the Beta review on Alpha and publishes unrelated edits (%s)',
     async (scenario) => {
       const { f, port, alpha, delta } = await withdrawalFixture();
@@ -450,9 +450,8 @@ describe('withdrawal alongside a pending fallback change', () => {
         await saved(await port.edit(delta.id, '8', 'de'));
         await f.globals.drain();
       }
-      if (scenario === 'two withdrawals') {
-        // Both withdrawals remain pending for release. The second mutation needs
-        // a removal proof from the first sync.
+      let gamma: string | undefined;
+      if (scenario === 'last language' || scenario === 'two withdrawals') {
         const create = () =>
           port.post('', {
             operation: 'create',
@@ -468,13 +467,16 @@ describe('withdrawal alongside a pending fallback change', () => {
         const {
           value: { entry },
         } = await created.json();
+        gamma = entry.id;
         await f.globals.drain();
         await saved(await remove(entry.id, 'de'));
         expect(f.read(`globals/entries/${entry.id}.json`).definitions).toEqual({});
         await f.globals.drain();
       }
-      await saved(await remove(delta.id, scenario === 'entry' ? undefined : 'de'));
-      await f.globals.drain();
+      if (scenario !== 'last language') {
+        await saved(await remove(delta.id, scenario === 'entry' ? undefined : 'de'));
+        await f.globals.drain();
+      }
 
       const publish = async (hash: number, sequence: number) => {
         const op = `01K95H0000000000000000000${sequence}`;
@@ -493,7 +495,7 @@ describe('withdrawal alongside a pending fallback change', () => {
         });
       };
       await publishUnrelated(2);
-      if (scenario === 'resave') {
+      if (scenario === 'resave' || scenario === 'last language') {
         await saved(await port.edit(alpha.id, '113', 'de'));
         await f.globals.drain();
         await publishUnrelated(3);
@@ -512,6 +514,7 @@ describe('withdrawal alongside a pending fallback change', () => {
         return (await response.json()).value.impacts[id];
       };
       expect(await reviewPage(delta.id)).toEqual([]);
+      if (gamma) expect(await reviewPage(gamma)).toEqual([]);
       const rows = await reviewPage(alpha.id);
       expect(rows).toHaveLength(1);
       const row = rowSchema.parse(f.read(`globals/reviews/${rows[0].id}.json`));
@@ -525,7 +528,9 @@ describe('withdrawal alongside a pending fallback change', () => {
       await f.globals.drain();
       expect(f.read(`globals/reviews/${row.id}.json`).review.acknowledgement.by).toBe('alice');
       expect(await publish(2, 1)).toMatchObject({ status: 'done' });
-      expect(f.read('live/tooltips/2.json').text.de.text).not.toContain('Delta');
+      const german = f.read('live/tooltips/2.json').text.de.text;
+      if (scenario === 'last language') expect(german).toContain('var Delta = 7');
+      else expect(german).not.toContain('Delta');
       expect(await reviewPage(alpha.id)).toEqual([]);
     },
   );

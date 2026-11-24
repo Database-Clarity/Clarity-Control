@@ -208,7 +208,7 @@ function impacts(
       result,
       changes(input, ids, names).map((change) => change.cause),
       scans,
-      withdrawals?.size && ids.length > 1 ? () => fallbackAlternatives(observedBefore) : undefined,
+      withdrawals && ids.length > 1 ? () => fallbackAlternatives(observedBefore) : undefined,
     );
   });
 }
@@ -261,8 +261,8 @@ function expandReleaseDependencies(
     if (row.before?.rendered !== row.after?.rendered && !rows.has(key(row))) {
       const actual = census.rows.find((candidate) => key(candidate) === key(row));
       if (!actual) continue;
-      // In mixed releases with a withdrawal, attribute the fallback to edits
-      // needed to reproduce it. Retain review coverage if no one edit is necessary.
+      // Attribute fallback in the final release to edits needed to reproduce it,
+      // including when a withdrawn cell never appeared in the published store.
       alternatives ??= counterfactuals?.();
       const attributable = causes.filter(({ globalId }) => {
         const alternative = alternatives?.get(globalId);
