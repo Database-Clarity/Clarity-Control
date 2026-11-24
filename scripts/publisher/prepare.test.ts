@@ -427,34 +427,53 @@ async function stagedCurrentFixture(
 }
 
 describe('offline staged Current saves', () => {
-  it('lands a stamp-only German change against the displayed English across staged parts', async () => {
-    const f = await stagedCurrentFixture(36, true, (edits, fixture) => {
-      const base = tip('English was reviewed');
-      const old = '2029-01-01T00:00:00.000Z';
-      base.text.de = { text: 'Geprüft.', updatedAt: old, updatedBy: 'alice', sourceUpdatedAt: old };
-      fixture.change({ 'tooltips/123.json': base });
-      const next = structuredClone(base);
-      const sourceUpdatedAt = base.text.en!.updatedAt;
-      next.text.de = { ...base.text.de, updatedAt: AT, sourceUpdatedAt };
-      edits[0] = {
-        hash: 123,
-        base,
-        next,
-        translationRevisions: {
-          de: { commit: fixture.pub.head(fixture.options.dataBranch), sourceUpdatedAt },
-        },
-      };
-    });
-    const newer = structuredClone(f.edits[0]!.base);
-    newer.text.en = { text: 'New English', updatedAt: DUE, updatedBy: 'alice' };
-    f.change({ 'tooltips/123.json': newer });
-    await drainCurrentSaves(f.pub);
-    expect(f.read(currentPaths.record(S))).toMatchObject({ status: 'saved' });
-    expect(f.read('tooltips/123.json')).toEqual({
-      ...newer,
-      text: { ...newer.text, de: f.edits[0]!.next.text.de },
-    });
-  });
+  it.each([
+    { inHistory: true, status: 'saved' },
+    { inHistory: false, status: 'failed' },
+  ])(
+    'checks the reviewed English history across staged parts ($status)',
+    async ({ inHistory, status }) => {
+      const f = await stagedCurrentFixture(36, true, (edits, fixture) => {
+        const base = tip('English was reviewed');
+        const old = '2029-01-01T00:00:00.000Z';
+        base.text.de = {
+          text: 'Geprüft.',
+          updatedAt: old,
+          updatedBy: 'alice',
+          sourceUpdatedAt: old,
+        };
+        fixture.change({ 'tooltips/123.json': base });
+        const head = fixture.pub.head(fixture.options.dataBranch);
+        const commit = inHistory
+          ? head
+          : fixture.git.commit(head, fixture.git.tree(head), 'Unmerged review');
+        const next = structuredClone(base);
+        const sourceUpdatedAt = base.text.en!.updatedAt;
+        next.text.de = { ...base.text.de, updatedAt: AT, sourceUpdatedAt };
+        edits[0] = {
+          hash: 123,
+          base,
+          next,
+          translationRevisions: {
+            de: { commit, sourceUpdatedAt },
+          },
+        };
+      });
+      const newer = structuredClone(f.edits[0]!.base);
+      newer.text.en = { text: 'New English', updatedAt: DUE, updatedBy: 'alice' };
+      f.change({ 'tooltips/123.json': newer });
+      await drainCurrentSaves(f.pub);
+      expect(f.read(currentPaths.record(S))).toMatchObject({ status });
+      expect(f.read('tooltips/123.json')).toEqual(
+        inHistory
+          ? {
+              ...newer,
+              text: { ...newer.text, de: f.edits[0]!.next.text.de },
+            }
+          : newer,
+      );
+    },
+  );
 
   it('expires an abandoned Current upload and releases its account slot', async () => {
     const f = await fixture();

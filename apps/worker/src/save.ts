@@ -310,6 +310,13 @@ async function verifyTranslationRevisions(
     if (proof.restore) {
       if ((reviewed.text[lang]?.sourceUpdatedAt ?? reviewedEnglish) !== proof.sourceUpdatedAt)
         throw invalid(lang);
+      if (
+        Date.parse(before.sourceUpdatedAt ?? head.text.en.updatedAt) ===
+        Date.parse(proof.sourceUpdatedAt)
+      ) {
+        merged.text[lang] = before;
+        continue;
+      }
       restored.push(lang);
     } else {
       const state = translationStateOf(reviewed, lang);

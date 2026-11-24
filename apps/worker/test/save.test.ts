@@ -605,6 +605,29 @@ describe('still correct', () => {
     expect(fixture.commits).toHaveLength(0);
   });
 
+  it('keeps the stored stamps when a restore names the current source', async () => {
+    const { base, next, proof } = setup();
+    const sourceUpdatedAt = base.text.de!.sourceUpdatedAt!;
+    next.text.de!.sourceUpdatedAt = sourceUpdatedAt;
+    const response = await send(base, next, {
+      de: { ...proof, sourceUpdatedAt, restore: true },
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).tooltips).toEqual([base]);
+    expect(fixture.commits).toHaveLength(0);
+  });
+
+  it('requires the reviewed snapshot to be part of data branch history', async () => {
+    const { base, next, proof } = setup();
+    const unmerged = sha(99);
+    fixture.snapshots.set(unmerged, { ...fixture.current() });
+    fixture.commitParents.set(unmerged, [fixture.dataHead]);
+    const response = await send(base, next, { de: { ...proof, commit: unmerged } });
+    expect(response.status).toBe(422);
+    expect(fixture.current()[path]).toEqual(base);
+    expect(fixture.commits).toHaveLength(0);
+  });
+
   it('refuses a confirmation of a removed number and retains the proof in conflicts', async () => {
     const { base, next, proof } = setup();
     const head = structuredClone(base);
