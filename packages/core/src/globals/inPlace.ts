@@ -61,7 +61,7 @@ function* tagVariables(source: string) {
       if (comments.some(({ from, to }) => from <= match.index && to >= end)) continue;
       const literal =
         !comments.some(({ from, to }) => from < end && match.index < to) &&
-        /^[^\[\]\n]*\[[^\[\]<>\n]*\] *\/>$/.test(tag);
+        /^[^[\]\n]*\[[^[\]<>\n]*\] *\/>$/.test(tag);
       const destination = literal ? tag.indexOf('[') : tag.length;
       const wholeLink =
         literal && /^<link .* \[#(?:[A-Za-z0-9]+|\{[A-Za-z0-9]+\})\] *\/>$/.test(tag);
@@ -96,7 +96,7 @@ export function plainInPlaceDestination(body: string, names: ReadonlySet<string>
   return (
     !!body &&
     body.trim() === body &&
-    !/[\[\]<>\r\n]/.test(body) &&
+    !/[[\]<>\r\n]/.test(body) &&
     !variableReferences(body).some(({ name }) => names.has(name))
   );
 }
