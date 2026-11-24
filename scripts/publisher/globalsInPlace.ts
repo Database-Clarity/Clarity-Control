@@ -18,11 +18,13 @@ import {
   languages,
   legacyGlobalsInPlaceDefinitions,
   lowerConsumerMarkup,
+  MissingGlobalTranslation,
   publishableHashInput,
   protectCommentedGlobalImports,
   pushedSchema,
   reconcileGlobalStore,
   rewriteGlobalReferences,
+  resolveAlias,
   resolveGlobalsInPlace,
   stableStringify,
   type Aliases,
@@ -38,6 +40,7 @@ import {
   type Lang,
   type Tooltip,
 } from '../../packages/core/src/index.js';
+import { markupImports } from '../../packages/core/src/markup/prepare.js';
 import { provesInPlace, type LegacyInput } from '../../packages/export/src/index.js';
 import { createHash } from 'node:crypto';
 import { type Tree } from './git.js';
@@ -369,6 +372,108 @@ function releaseOptions(published: GlobalStore, saved: GlobalStore): GlobalsInPl
   return { definitions, unavailable };
 }
 
+function withImportedFallback(
+  options: GlobalsInPlaceOptions,
+  source: (hash: number) => { document: Tooltip; draft?: boolean } | undefined,
+): GlobalsInPlaceOptions {
+  const cache = new Map<
+    number,
+    { editor?: LegacyEntry['editor']; causes: Map<Lang, MissingGlobalTranslation> }
+  >();
+  const inspect = (hash: number) => {
+    const cached = cache.get(hash);
+    if (cached) return cached;
+    const input = source(hash);
+    const causes = new Map<Lang, MissingGlobalTranslation>();
+    const row =
+      input &&
+      exportLegacy(
+        [input.document],
+        0,
+        undefined,
+        {},
+        {
+          globalsInPlace: input.draft ? options : { definitions: options.definitions },
+          onGlobalsFallback: (_hash, cause) => causes.set(cause.language, cause),
+        },
+      )[input.document.hash];
+    const inspected = { editor: row && !isLegacyAliasStub(row) ? row.editor : undefined, causes };
+    cache.set(hash, inspected);
+    return inspected;
+  };
+  const inherited = (
+    text: string,
+    lang: Lang,
+    visited: Set<number>,
+  ): MissingGlobalTranslation | undefined => {
+    for (const line of markupImports(text)) {
+      const target = / from (\d+) *$/.exec(line)?.[1];
+      if (!target || visited.has(Number(target))) continue;
+      const hash = Number(target);
+      visited.add(hash);
+      const { editor, causes } = inspect(hash);
+      const local = editor?.[lang];
+      const cause =
+        causes.get(lang) ??
+        (local && !local.englishFallback
+          ? inherited(`${local.main}\n${local.secondary}`, lang, visited)
+          : undefined);
+      if (cause) return cause;
+    }
+  };
+  return {
+    ...options,
+    importFallback: (text, lang) =>
+      text.includes('import ') ? inherited(text, lang, new Set()) : undefined,
+  };
+}
+
+export function authoredInPlaceOptions(
+  pub: Publisher,
+  tree: Tree,
+  live: LegacyInput,
+  plan: Pick<ReturnType<typeof planInPlaceRelease>, 'options' | 'rewritten'>,
+  documents: readonly Tooltip[],
+  aliases: Aliases,
+) {
+  const drafts = new Map(documents.map((doc) => [doc.hash, doc]));
+  return withImportedFallback(plan.options, (hash) => {
+    const canonical = resolveAlias(hash, aliases);
+    const draft = drafts.get(canonical);
+    if (draft) return { document: draft, draft: true };
+    const row = live.perks[hash];
+    if (!row) return;
+    const published = 'aliasOf' in row ? row.aliasOf : hash;
+    const document =
+      plan.rewritten.get(published) ?? pub.read<Tooltip>(tree, `live/tooltips/${published}.json`);
+    if (document) return { document };
+  });
+}
+
+export function assertScheduledGlobalNames(
+  documents: readonly Tooltip[],
+  plan: ReturnType<typeof planInPlaceRelease>,
+) {
+  for (const entry of plan.published.store.entries) {
+    const retired = new Set(
+      entry.nameHistory
+        .map(({ name }) => name)
+        .filter((name) => !Object.hasOwn(plan.options.definitions[entry.kind] ?? {}, name)),
+    );
+    if (!retired.size) continue;
+    for (const tooltip of documents)
+      for (const cell of Object.values(tooltip.text)) {
+        const reference = globalReferenceSpans(cell.text, entry.kind).find(({ name }) =>
+          retired.has(name),
+        );
+        if (reference)
+          throw new Error(
+            `Tooltip ${tooltip.hash} uses the former shared name ${reference.name}. Return the batch to draft and schedule it again with ${entry.name}.`,
+          );
+      }
+  }
+}
+
 function renamesOf(published: GlobalStore, selected: readonly GlobalRecord[]): Rename[] {
   return selected.flatMap((entry) => {
     const previous = published.entries.find(({ id }) => id === entry.id);
@@ -536,17 +641,32 @@ function selectedRelease(
     saved,
     selected.map(({ id }) => id),
   );
-  const oldOptions = { definitions: globalsInPlaceDefinitions(before.entries) };
   const options = releaseOptions(next, saved);
   const rewritten = new Map<number, Tooltip>();
+  const updatedDocs = liveDocs.map((prior) => {
+    const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
+    if (doc !== prior) rewritten.set(doc.hash, doc);
+    return doc;
+  });
+  const publishedDocs = new Map(updatedDocs.map((doc) => [doc.hash, doc]));
+  const source = (hash: number) => {
+    const row = live.perks[hash];
+    const document = publishedDocs.get(row && 'aliasOf' in row ? row.aliasOf : hash);
+    if (document) return { document };
+  };
+  const oldOptions = withImportedFallback(
+    { definitions: globalsInPlaceDefinitions(before.entries) },
+    source,
+  );
+  const publishedOptions = withImportedFallback({ definitions: options.definitions }, source);
   const affected: Tooltip[] = [];
   const changedLanguages = new Map<number, Lang[]>();
   const refills: Receipt['exported'] = {};
-  for (const prior of liveDocs) {
-    const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
-    if (doc !== prior) rewritten.set(doc.hash, doc);
+  for (const doc of updatedDocs) {
     const old = exportLegacy([doc], 0, undefined, {}, { globalsInPlace: oldOptions })[doc.hash];
-    const filled = exportLegacy([doc], 0, undefined, {}, { globalsInPlace: options })[doc.hash];
+    const filled = exportLegacy([doc], 0, undefined, {}, { globalsInPlace: publishedOptions })[
+      doc.hash
+    ];
     if (
       isLegacyAliasStub(old) ||
       isLegacyAliasStub(filled) ||
@@ -565,8 +685,8 @@ function selectedRelease(
     refills[doc.hash] = { ...perk, editor };
   }
   if (affected.length) {
-    assertInPlaceDocuments(affected, options);
-    const { raw, fallbacks } = exportGlobalsProof(affected, 0, undefined, {}, {}, options);
+    assertInPlaceDocuments(affected, publishedOptions);
+    const { raw, fallbacks } = exportGlobalsProof(affected, 0, undefined, {}, {}, publishedOptions);
     const rawPerks = { ...live.perks };
     for (const { hash } of affected) {
       const existing = rawPerks[hash],
@@ -587,7 +707,7 @@ function selectedRelease(
       live,
       { ...live, perks: rawPerks },
       { ...live, perks: { ...live.perks, ...refills } as LegacyInput['perks'] },
-      options,
+      publishedOptions,
       affected.map(({ hash }) => hash),
       fallbacks,
     );

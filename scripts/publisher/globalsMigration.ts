@@ -2,8 +2,10 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   exportLegacy,
   globalsInPlaceCapability,
+  globalsInPlaceDefinition,
   globalsInPlaceFenceSchema,
   globalsInPlacePath,
+  languages,
   legacyGlobalsInPlaceDefinitions,
   projectGlobals,
   type GlobalsInPlaceFence,
@@ -152,9 +154,16 @@ export async function dryRunGlobalsMigration(
   const before = liveGlobalsInput(pub, legacyLive);
   const definitions = (perks: LegacyInput['perks'] | ReturnType<typeof exportLegacy>) =>
     legacyGlobalsInPlaceDefinitions(perks as Parameters<typeof legacyGlobalsInPlaceDefinitions>[0]);
+  const liveDefinitions = definitions(before.perks);
   const projected = exportLegacy(Object.values(projectGlobals(published)), 0, pub.options.facts);
-  if (!isDeepStrictEqual(definitions(before.perks), definitions(projected)))
+  if (!isDeepStrictEqual(liveDefinitions, definitions(projected)))
     throw new Error('Published definitions differ from the effective LIVE libraries.');
+  for (const entry of published.entries.filter(({ tombstone }) => !tombstone))
+    for (const lang of languages) {
+      const liveDefinition = liveDefinitions[entry.kind]?.[entry.name]?.[lang];
+      if (Boolean(liveDefinition) !== Boolean(globalsInPlaceDefinition(entry.definitions, lang)))
+        throw new Error(`Published availability for ${entry.name} (${lang}) differs from LIVE.`);
+    }
   const next = migrateInPlace(before);
   const files = proveMigrationFiles(before, next, inputs);
   if (!journal) {

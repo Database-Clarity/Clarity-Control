@@ -4,11 +4,13 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  activeAliases,
   exportWithInactiveMoves,
   applyInactiveLive,
   inactiveMovesPath,
   inactiveMovesSchema,
   inactivePublishableHash,
+  isMovedInactive,
   selectedInactiveMoves,
   mergeLivePerks,
   aliasGroupsPath,
@@ -26,6 +28,8 @@ import { maxBuffer } from './childProcess.mjs';
 import { Publisher, type Options } from './publisher.js';
 import {
   assertInPlaceDocuments,
+  assertScheduledGlobalNames,
+  authoredInPlaceOptions,
   exportGlobalsProof,
   planInPlaceRelease,
   proveInPlaceInputs,
@@ -73,6 +77,8 @@ for (let i = 0; i < tooltips.length; i++)
   if ((await inactivePublishableHash(tooltips[i], aliases, moves)) !== receipt.entries[i].digest)
     throw new Error('Receipt digest mismatch');
 const hashes = tooltips.map((tooltip) => tooltip.hash);
+const selectedMoves = selectedInactiveMoves(moves, hashes, aliases);
+const active = tooltips.filter(({ hash }) => !isMovedInactive(hash, selectedMoves));
 const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
 const payload = JSON.parse(request.payload);
 const fence = globalsInPlaceFenceSchema.optional().parse(atSource(globalsInPlacePath));
@@ -116,12 +122,20 @@ const plan =
       stableStringify(release.refusals) !== stableStringify(receipt.inPlace.refusals ?? [])
     )
       throw new Error('Receipt shared definitions differ from the request');
-    return release;
+    if (payload.kind === 'batch') assertScheduledGlobalNames(active, release);
+    const options = authoredInPlaceOptions(
+      publisher,
+      tree,
+      base,
+      release,
+      active,
+      activeAliases(aliases, selectedMoves),
+    );
+    return { ...release, options };
   })();
 const globalsInPlace = plan?.options;
 const live = plan ? ({ ...base, perks: { ...base.perks, ...plan.refills } } as LegacyInput) : base;
-if (globalsInPlace) assertInPlaceDocuments(tooltips, globalsInPlace);
-const selectedMoves = selectedInactiveMoves(moves, hashes, aliases);
+if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
 const exported = exportWithInactiveMoves(
   tooltips,
   receipt.now,

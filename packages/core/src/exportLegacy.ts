@@ -243,6 +243,10 @@ export function exportLegacy(
           try {
             try {
               source = resolveGlobalsInPlace(resolved, language, globals);
+              if (language !== 'en' && !englishFallback) {
+                const imported = globals.importFallback?.(source, language);
+                if (imported) throw imported;
+              }
             } catch (cause) {
               if (
                 !(cause instanceof MissingGlobalTranslation) ||

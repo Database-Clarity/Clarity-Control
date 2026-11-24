@@ -646,6 +646,80 @@ describe('in-place shared text publication', () => {
     expect(live(f).perks[140]).toEqual(before.perks[140]);
   });
 
+  it('refills existing published text independently of unrelated saved-only names', async () => {
+    const f = await inPlaceFixture();
+    f.change({ 'tooltips/140.json': tooltip(140, 'Literal #Extra') });
+    await f.request([140]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    const extra = { ...structuredClone(f.entry), id: 'g_newfixture000', name: 'Extra' };
+    f.change({ [`globals/entries/${extra.id}.json`]: extra });
+    const before = live(f).perks[140];
+    const beta = pending(f).find(({ id }) => id === f.entry.id)!;
+    expect(beta.refusal).toBeUndefined();
+    const op = A.replace(/1$/, '2');
+    await f.request([], op, selection(beta));
+    await f.pub.run(false);
+    expect(f.read(paths(op).log).result.status).toBe('done');
+    expect(live(f).perks[140]).toEqual(before);
+  });
+
+  it('falls back and restores the whole importing tooltip with its shared translation', async () => {
+    const f = await inPlaceFixture();
+    const source = tooltip(140, 'English source\nexport Info (\nEnglish info #Beta\n)');
+    source.text.de = cell('Deutsche Quelle\nexport Info (\nDeutsche Info #Beta\n)');
+    const reader = tooltip(142, 'English introduction\nimport Info from 140');
+    reader.text.de = cell('Deutsche Einleitung\nimport Info from 140');
+    f.change({ 'tooltips/140.json': source, 'tooltips/142.json': reader });
+    await f.request([140, 142]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+
+    const original = f.published.entries.find(({ id }) => id === f.entry.id)!;
+    const withdrawn = structuredClone(original);
+    delete withdrawn.definitions.de;
+    f.change({ [f.entryPath]: withdrawn });
+    const row = pending(f).find(({ id }) => id === original.id)!;
+    expect(row.affected).toContain(142);
+    const withdraw = A.replace(/1$/, '2');
+    await f.request([], withdraw, selection(row));
+    await f.pub.run(false);
+    expect(f.read(paths(withdraw).log).result.status).toBe('done');
+    expect(live(f).perks[142]).toMatchObject({
+      editor: {
+        de: {
+          main: 'English introduction\nimport Info from 140',
+          englishFallback: true,
+        },
+      },
+    });
+
+    reader.text.en!.text = 'Updated English introduction\nimport Info from 140';
+    f.change({ 'tooltips/142.json': reader });
+    const republish = A.replace(/1$/, '3');
+    await f.request([142], republish);
+    await f.pub.run(false);
+    expect(f.read(paths(republish).log).result.status).toBe('done');
+    expect(live(f).perks[142]).toMatchObject({
+      editor: {
+        de: {
+          main: 'Updated English introduction\nimport Info from 140',
+          englishFallback: true,
+        },
+      },
+    });
+    f.change({ [f.entryPath]: original });
+    const restore = A.replace(/1$/, '4');
+    await f.request([], restore, selection(pending(f).find(({ id }) => id === original.id)!));
+    await f.pub.run(false);
+    expect(f.read(paths(restore).log).result.status).toBe('done');
+    const restored = live(f).perks[142];
+    expect('editor' in restored && restored.editor.de).toEqual({
+      main: 'Deutsche Einleitung\nimport Info from 140',
+      secondary: 'Deutsche Einleitung\nimport Info from 140',
+    });
+  });
+
   it('validates inactive removal without reading its discarded markup', async () => {
     const f = await inPlaceFixture();
     f.change({
@@ -827,6 +901,31 @@ describe('in-place shared text publication', () => {
     );
     expect(git.head(D)).toBe(aligned);
     expect(git.head(L)).toBe(overriding);
+
+    const stale = structuredClone(f.published);
+    stale.entries.find(({ name }) => name === 'Beta')!.definitions.en!.updatedAt =
+      '2026-06-01T00:00:00Z';
+    const staleCatalogue = git.commit(
+      aligned,
+      {
+        ...git.tree(aligned),
+        'globals/live/converter-v2-test.json': git.writeBlob(
+          encode({
+            version: 1,
+            destination: f.options.liveBranch,
+            store: stale,
+          }),
+        ),
+      },
+      'Keep legacy output while recording stale German shared text',
+    );
+    git.cas(D, aligned, staleCatalogue);
+    git.cas(L, overriding, currentLive);
+    await expect(dryRunGlobalsMigration(publisher, inputs)).rejects.toThrow(
+      'Published availability for Beta (de) differs from LIVE',
+    );
+    expect(git.head(D)).toBe(staleCatalogue);
+    expect(git.head(L)).toBe(currentLive);
   });
 });
 async function mutationPort(

@@ -575,7 +575,10 @@ async function withGlobals(
   return { store, proposed };
 }
 
-it('uses the shared text published at landing after a scheduled claim race', async () => {
+it.each([
+  { action: 'body change', rename: false },
+  { action: 'rename', rename: true },
+])('rechecks a shared $action at landing after a scheduled claim race', async ({ rename }) => {
   const f = await fixture();
   const { store } = await withGlobals(f, 'Fixed #Alpha');
   const legacyData = f.pub.head(f.options.dataBranch);
@@ -605,6 +608,15 @@ it('uses the shared text published at landing after a scheduled claim race', asy
   });
   const change = (value: string, release = false) => {
     const alpha = structuredClone(store.entries.find(({ name }) => name === 'Alpha')!);
+    if (release && rename) {
+      alpha.nameHistory.push({
+        name: alpha.name,
+        revision: alpha.revision,
+        at: new Date().toISOString(),
+        by: 'alice',
+      });
+      alpha.name = 'Renamed';
+    }
     alpha.revision = `alpha-${value}`;
     alpha.definitions.en!.revision = alpha.revision;
     alpha.definitions.en!.body = value;
@@ -632,10 +644,18 @@ it('uses the shared text published at landing after a scheduled claim race', asy
   (f.git as Memory).beforeAtomic = () => {
     expect(f.batch().status).toBe('publishing');
     expect(f.pub.head(f.options.liveBranch)).toBe(migratedLive);
-    change('13', true);
+    change(rename ? '10' : '13', true);
   };
   await f.pub.operation(R);
   const live = f.pub.head(f.options.liveBranch);
+  if (rename) {
+    expect(f.batch().status).toBe('needs_attention');
+    expect(f.read(paths(R).log)).toMatchObject({
+      result: { error: expect.stringContaining('former shared name Alpha') },
+    });
+    expect(live).toBe(migratedLive);
+    return;
+  }
   expect(f.batch().status).toBe('published');
   expect(f.pub.receipt(live, R)).toMatchObject({
     inPlace: { globals: [], refills: [] },

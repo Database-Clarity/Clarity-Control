@@ -18,6 +18,7 @@ export type GlobalsInPlaceDefinitions = Readonly<
 export interface GlobalsInPlaceOptions {
   definitions: GlobalsInPlaceDefinitions;
   unavailable?: Partial<Record<Kind, ReadonlySet<string>>>;
+  importFallback?: (source: string, language: Lang) => MissingGlobalTranslation | undefined;
 }
 
 export class MissingGlobalTranslation extends Error {
