@@ -26,6 +26,8 @@ export function globalsInPlaceSaveIssue(
   source: string,
   titleNames?: ReadonlySet<string>,
 ): string | undefined {
+  if (!source.includes('import ') && (!titleNames?.size || !source.includes('export ')))
+    return undefined;
   const text = removeMarkupComments(source.replace(/\r/g, ''));
   if (
     /^import [A-z0-9 ]+? from 0*[123] *$/m.test(text) ||

@@ -1482,6 +1482,7 @@ export class GlobalsPublisher {
         sources,
         limits.metadataBytes,
       );
+    else delete tree[publicationSourcesPath(this.options.liveBranch)];
     for (const request of requested.values()) {
       const owners = [...captured.saved.entries, ...captured.published.entries].filter(
         (entry) => !entry.tombstone && entry.kind === request.kind && entry.name === request.name,
