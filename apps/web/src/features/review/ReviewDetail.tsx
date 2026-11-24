@@ -218,6 +218,10 @@ function UpdatedTooltips({ pending }: { pending: PendingGlobal }) {
         .sort((a, b) => a.name.localeCompare(b.name)),
     [data, pending],
   );
+  const repeated = (index: number) =>
+    [tooltips[index - 1], tooltips[index + 1]].some(
+      (other) => other?.name === tooltips[index]!.name,
+    );
   if (!tooltips.length)
     return <p className={styles.note}>No published tooltip uses it: none is updated.</p>;
   return (
@@ -226,9 +230,10 @@ function UpdatedTooltips({ pending }: { pending: PendingGlobal }) {
         Updates {count.format(tooltips.length)} {tooltips.length === 1 ? 'tooltip' : 'tooltips'}
       </summary>
       <ul>
-        {tooltips.map(({ hash, name }) => (
+        {tooltips.map(({ hash, name }, index) => (
           <li key={hash}>
             <Link to={`/t/${hash}`}>{name}</Link>
+            {repeated(index) && <span className={styles.muted}> · {hash}</span>}
           </li>
         ))}
       </ul>
@@ -428,10 +433,11 @@ function TextChange({
     !diff ? undefined : diff.merged ? (
       <Folded lines={diff.merged} lang={lang} />
     ) : (
-      // Tables keep the two sides: the live text, then the saved text.
+      // Tables keep the two sides: the live text, then the saved text. A global's language can be
+      // added or removed whole, which has one side.
       <>
-        <Body lines={diff.before} lang={lang} />
-        <Body lines={diff.after} lang={lang} />
+        {(hash >= 0 || diff.before.length > 0) && <Body lines={diff.before} lang={lang} />}
+        {(hash >= 0 || diff.after.length > 0) && <Body lines={diff.after} lang={lang} />}
       </>
     );
   if (scope === 'enhanced')

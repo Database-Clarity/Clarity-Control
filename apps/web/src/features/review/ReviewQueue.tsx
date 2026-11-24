@@ -79,7 +79,7 @@ const QueueRow = memo(function QueueRow({
         aria-label={`${entry.name} ${identity}${kind ? `, ${kind}` : ''}`}
         aria-current={current ? 'page' : undefined}
       >
-        <span>
+        <span data-global={entry.part?.pending ? '' : undefined}>
           {entry.name}
           {(distinguish || entry.part?.pending) && (
             <small className={styles.identity}> · {identity}</small>

@@ -262,6 +262,18 @@
   }
 }
 
+// A global's kind shows whole or not at all: it wraps out of the one line.
+.row a > span[data-global] {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.25em;
+  height: 1lh;
+
+  small {
+    line-height: 1lh;
+  }
+}
+
 // The row's word: plain text, quiet unless the row needs reading.
 .kind {
   flex: none;
