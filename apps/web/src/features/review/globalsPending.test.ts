@@ -365,6 +365,19 @@ it('shows tooltips with the published globals, whatever is pending', async () =>
   expect(library.titles).toContain('Old note');
   expect(library.imports!['global']).toContain('Old export');
   expect(library.imports!['42']).toBe('import 42');
-  const none = await state([]);
-  expect(publishedGlobals(globals, none, 'en')).toBe(globals);
+  // Nothing pending is the switched mode too; only an absent field is the older one.
+  const empty = await state([]);
+  const german: Tooltip = {
+    ...make(12, ''),
+    text: {
+      en: { text: 'English <title a [G_refill] />', updatedAt: at, updatedBy: '' },
+      de: { text: 'Deutsch <title a [G_refill] />', updatedAt: at, updatedBy: '' },
+    },
+  };
+  expect(publishedText(empty, german, 'de', 'next')).toContain('English');
+  const older = { ...empty.bundle };
+  delete older.globalsPending;
+  const absent = { ...empty, bundle: older };
+  expect(publishedText(absent, german, 'de', 'next')).toBe('Deutsch <title a [G_refill] />');
+  expect(publishedGlobals(globals, absent, 'en')).toBe(globals);
 });

@@ -224,7 +224,7 @@ export function publishedText(
   side: 'live' | 'next',
 ): string {
   const text = exportedText(tooltip, lang);
-  if (!data?.bundle.globalsPending?.length || !tooltip || tooltip.hash < 0) return text;
+  if (!data?.bundle.globalsPending || !tooltip || tooltip.hash < 0) return text;
   const definitions = publishedDefinitions(data.bundle)[side];
   const uses = (value: string) =>
     globalTypes.some(({ kind }) => Object.keys(definitions[kind]).some((n) => value.includes(n)));
@@ -243,7 +243,7 @@ export function publishedGlobals(
   data: EditorData | null,
   lang: Lang,
 ): MarkupGlobals {
-  if (!data?.bundle.globalsPending?.length) return globals;
+  if (!data?.bundle.globalsPending) return globals;
   const { next } = publishedDefinitions(data.bundle);
   const library = (kind: GlobalKind, declare: (name: string, body: string) => string) =>
     Object.entries(next[kind])

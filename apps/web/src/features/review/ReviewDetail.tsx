@@ -247,8 +247,7 @@ function UpdatedTooltips({ pending }: { pending: PendingGlobal }) {
     );
   // A refused global's tooltips were not worked out.
   if (!tooltips.length && pending.refusal !== undefined) return null;
-  if (!tooltips.length)
-    return <p className={styles.note}>No published tooltip uses it: none is updated.</p>;
+  if (!tooltips.length) return <p className={styles.note}>Updates no published tooltip.</p>;
   return (
     <details className={styles.updates}>
       <summary>
@@ -559,14 +558,22 @@ export const ReviewDetail = memo(function ReviewDetail({
       </p>
     ) : null;
   // The text a reader judges when there is no comparison: the saved text, plain.
-  const savedText = (tooltip: Tooltip) =>
+  const savedText = (tooltip: Tooltip, side: 'live' | 'next' = 'next') =>
     Object.keys(tooltip.text).length
       ? (Object.entries(tooltip.text) as [Lang, { text: string }][])
           .filter(([, value]) => value?.text)
           .map(([lang, value], _, all) => (
             <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
               {(all.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
-              <PlainText text={value.text} lang={lang} hash={entry.tooltip.hash} />
+              <PlainText
+                text={
+                  data?.bundle.globalsPending
+                    ? publishedText(data, tooltip, lang, side)
+                    : value.text
+                }
+                lang={lang}
+                hash={entry.tooltip.hash}
+              />
             </section>
           ))
       : null;
@@ -596,7 +603,7 @@ export const ReviewDetail = memo(function ReviewDetail({
         />
       </div>
     );
-  else if (kind === 'Removed') evidence = savedText(live ?? entry.tooltip);
+  else if (kind === 'Removed') evidence = savedText(live ?? entry.tooltip, 'live');
   else if (kind === 'Output unchanged' || kind === 'Definition changed')
     evidence = savedText(entry.tooltip);
   else if (kind === 'New' || kind === 'Restored' || kind === 'On hold' || !kind) {
