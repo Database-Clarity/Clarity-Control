@@ -16104,8 +16104,8 @@ function finalize(ctx, schema) {
         compactTypeUnion(entry[1].def ?? entry[1].schema);
       }
     }
-    for (const rewrite of ctx.deferred)
-      rewrite();
+    for (const rewrite2 of ctx.deferred)
+      rewrite2();
     if (ctx.intersections.length) {
       const carriers = /* @__PURE__ */ new Map();
       for (const seen of ctx.seen.values()) {
@@ -20761,7 +20761,7 @@ var init_types = __esm({
       // identity (sameCell ignores it) and never stored in a link snapshot.
       background: external_exports.string().regex(/^#[0-9a-f]{6}$/).optional()
     }).strict().refine(
-      (cell2) => cell2.runs.map((run) => run.text).join("") === cell2.plain,
+      (cell) => cell.runs.map((run) => run.text).join("") === cell.plain,
       "Compendium plain text must match its runs"
     );
     compendiumTabSchema = external_exports.object({ gid: external_exports.string().regex(/^-?\d+$/), name: external_exports.string() });
@@ -22271,8 +22271,8 @@ function tableRow(line, titles) {
   const { classNames, cleanLine } = lineClasses(line, markupEmpty);
   return {
     classNames,
-    rowContent: (cleanLine.match(/\|.*?((?=\|)|$)/g) ?? []).map((cell2) => {
-      const span2 = cell2.match(/\|([bchr\d-]+)?/)?.[0].match(/-\d|\d/g);
+    rowContent: (cleanLine.match(/\|.*?((?=\|)|$)/g) ?? []).map((cell) => {
+      const span2 = cell.match(/\|([bchr\d-]+)?/)?.[0].match(/-\d|\d/g);
       const colSpan = span2?.filter((value2) => Number(value2) > 0)[0];
       const rowSpan = span2?.filter((value2) => Number(value2) < 0)[0];
       const classes = {
@@ -22284,8 +22284,8 @@ function tableRow(line, titles) {
       return {
         colSpan: colSpan ? Number(colSpan) : void 0,
         rowSpan: rowSpan ? -Number(rowSpan) : void 0,
-        classNames: cell2.match(/\|[bchr\d-]+/)?.[0].split("").filter((char) => classes[char]).map((char) => classes[char]),
-        cellContent: spans(trimMarked(cell2.replace(/\|[bchr\d-]+|\|/, "")), titles).flatMap(
+        classNames: cell.match(/\|[bchr\d-]+/)?.[0].split("").filter((char) => classes[char]).map((char) => classes[char]),
+        cellContent: spans(trimMarked(cell.replace(/\|[bchr\d-]+|\|/, "")), titles).flatMap(
           (part) => {
             if (!part.text?.trim() && !part.classNames?.some((name2) => typeof name2 === "string"))
               return [];
@@ -22834,48 +22834,46 @@ var init_model = __esm({
 });
 
 // packages/core/src/globals/inPlaceReview.ts
-function globalsInPlaceClearance(fence) {
-  return fence.state === "active" && fence.clearance === "review";
-}
-var globalsRevisionSchema, globalsInPlacePath, globalsInPlaceCapability, globalsInPlaceFenceSchema, cell, globalsInPlaceReviewSchema;
+var oid, globalsInPlacePath, globalsInPlaceCapability, globalsInPlaceFenceSchema, globalsPendingSchema, globalPublishSelectionSchema;
 var init_inPlaceReview = __esm({
   "packages/core/src/globals/inPlaceReview.ts"() {
     "use strict";
     init_zod();
     init_languages();
+    init_legacy();
     init_model();
-    globalsRevisionSchema = external_exports.string().regex(/^[0-9a-f]{40}$/);
+    oid = external_exports.string().regex(/^[0-9a-f]{40}$/);
     globalsInPlacePath = "config/globals-in-place.json";
     globalsInPlaceCapability = "globalsInPlaceV1";
     globalsInPlaceFenceSchema = external_exports.object({
       state: external_exports.enum(["hold", "active"]),
-      clearance: external_exports.literal("review"),
-      missingTranslation: external_exports.enum(["english", "reject"]).default("english"),
       destination: external_exports.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
-      legacyData: globalsRevisionSchema,
-      legacyLive: globalsRevisionSchema,
-      migratedLive: globalsRevisionSchema
+      legacyData: oid,
+      legacyLive: oid,
+      migratedLive: oid
     }).strict();
-    cell = external_exports.object({
-      main: external_exports.string(),
-      secondary: external_exports.string(),
-      englishFallback: external_exports.literal(true).optional()
-    });
-    globalsInPlaceReviewSchema = external_exports.object({
-      revision: globalsRevisionSchema,
-      rows: external_exports.record(
-        external_exports.string().regex(/^(0|[1-9]\d*)$/),
-        external_exports.object({
-          differs: external_exports.boolean(),
-          causes: external_exports.array(external_exports.object({ id: globalIdSchema, name: external_exports.string() })),
-          diff: external_exports.partialRecord(
-            langSchema,
-            external_exports.object({ before: cell.nullable(), after: cell.nullable() })
-          ),
-          refusal: external_exports.string().optional()
-        })
-      )
-    });
+    globalsPendingSchema = external_exports.array(
+      external_exports.object({
+        id: globalIdSchema,
+        name: external_exports.string(),
+        kind: globalKindSchema,
+        change: external_exports.enum(["new", "changed", "renamed", "removed"]),
+        digest: globalDigestSchema,
+        languages: external_exports.partialRecord(
+          langSchema,
+          external_exports.object({
+            before: external_exports.string().nullable(),
+            after: external_exports.string().nullable()
+          })
+        ),
+        affected: external_exports.array(hashSchema),
+        refusal: external_exports.string().optional()
+      })
+    );
+    globalPublishSelectionSchema = external_exports.object({
+      id: globalIdSchema,
+      expected: globalDigestSchema
+    }).strict();
   }
 });
 
@@ -23690,8 +23688,7 @@ function batchIntentDigest(value2) {
       contentRevision: value2.contentRevision,
       notBefore: value2.notBefore,
       hashes: [...value2.hashes].sort((a, b) => a - b),
-      approvedDigest: value2.approvedDigest,
-      ...value2.globalsRevision === void 0 ? {} : { globalsRevision: value2.globalsRevision }
+      approvedDigest: value2.approvedDigest
     })
   );
 }
@@ -23723,7 +23720,6 @@ var init_digest = __esm({
         "Hashes must be sorted and unique"
       ),
       approvedDigest: digestSchema,
-      globalsRevision: pushShape.globalsRevision,
       intentDigest: digestSchema
     }).strict();
   }
@@ -23950,7 +23946,7 @@ async function verifyScheduleRequest(value2, body2, key, target) {
     throw new Error("Schedule request does not match its signed intent");
   return { request, intent };
 }
-var schedulePreparationCapability, draftBatchStagingCapability, scheduledBatchStagingCapability, batchRemoveChunkSize, preparedDraftSave, stagedPartsPrefix, draftStagingInputSchema, scheduleIntentPaths, revision, oid, digest, scheduledStagingSchema, common, scheduleIntentSchema, scheduleEnvelopeSchema, preparationReasonSchema, scheduleRequestSchema;
+var schedulePreparationCapability, draftBatchStagingCapability, scheduledBatchStagingCapability, batchRemoveChunkSize, preparedDraftSave, stagedPartsPrefix, draftStagingInputSchema, scheduleIntentPaths, revision, oid2, digest, scheduledStagingSchema, common, scheduleIntentSchema, scheduleEnvelopeSchema, preparationReasonSchema, scheduleRequestSchema;
 var init_intent = __esm({
   "packages/core/src/schedule/intent.ts"() {
     "use strict";
@@ -23975,7 +23971,7 @@ var init_intent = __esm({
       stagedPart: (batchId, id, part) => `${stagedPartsPrefix(batchId, id)}${part}.json`
     };
     revision = external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-    oid = external_exports.string().regex(/^[0-9a-f]{40}$/);
+    oid2 = external_exports.string().regex(/^[0-9a-f]{40}$/);
     digest = external_exports.string().regex(/^[0-9a-f]{64}$/);
     scheduledStagingSchema = external_exports.object({
       id: publishOpIdSchema,
@@ -23998,9 +23994,9 @@ var init_intent = __esm({
       }).strict(),
       expectedRevision: revision,
       contentRevision: revision,
-      sourceCommit: oid,
+      sourceCommit: oid2,
       /** Null only when the source batch has no members yet (a draft save). */
-      memberTreeOid: oid.nullable(),
+      memberTreeOid: oid2.nullable(),
       createdAt: timestampSchema,
       /** SHA-256 of the exact UTF-8 HTTP request bytes; the Worker computes it. */
       bodyDigest: digest
@@ -24157,7 +24153,9 @@ async function publishIntentDigest(value2) {
       requester: { id: value2.requester.id },
       hashes: [...value2.hashes].sort((a, b) => a - b),
       expected: value2.expected,
-      ...value2.globalsRevision === void 0 ? {} : { globalsRevision: value2.globalsRevision }
+      ...value2.globals === void 0 ? {} : {
+        globals: [...value2.globals].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      }
     })
   );
   return Array.from(
@@ -24193,10 +24191,12 @@ var init_publishRequest = __esm({
     hashKey = external_exports.string().regex(/^(0|[1-9]\d*)$/).refine((s) => Number(s) <= 4294967295);
     publishBodySchema = external_exports.object({
       opId: publishOpIdSchema,
-      hashes: external_exports.array(hashSchema).min(1).max(3e3).refine((a) => new Set(a).size === a.length),
+      hashes: external_exports.array(hashSchema).max(3e3).refine((a) => new Set(a).size === a.length),
       expected: external_exports.record(hashKey, digest2),
-      globalsRevision: globalsRevisionSchema.optional()
+      globals: external_exports.array(globalPublishSelectionSchema).min(1).max(3e3).refine((items) => new Set(items.map(({ id }) => id)).size === items.length).optional()
     }).strict().superRefine((v, ctx) => {
+      if (!v.hashes.length && !v.globals?.length)
+        ctx.addIssue({ code: "custom", message: "Select a tooltip or a shared definition" });
       if (Object.keys(v.expected).length !== v.hashes.length || v.hashes.some((h) => !v.expected[h]))
         ctx.addIssue({ code: "custom", message: "Exactly one expected digest per hash is required" });
     });
@@ -24213,7 +24213,12 @@ var init_publishRequest = __esm({
       createdAt: external_exports.string().datetime(),
       intentDigest: digest2
     }).strict().superRefine((v, ctx) => {
-      if (!publishBodySchema.safeParse({ opId: v.opId, hashes: v.hashes, expected: v.expected }).success)
+      if (!publishBodySchema.safeParse({
+        opId: v.opId,
+        hashes: v.hashes,
+        expected: v.expected,
+        globals: v.globals
+      }).success)
         ctx.addIssue({ code: "custom", message: "Invalid publish intent" });
     });
     schedule = () => Promise.resolve().then(() => (init_schedule(), schedule_exports));
@@ -24222,7 +24227,7 @@ var init_publishRequest = __esm({
 
 // scripts/publisher/cli.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
-import { createHash as createHash7 } from "node:crypto";
+import { createHash as createHash8 } from "node:crypto";
 import { mkdtempSync as mkdtempSync3, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, rmSync as rmSync3, realpathSync as realpathSync2 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { dirname, join as join4, resolve as resolve3 } from "node:path";
@@ -24312,15 +24317,15 @@ var LocalRepository = class {
     const tree = Object.fromEntries(
       this.git(["ls-tree", "-rz", "--full-tree", commit2]).split("\0").filter(Boolean).map((line) => {
         const tab = line.indexOf("	");
-        const [mode, type, oid4] = line.slice(0, tab).split(" ");
+        const [mode, type, oid5] = line.slice(0, tab).split(" ");
         if (!this.preserveModes && (mode !== "100644" || type !== "blob"))
           throw new Error("Only plain blob trees supported");
-        return [line.slice(tab + 1), oid4];
+        return [line.slice(tab + 1), oid5];
       })
     );
     this.trees.set(commit2, tree);
     const bulk = Object.keys(tree).filter((path) => bulkPath.test(path)).map((path) => tree[path]);
-    for (const oid4 of bulk) this.bulk.set(oid4, bulk);
+    for (const oid5 of bulk) this.bulk.set(oid5, bulk);
     return { ...tree };
   }
   /**
@@ -24328,45 +24333,45 @@ var LocalRepository = class {
    * that is missing or not a blob stays uncached, so blob() still fails on it when it is used.
    */
   readBulk(bulk) {
-    const oids = [...new Set(bulk)].filter((oid4) => !this.blobs.has(oid4));
-    const output2 = this.gitBytes(["cat-file", "--batch"], oids.map((oid4) => `${oid4}
+    const oids = [...new Set(bulk)].filter((oid5) => !this.blobs.has(oid5));
+    const output2 = this.gitBytes(["cat-file", "--batch"], oids.map((oid5) => `${oid5}
 `).join(""));
     const read = /* @__PURE__ */ new Map();
     let at = 0;
-    for (const oid4 of oids) {
+    for (const oid5 of oids) {
       const end = output2.indexOf("\n", at);
       const header = end < 0 ? "" : output2.toString("latin1", at, end);
       at = end + 1;
-      if (header === `${oid4} missing`) continue;
+      if (header === `${oid5} missing`) continue;
       const [, named, type, size] = /^([0-9a-f]{40}) ([a-z]+) (\d+)$/.exec(header) ?? [];
       const stop = at + Number(size);
-      if (named !== oid4 || output2[stop] !== 10) throw new Error("Unexpected Git batch output");
-      if (type === "blob") read.set(oid4, output2.toString("utf8", at, stop));
+      if (named !== oid5 || output2[stop] !== 10) throw new Error("Unexpected Git batch output");
+      if (type === "blob") read.set(oid5, output2.toString("utf8", at, stop));
       at = stop + 1;
     }
     if (at !== output2.length) throw new Error("Unexpected Git batch output");
-    for (const [oid4, bytes] of read) this.blobs.set(oid4, bytes);
+    for (const [oid5, bytes] of read) this.blobs.set(oid5, bytes);
   }
   treeModes(commit2) {
     return Object.fromEntries(
       this.git(["ls-tree", "-rtz", "--full-tree", commit2]).split("\0").filter(Boolean).flatMap((line) => {
         const tab = line.indexOf("	");
-        const [mode, type, oid4] = line.slice(0, tab).split(" ");
-        return type === "tree" && oid4 !== emptyTreeOid ? [] : [[line.slice(tab + 1), mode]];
+        const [mode, type, oid5] = line.slice(0, tab).split(" ");
+        return type === "tree" && oid5 !== emptyTreeOid ? [] : [[line.slice(tab + 1), mode]];
       })
     );
   }
-  blob(oid4) {
-    if (!this.blobs.has(oid4) && this.bulk.has(oid4)) this.readBulk(this.bulk.get(oid4));
-    if (!this.blobs.has(oid4)) this.blobs.set(oid4, this.git(["cat-file", "blob", oid4]));
-    return this.blobs.get(oid4);
+  blob(oid5) {
+    if (!this.blobs.has(oid5) && this.bulk.has(oid5)) this.readBulk(this.bulk.get(oid5));
+    if (!this.blobs.has(oid5)) this.blobs.set(oid5, this.git(["cat-file", "blob", oid5]));
+    return this.blobs.get(oid5);
   }
   writeBlob(bytes) {
     const buffer = Buffer.from(bytes);
-    const oid4 = createHash("sha1").update(`blob ${buffer.length}\0`).update(buffer).digest("hex");
-    if (!this.blobs.has(oid4)) this.unwritten.set(oid4, buffer);
-    this.blobs.set(oid4, bytes);
-    return oid4;
+    const oid5 = createHash("sha1").update(`blob ${buffer.length}\0`).update(buffer).digest("hex");
+    if (!this.blobs.has(oid5)) this.unwritten.set(oid5, buffer);
+    this.blobs.set(oid5, bytes);
+    return oid5;
   }
   /** Import the waiting blobs (no refs). Git itself must name every one of them. */
   writeBlobs() {
@@ -24385,7 +24390,7 @@ get-mark :${index + 1}
       ["fast-import", "--quiet", "--done"],
       Buffer.concat([...stream, Buffer.from("done\n")])
     );
-    if (stored.toString() !== [...this.unwritten.keys()].map((oid4) => `${oid4}
+    if (stored.toString() !== [...this.unwritten.keys()].map((oid5) => `${oid5}
 `).join(""))
       throw new Error("Unexpected Git import output");
     this.unwritten.clear();
@@ -24411,9 +24416,9 @@ get-mark :${index + 1}
       this.git(["read-tree", "--empty"], void 0, env);
       this.git(
         ["update-index", "-z", "--index-info"],
-        Object.entries(tree).sort().map(([p, oid4]) => {
+        Object.entries(tree).sort().map(([p, oid5]) => {
           if (/[\0\n\t]/.test(p)) throw new Error("Invalid tree path");
-          return `${modes.get(p) ?? "100644"} ${oid4}	${p}\0`;
+          return `${modes.get(p) ?? "100644"} ${oid5}	${p}\0`;
         }).join(""),
         env
       );
@@ -24471,7 +24476,7 @@ commit
   history(ref) {
     return this.git(["rev-list", "--first-parent", "--reverse", ref]).trim().split("\n").filter(Boolean);
   }
-  additions(head, path, after) {
+  additions(head, path) {
     const lines2 = this.git([
       "log",
       "--first-parent",
@@ -24482,7 +24487,7 @@ commit
       "--reverse",
       "--format=%H",
       "--name-only",
-      after ? `${after}..${head}` : head,
+      head,
       "--",
       path
     ]).split("\n");
@@ -25605,9 +25610,9 @@ function parseNumberSlots(text, globals, ids) {
       table: line.table.map((row) => ({
         ...row,
         ...row.rowContent && {
-          rowContent: row.rowContent.map((cell2) => ({
-            ...cell2,
-            cellContent: spans2(cell2.cellContent)
+          rowContent: row.rowContent.map((cell) => ({
+            ...cell,
+            cellContent: spans2(cell.cellContent)
           }))
         }
       }))
@@ -25634,9 +25639,9 @@ function untinted(lines2) {
     ...line.table && {
       table: line.table.map((row) => ({
         ...row,
-        rowContent: row.rowContent?.map((cell2) => ({
-          ...cell2,
-          cellContent: spans2(cell2.cellContent)
+        rowContent: row.rowContent?.map((cell) => ({
+          ...cell,
+          cellContent: spans2(cell.cellContent)
         }))
       }))
     }
@@ -25854,7 +25859,7 @@ var normalizeLegacySections = (lines2) => {
     body2.linesContent?.forEach((content) => {
       content.title = normalizeLegacySections(content.title);
     });
-    body2.table?.forEach((row) => row.rowContent?.forEach((cell2) => cell2.cellContent?.forEach((content) => {
+    body2.table?.forEach((row) => row.rowContent?.forEach((cell) => cell.cellContent?.forEach((content) => {
       content.title = normalizeLegacySections(content.title);
     })));
     return [...heading2, body2];
@@ -26023,7 +26028,7 @@ function buildLegacy(input2, preset, options = {}) {
 }
 
 // scripts/publisher/publisher.ts
-import { createHash as createHash5, createPublicKey as createPublicKey3, verify as verify3 } from "node:crypto";
+import { createHash as createHash6, createPublicKey as createPublicKey3, verify as verify3 } from "node:crypto";
 
 // packages/core/src/index.ts
 init_languages();
@@ -26581,7 +26586,7 @@ function tokenOccurrence(token2, line, lineFrom, from, sourceToken = token2) {
 function tableRowToLine(row) {
   const cells = row.match(/\|.*?((?=\|)|$)/g);
   if (!cells) return row;
-  return cells.map((cell2) => cell2.replace(/^\|[bchr\d-]+|^\|/, "").trim()).filter(Boolean).join(" | ");
+  return cells.map((cell) => cell.replace(/^\|[bchr\d-]+|^\|/, "").trim()).filter(Boolean).join(" | ");
 }
 function tableOccurrences(text, source2) {
   const found = [];
@@ -26719,9 +26724,9 @@ function parserNames(lines2) {
     spans2(line.linesContent ?? []);
     for (const row of line.table ?? []) {
       classes(row.classNames);
-      for (const cell2 of row.rowContent ?? []) {
-        classes(cell2.classNames);
-        spans2(cell2.cellContent);
+      for (const cell of row.rowContent ?? []) {
+        classes(cell.classNames);
+        spans2(cell.cellContent);
       }
     }
   }
@@ -26765,13 +26770,13 @@ function normalizedLines(lines2) {
     if (!line.table) return [stripRetired(line)];
     return line.table.map((row) => ({
       classNames: (line.classNames ?? []).filter((name2) => name2 !== "table"),
-      linesContent: (row.rowContent ?? []).flatMap((cell2, index) => [
+      linesContent: (row.rowContent ?? []).flatMap((cell, index) => [
         ...index ? [{ text: " | " }] : [],
-        ...cell2.cellContent.map((span2) => ({
+        ...cell.cellContent.map((span2) => ({
           ...span2,
           classNames: [
             ...row.classNames ?? [],
-            ...cell2.classNames ?? [],
+            ...cell.classNames ?? [],
             ...span2.classNames ?? []
           ]
         }))
@@ -27189,6 +27194,20 @@ function rewriteGlobalReferences(text, kind, beforeName, afterName) {
 }
 
 // packages/core/src/globals/inPlace.ts
+var MissingGlobalTranslation = class extends Error {
+  constructor(kind, globalName, language, reason) {
+    super(`Add or update the translation for shared ${globalName}.`);
+    this.kind = kind;
+    this.globalName = globalName;
+    this.language = language;
+    this.reason = reason;
+    this.name = "MissingGlobalTranslation";
+  }
+  kind;
+  globalName;
+  language;
+  reason;
+};
 function globalsInPlaceSaveIssue(source2, titleNames) {
   if (!source2.includes("import ") && (!titleNames?.size || !source2.includes("export ")))
     return void 0;
@@ -27223,8 +27242,8 @@ function legacyGlobalsInPlaceDefinitions(perks) {
   ]) {
     const editor = perks[hash2]?.editor;
     if (!editor && hash2 !== 1) throw new Error(`Missing LIVE library ${hash2}`);
-    for (const [language, cell2] of Object.entries(editor ?? {}))
-      for (const source2 of [cell2.main, cell2.secondary]) {
+    for (const [language, cell] of Object.entries(editor ?? {}))
+      for (const source2 of [cell.main, cell.secondary]) {
         const text = source2.replace(/\r/g, "");
         const bodies = kind === "variables" ? extractVariables(text) : extractBlocks(text, kind === "exports" ? "export" : "title");
         for (const [name2, body2] of Object.entries(bodies)) {
@@ -27235,12 +27254,12 @@ function legacyGlobalsInPlaceDefinitions(perks) {
   }
   return result;
 }
-function globalsInPlaceDefinition(entry, language, missingTranslation = "english") {
+function globalsInPlaceDefinition(entry, language) {
   const english = entry.en;
   let selected = entry[language];
-  if (selected?.sourceUpdatedAt && english?.updatedAt && Date.parse(english.updatedAt) - Date.parse(selected.sourceUpdatedAt) > translationMaxAge)
+  if (language !== "en" && selected?.sourceUpdatedAt && english?.updatedAt && Date.parse(english.updatedAt) - Date.parse(selected.sourceUpdatedAt) > translationMaxAge)
     selected = void 0;
-  return selected ?? (missingTranslation === "english" ? english : void 0);
+  return selected;
 }
 function effectiveSharedNotes(source2, globals, names) {
   if (!names.size) return [];
@@ -27264,16 +27283,23 @@ function effectiveSharedNotes(source2, globals, names) {
   }
   return [...reads];
 }
-function resolveGlobalsInPlace(source2, language, { definitions, missingTranslation = "english", onRead }) {
+function resolveGlobalsInPlace(source2, language, { definitions, unavailable }) {
   const lookup = (kind, name2, needed = true) => {
     const entries = definitions[kind];
     if (!entries || !Object.hasOwn(entries, name2)) {
-      if (needed) onRead?.(kind, name2, language, void 0);
+      if (needed && unavailable?.[kind]?.has(name2))
+        throw new Error(`Publish the shared change for ${name2} first.`);
       return;
     }
-    const selected = globalsInPlaceDefinition(entries[name2], language, missingTranslation);
-    if (needed) onRead?.(kind, name2, language, selected?.body);
-    if (!selected && needed) throw new Error(`Add or update the translation for shared ${name2}.`);
+    const entry = entries[name2];
+    const selected = globalsInPlaceDefinition(entry, language);
+    if (!selected && needed)
+      throw new MissingGlobalTranslation(
+        kind,
+        name2,
+        language,
+        entry[language] ? "stale" : "missing"
+      );
     return selected?.body;
   };
   const active = /* @__PURE__ */ new Set();
@@ -27301,7 +27327,7 @@ function resolveGlobalsInPlace(source2, language, { definitions, missingTranslat
   };
   const expanded = source2.includes("import ") ? expand(source2) : source2;
   const text = fill(expanded);
-  const names = new Set(Object.keys(definitions.titles ?? {}));
+  const names = /* @__PURE__ */ new Set([...Object.keys(definitions.titles ?? {}), ...unavailable?.titles ?? []]);
   if (!names.size || !source2) return text;
   const variables = Object.keys(definitions.variables ?? {}).flatMap((name2) => {
     const body2 = lookup("variables", name2, false);
@@ -27463,15 +27489,26 @@ function exportLegacy(tooltips, now, catalog, aliases = {}, options) {
     for (const language of languages2) {
       const translation = tooltip.text[language];
       if (!translation) continue;
-      const englishFallback = usesEnglishFallback(tooltip, language);
-      const exported = englishFallback && english ? english : translation;
-      const resolved = exported.text.includes("#{=") && english ? resolveNumberTokens(exported.text, numberValues(english, language)) : exported.text;
+      let englishFallback = usesEnglishFallback(tooltip, language);
+      let exported = englishFallback && english ? english : translation;
+      let resolved = exported.text.includes("#{=") && english ? resolveNumberTokens(exported.text, numberValues(english, language)) : exported.text;
       if (libraryText === void 0) {
         let source2 = resolved;
         if (globals) {
           try {
-            source2 = resolveGlobalsInPlace(resolved, language, globals);
+            try {
+              source2 = resolveGlobalsInPlace(resolved, language, globals);
+            } catch (cause) {
+              if (!(cause instanceof MissingGlobalTranslation) || language === "en" || !english?.text.trim())
+                throw cause;
+              englishFallback = true;
+              exported = english;
+              resolved = english.text.includes("#{=") ? resolveNumberTokens(english.text, numberValues(english, "en")) : english.text;
+              source2 = resolveGlobalsInPlace(resolved, "en", globals);
+              options?.onGlobalsFallback?.(tooltip.hash, cause);
+            }
             if (source2.includes("{{")) throw new Error(baseEnhancedPublishMessage);
+            if (options?.preserveGlobalReferencesForProof) source2 = resolved;
           } catch (cause) {
             const message = cause instanceof Error ? cause.message : String(cause);
             throw new Error(`Tooltip ${tooltip.hash} (${language}): ${message}`, { cause });
@@ -27558,28 +27595,29 @@ function exportLegacy(tooltips, now, catalog, aliases = {}, options) {
 // packages/core/src/publishableHash.ts
 init_braces();
 init_schemas3();
-async function publishableHash(tooltip, aliases = {}) {
+function publishableHashInput(tooltip, aliases = {}) {
   const parsed = tooltipSchema.parse(tooltip);
   const english = parsed.text.en;
   const incoming = incomingAliases(parsed.hash, aliases);
   const fallback = Object.keys(parsed.text).filter(
     (language) => usesEnglishFallback(parsed, language)
   );
-  const bytes = new TextEncoder().encode(
-    stableStringify({
-      text: Object.fromEntries(
-        Object.entries(parsed.text).map(([language, value2]) => [
-          language,
-          lowerConsumerMarkup(fallback.includes(language) && english ? english.text : value2.text)
-        ])
-      ),
-      associated: parsed.associated,
-      custom: parsed.custom,
-      numbers: english?.numbers,
-      ...fallback.length ? { fallback: fallback.sort() } : {},
-      ...incoming.length ? { aliases: incoming } : {}
-    })
-  );
+  return stableStringify({
+    text: Object.fromEntries(
+      Object.entries(parsed.text).map(([language, value2]) => [
+        language,
+        lowerConsumerMarkup(fallback.includes(language) && english ? english.text : value2.text)
+      ])
+    ),
+    associated: parsed.associated,
+    custom: parsed.custom,
+    numbers: english?.numbers,
+    ...fallback.length ? { fallback: fallback.sort() } : {},
+    ...incoming.length ? { aliases: incoming } : {}
+  });
+}
+async function publishableHash(tooltip, aliases = {}) {
+  const bytes = new TextEncoder().encode(publishableHashInput(tooltip, aliases));
   const digest6 = await globalThis.crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest6), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -28315,18 +28353,18 @@ function calculateGlobalImpact(before, after, changes2, destination, scans = new
     let reason = "variable-read";
     for (const change of changes2) {
       let affected = false;
-      for (const [snapshot, cell2] of [
+      for (const [snapshot, cell] of [
         [before, a],
         [after, b]
       ]) {
-        if (!cell2 || !languageAffected(snapshot, change, lang)) continue;
-        if (cell2.result.reads.imports.some((read) => read.hash === globalAggregateHash(change.kind))) {
+        if (!cell || !languageAffected(snapshot, change, lang)) continue;
+        if (cell.result.reads.imports.some((read) => read.hash === globalAggregateHash(change.kind))) {
           affected = true;
           reason = "aggregate-import";
         } else if (change.kind === "titles") {
           affected = true;
           reason = "title-preparation";
-        } else if (change.kind === "variables" && cell2.result.reads.variables.some(
+        } else if (change.kind === "variables" && cell.result.reads.variables.some(
           (name2) => name2 === change.beforeName || name2 === change.afterName
         )) {
           affected = true;
@@ -28359,17 +28397,17 @@ init_inPlaceReview();
 // packages/core/src/globalsRelease/model.ts
 init_zod();
 init_model();
-var oid2 = external_exports.string().regex(/^[a-f0-9]{40}$/);
+var oid3 = external_exports.string().regex(/^[a-f0-9]{40}$/);
 var digest4 = external_exports.string().regex(/^[a-f0-9]{64}$/);
 var globalSourcesSchema = external_exports.object({
-  authored: oid2,
-  definitions: oid2,
-  projections: oid2,
-  config: oid2,
-  live: oid2,
-  upcoming: oid2,
-  aliases: oid2,
-  generator: oid2,
+  authored: oid3,
+  definitions: oid3,
+  projections: oid3,
+  config: oid3,
+  live: oid3,
+  upcoming: oid3,
+  aliases: oid3,
+  generator: oid3,
   fallback: digest4,
   resolver: digest4
 }).strict();
@@ -28401,7 +28439,7 @@ async function globalIdentityDigest(value2, algorithm = "SHA-256") {
   return [...new Uint8Array(await crypto.subtle.digest(algorithm, bytes))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 async function observeGlobalSources(input2) {
-  for (const value2 of Object.values(input2)) if (value2 !== null) oid2.parse(value2);
+  for (const value2 of Object.values(input2)) if (value2 !== null) oid3.parse(value2);
   return globalSourcesSchema.parse({
     authored: input2.authored,
     definitions: input2.definitions,
@@ -28438,12 +28476,12 @@ function reconcileGlobalStore(layout, entries, { preserveNewLanguageSourceStamp 
       const definitions = entries.filter(
         (entry) => !entry.tombstone && entry.kind === kind && entry.definitions[lang]
       );
-      let cell2 = aggregate.languages[lang];
+      let cell = aggregate.languages[lang];
       const latest = definitions.map((entry) => entry.definitions[lang]).sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)).at(-1);
-      if (!cell2 && latest) {
+      if (!cell && latest) {
         const definition2 = preserveNewLanguageSourceStamp ? latest : definitions[0].definitions[lang];
         const { updatedAt, updatedBy, sourceUpdatedAt } = definition2;
-        cell2 = aggregate.languages[lang] = {
+        cell = aggregate.languages[lang] = {
           metadata: {
             updatedAt,
             updatedBy,
@@ -28454,8 +28492,8 @@ function reconcileGlobalStore(layout, entries, { preserveNewLanguageSourceStamp 
           segments: [{ literal: "" }]
         };
       }
-      if (!cell2) continue;
-      if (latest && Date.parse(latest.updatedAt) > Date.parse(cell2.metadata.updatedAt)) {
+      if (!cell) continue;
+      if (latest && Date.parse(latest.updatedAt) > Date.parse(cell.metadata.updatedAt)) {
         const {
           body: _body,
           revision: _revision,
@@ -28467,18 +28505,18 @@ function reconcileGlobalStore(layout, entries, { preserveNewLanguageSourceStamp 
         void _revision;
         void _provenance;
         void _sourceRevision;
-        cell2.metadata = metadata;
+        cell.metadata = metadata;
       }
       const valid = new Set(definitions.map((entry) => entry.id));
-      cell2.segments = cell2.segments.filter(
+      cell.segments = cell.segments.filter(
         (segment) => !("entryId" in segment) || valid.has(segment.entryId)
       );
       const present = new Set(
-        cell2.segments.flatMap((segment) => "entryId" in segment ? [segment.entryId] : [])
+        cell.segments.flatMap((segment) => "entryId" in segment ? [segment.entryId] : [])
       );
       for (const entry of definitions) {
         if (present.has(entry.id)) continue;
-        cell2.segments.push(
+        cell.segments.push(
           { literal: "\n" },
           {
             entryId: entry.id,
@@ -28810,8 +28848,8 @@ async function planGlobalRelease(input2) {
   for (const store of [input2.saved, input2.published])
     for (const entry of store.entries) {
       const reads = Object.values(entry.definitions).flatMap(
-        (cell2) => ["variables", "titles", "exports"].flatMap(
-          (kind) => globalReferenceSpans(cell2.body, kind).map((span2) => ({ kind, name: span2.name }))
+        (cell) => ["variables", "titles", "exports"].flatMap(
+          (kind) => globalReferenceSpans(cell.body, kind).map((span2) => ({ kind, name: span2.name }))
         )
       );
       join5([
@@ -29034,7 +29072,7 @@ var join2 = (parts) => {
 };
 async function gitTreeOid(entries) {
   const seen = /* @__PURE__ */ new Set();
-  const sorted = entries.map(({ nameRaw, mode, oid: oid4 }) => {
+  const sorted = entries.map(({ nameRaw, mode, oid: oid5 }) => {
     const name2 = atob(nameRaw);
     if (!name2 || name2.includes("/") || name2.includes("\0") || seen.has(name2))
       throw new Error("Invalid Git tree filename");
@@ -29045,7 +29083,7 @@ async function gitTreeOid(entries) {
         encoder2.encode(`${mode.toString(8)} `),
         Uint8Array.from(name2, (byte) => byte.charCodeAt(0)),
         new Uint8Array(1),
-        Uint8Array.from(oid4.match(/../g), (byte) => parseInt(byte, 16))
+        Uint8Array.from(oid5.match(/../g), (byte) => parseInt(byte, 16))
       ])
     };
   });
@@ -30760,7 +30798,7 @@ var limits = {
   page: 3,
   destinations: 4
 };
-var oid3 = external_exports.string().regex(/^[a-f0-9]{40}$/);
+var oid4 = external_exports.string().regex(/^[a-f0-9]{40}$/);
 function globalFileBytes(value2) {
   return new TextEncoder().encode(`${JSON.stringify(value2, null, 2)}
 `).byteLength;
@@ -30768,14 +30806,14 @@ function globalFileBytes(value2) {
 var token = external_exports.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 var destinationsSchema = external_exports.array(token).min(1).max(limits.destinations).refine((v) => new Set(v).size === v.length, "Duplicate destination");
 var sourcesSchema = external_exports.object({
-  authored: oid3,
-  definitions: oid3,
-  projections: oid3,
-  config: oid3,
-  live: oid3,
-  upcoming: oid3,
-  aliases: oid3,
-  generator: oid3,
+  authored: oid4,
+  definitions: oid4,
+  projections: oid4,
+  config: oid4,
+  live: oid4,
+  upcoming: oid4,
+  aliases: oid4,
+  generator: oid4,
   fallback: globalDigestSchema,
   resolver: globalDigestSchema
 }).strict();
@@ -30788,12 +30826,12 @@ var nameProofRequestSchema = external_exports.object({
   name: external_exports.string().min(1).max(128),
   globalId: globalIdSchema.nullable(),
   revision: globalRevisionSchema.nullable(),
-  expectedHead: oid3,
+  expectedHead: oid4,
   sources: sourcesSchema,
   by: external_exports.string().min(1).max(128),
   at: external_exports.iso.datetime()
 }).strict();
-var sourceIdentity = external_exports.object({ path: external_exports.string().max(256), blob: oid3, revision: globalRevisionSchema }).strict();
+var sourceIdentity = external_exports.object({ path: external_exports.string().max(256), blob: oid4, revision: globalRevisionSchema }).strict();
 var pendingCauseSchema = external_exports.object({
   version: external_exports.literal(1),
   id: token,
@@ -30801,7 +30839,7 @@ var pendingCauseSchema = external_exports.object({
   globalId: globalIdSchema,
   lang: langSchema.nullable(),
   beforeSources: sourcesSchema,
-  expectedHead: oid3,
+  expectedHead: oid4,
   at: external_exports.iso.datetime(),
   by: external_exports.string().min(1).max(128),
   before: sourceIdentity.nullable(),
@@ -30894,7 +30932,7 @@ var pageSchema = external_exports.object({
 }).strict();
 var catalogSchema = external_exports.object({ version: external_exports.literal(1), lastPage: external_exports.number().int().min(0).max(99999) }).strict();
 var reviewPageSchema = external_exports.object({ ...proof, ids: external_exports.array(token).max(limits.page), nextCursor: token.nullable() }).strict();
-var expected = { expectedHead: oid3 };
+var expected = { expectedHead: oid4 };
 var existing = { id: globalIdSchema, revision: globalRevisionSchema };
 var definition = { lang: langSchema, body: external_exports.string().max(limits.body) };
 var mutationSchema = external_exports.object({
@@ -30921,7 +30959,7 @@ var mutationSchema = external_exports.object({
   ])
 }).strict();
 var retrySchema = external_exports.object({
-  expectedHead: oid3,
+  expectedHead: oid4,
   id: globalIdSchema,
   causeIds: external_exports.array(token).min(1).max(limits.causes).refine((v) => new Set(v).size === v.length, "Duplicate cause")
 }).strict();
@@ -31149,7 +31187,7 @@ import { setTimeout as setTimeout2 } from "node:timers/promises";
 
 // scripts/publisher/globals.ts
 init_zod();
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 init_model();
 
 // packages/export/src/v2/vocabulary.ts
@@ -31728,11 +31766,11 @@ function readerInputs(input2) {
 }
 function legacyLines(input2, hash2, language, part) {
   const row = input2.legacy[hash2];
-  const cell2 = row?.editor[language];
-  if (cell2 === void 0) return;
+  const cell = row?.editor[language];
+  if (cell === void 0) return;
   return descriptionConverter({
     database: input2.legacy,
-    descriptionString: cell2[part],
+    descriptionString: cell[part],
     editorType: part,
     hash: row.hash,
     language
@@ -31740,14 +31778,14 @@ function legacyLines(input2, hash2, language, part) {
 }
 function formatV2Lines(input2, hash2, language) {
   const row = input2.v2[hash2];
-  const cell2 = row?.editor[language];
-  if (cell2 === void 0) return;
+  const cell = row?.editor[language];
+  if (cell === void 0) return;
   return readFormatV2Lines(
-    cell2.main,
+    cell.main,
     {
       ...input2.globals.get(language),
       type: row.type,
-      lang: cell2.englishFallback ? "en" : language
+      lang: cell.englishFallback ? "en" : language
     },
     hash2,
     language
@@ -31756,7 +31794,7 @@ function formatV2Lines(input2, hash2, language) {
 function refusal(input2, after, hash2, language, part) {
   const row = input2.v2[hash2] ?? after.v2[hash2];
   const name2 = row?.name || hash2;
-  const cell2 = input2.v2[hash2]?.editor[language];
+  const cell = input2.v2[hash2]?.editor[language];
   const library = input2.v2[3]?.editor[language];
   const titles = [library?.main, library?.secondary].filter(Boolean).join("\n");
   const names = new Set(Object.keys(extractBlocks(titles, "title")));
@@ -31775,14 +31813,14 @@ function refusal(input2, after, hash2, language, part) {
     }
   });
   const notes = new Set(
-    cell2 ? effectiveSharedNotes(
-      cell2[part],
+    cell ? effectiveSharedNotes(
+      cell[part],
       {
         ...globals,
         titles,
         imports,
         type: row.type,
-        lang: cell2.englishFallback ? "en" : language
+        lang: cell.englishFallback ? "en" : language
       },
       names
     ) : []
@@ -31825,7 +31863,7 @@ function refusal(input2, after, hash2, language, part) {
 function provesInPlace(before, after, hashes = /* @__PURE__ */ new Set([
   ...Object.keys(before.perks),
   ...Object.keys(after.perks)
-])) {
+]), includesLanguage) {
   const original = readerInputs(before);
   const transformed = readerInputs(after);
   const refusals = [];
@@ -31839,6 +31877,7 @@ function provesInPlace(before, after, hashes = /* @__PURE__ */ new Set([
       continue;
     }
     for (const language of exportLanguages) {
+      if (includesLanguage && !includesLanguage(hash2, language)) continue;
       if (!source2?.editor[language] && !target?.editor[language]) continue;
       let equalV2 = false;
       try {
@@ -31862,6 +31901,7 @@ function provesInPlace(before, after, hashes = /* @__PURE__ */ new Set([
 }
 
 // scripts/publisher/globalsInPlace.ts
+import { createHash as createHash2 } from "node:crypto";
 function globalsFence(pub, tree) {
   if (!tree[globalsInPlacePath]) return void 0;
   const fence = globalsInPlaceFenceSchema.parse(pub.read(tree, globalsInPlacePath));
@@ -31869,12 +31909,11 @@ function globalsFence(pub, tree) {
     throw new Error("The shared text migration belongs to another LIVE branch.");
   return fence;
 }
-function requireGlobalsMode(pub, tree, revision2) {
+function requireGlobalsMode(pub, tree, globals = false) {
   const fence = globalsFence(pub, tree);
-  if (fence && !globalsInPlaceClearance(fence))
+  if (fence?.state === "hold")
     throw new Error("Publication is paused for the shared text migration.");
-  if (Boolean(fence) !== Boolean(revision2))
-    throw new Error("The publication mode changed. Review the tooltip again.");
+  if (!fence && globals) throw new Error("Review shared definitions with the current publisher.");
   return fence;
 }
 function assertInPlaceRoots(hashes) {
@@ -31892,7 +31931,7 @@ function assertInPlaceLibraries(input2) {
   for (const hash2 of [1, 2, 3]) {
     const row = input2.perks[hash2];
     if (!row || row.hash !== hash2 || !("editor" in row) || hash2 === 2 && (row.editor.en?.main !== globalsInPlaceLibraryText(2) || Object.values(row.editor).some(
-      (cell2) => cell2?.main !== globalsInPlaceLibraryText(2) || cell2.secondary !== ""
+      (cell) => cell?.main !== globalsInPlaceLibraryText(2) || cell.secondary !== ""
     )) || hash2 !== 2 && Object.keys(row.editor).length !== 0)
       throw new Error(`Invalid in-place LIVE library ${hash2}`);
   }
@@ -31923,15 +31962,14 @@ function migrateInPlace(input2) {
       continue;
     }
     for (const lang of languages2) {
-      const cell2 = row.editor[lang];
-      if (!cell2) continue;
+      const cell = row.editor[lang];
+      if (!cell) continue;
       if (sentinel !== void 0) row.editor[lang] = { main: sentinel, secondary: "" };
       else
         for (const part of ["main", "secondary"])
           try {
-            cell2[part] = resolveGlobalsInPlace(cell2[part], lang, {
-              definitions,
-              missingTranslation: "reject"
+            cell[part] = resolveGlobalsInPlace(cell[part], lang, {
+              definitions
             });
           } catch (error62) {
             throw new Error(`Tooltip ${row.name || row.hash} (${lang}): ${String(error62)}`);
@@ -31944,7 +31982,7 @@ function migrateInPlace(input2) {
   if (refusal2) throw new Error(refusal2.message);
   return migrated;
 }
-function proofLibraries(live, options) {
+function proofLibraries(live, options, english) {
   const rows = {};
   for (const [hash2, kind] of [
     [1, "exports"],
@@ -31957,7 +31995,7 @@ function proofLibraries(live, options) {
     for (const lang of languages2) {
       const lines2 = Object.entries(options.definitions[kind] ?? {}).flatMap(([name2, entry]) => {
         if (kind === "variables" && name2 === "e") return [];
-        const selected = globalsInPlaceDefinition(entry, lang, options.missingTranslation);
+        const selected = globalsInPlaceDefinition(entry, english?.has(lang) ? "en" : lang);
         if (!selected) return [];
         const { body: body2 } = selected;
         if (kind === "variables") return [`var ${name2} = ${body2.trim() || "empty"}`];
@@ -31972,7 +32010,7 @@ ${body2}
   }
   return rows;
 }
-function affectedRows(before, after, roots) {
+function affectedRows(before, after, roots, lang) {
   const affected = new Set(roots.map(String));
   const parents = /* @__PURE__ */ new Map();
   const link = (from, to) => {
@@ -31983,10 +32021,10 @@ function affectedRows(before, after, roots) {
     for (const [hash2, row] of Object.entries(perks)) {
       if ("aliasOf" in row) link(hash2, String(row.aliasOf));
       else
-        for (const { main: main2, secondary } of Object.values(row.editor))
-          for (const cell2 of [main2, secondary]) {
-            if (!cell2.includes("import ")) continue;
-            for (const match of cell2.matchAll(/^import [A-z0-9 ]+? from (\d+) *\r?$/gm))
+        for (const { main: main2, secondary } of lang ? [row.editor[lang]].filter((cell) => cell !== void 0) : Object.values(row.editor))
+          for (const cell of [main2, secondary]) {
+            if (!cell.includes("import ")) continue;
+            for (const match of cell.matchAll(/^import [A-z0-9 ]+? from (\d+) *\r?$/gm))
               link(hash2, String(Number(match[1])));
           }
     }
@@ -31998,194 +32036,397 @@ function provePublication(pub, tree, live, documents, aliases, moves, now, expor
   const hashes = documents.map(({ hash: hash2 }) => hash2);
   for (const entry of Object.values(exported)) {
     if (isLegacyAliasStub(entry)) continue;
-    for (const [lang, cell2] of Object.entries(entry.editor))
-      for (const value2 of /* @__PURE__ */ new Set([cell2.main, cell2.secondary]))
-        if (resolveGlobalsInPlace(value2, lang, options) !== value2)
+    for (const [lang, cell] of Object.entries(entry.editor))
+      for (const value2 of /* @__PURE__ */ new Set([cell.main, cell.secondary]))
+        if (resolveGlobalsInPlace(value2, cell.englishFallback ? "en" : lang, options) !== value2)
           throw new Error(
             `Tooltip ${entry.name || entry.hash} (${lang}) still reads shared text after export.`
           );
   }
-  const raw = exportWithInactiveMoves(documents, now, pub.options.facts, aliases, moves);
+  const { raw, fallbacks } = exportGlobalsProof(
+    documents,
+    now,
+    pub.options.facts,
+    aliases,
+    moves,
+    options
+  );
   const merge2 = (entries) => pub.mergePublicationPerks(tree, live.perks, entries, hashes);
   proveInPlaceInputs(
     live,
     { ...live, perks: merge2(raw) },
     { ...live, perks: merge2(exported) },
     options,
-    hashes
+    hashes,
+    fallbacks
   );
 }
-function proveInPlaceInputs(live, raw, after, options, hashes) {
+function exportGlobalsProof(documents, now, facts, aliases, moves, globalsInPlace) {
+  const fallbacks = /* @__PURE__ */ new Map();
+  const raw = exportWithInactiveMoves(documents, now, facts, aliases, moves, {
+    globalsInPlace,
+    preserveGlobalReferencesForProof: true,
+    onGlobalsFallback(hash2, { language }) {
+      let langs = fallbacks.get(hash2);
+      if (!langs) fallbacks.set(hash2, langs = /* @__PURE__ */ new Set());
+      langs.add(language);
+    }
+  });
+  return { raw, fallbacks };
+}
+function proveInPlaceInputs(live, raw, after, options, hashes, fallbacks) {
   const before = { ...raw, perks: { ...raw.perks, ...proofLibraries(live, options) } };
   assertInPlaceLibraries(after);
-  const [failure2] = provesInPlace(before, after, affectedRows(before, after, hashes));
-  if (failure2) throw new Error(failure2.message);
-}
-function inPlaceSource(pub, revision2, fence) {
-  const tree = pub.git.tree(revision2);
-  const sourceFence = globalsFence(pub, tree);
-  if (!sourceFence || stableStringify(sourceFence) !== stableStringify(fence))
-    throw new Error("Review the tooltip in the current shared text mode.");
-  const entries = new GlobalsPublisher(pub).store(tree).entries;
-  return {
-    entries,
-    options: {
-      definitions: globalsInPlaceDefinitions(entries),
-      missingTranslation: fence.missingTranslation
+  const affected = affectedRows(before, after, hashes);
+  const english = /* @__PURE__ */ new Set();
+  const fallbackBefore = { ...after, perks: { ...after.perks } };
+  for (const [hash2, langs] of fallbacks) {
+    const localized = before.perks[hash2];
+    const filled = after.perks[hash2];
+    if (!localized || !filled || !("editor" in localized) || !("editor" in filled))
+      throw new Error(`Missing English fallback proof input for tooltip ${hash2}.`);
+    const localizedEditor = { ...localized.editor };
+    const fallbackEditor = { ...filled.editor };
+    for (const lang of langs) {
+      english.add(lang);
+      localizedEditor[lang] = filled.editor[lang];
+      fallbackEditor[lang] = localized.editor[lang];
     }
+    before.perks[hash2] = { ...localized, editor: localizedEditor };
+    fallbackBefore.perks[hash2] = { ...filled, editor: fallbackEditor };
+  }
+  const prove = (baseline, includes) => {
+    const [failure2] = provesInPlace(baseline, after, affected, includes);
+    if (failure2) throw new Error(failure2.message);
   };
+  if (!english.size) return prove(before);
+  const aliasSource = (hash2) => {
+    const visited = /* @__PURE__ */ new Set();
+    let row = after.perks[hash2];
+    while (row && "aliasOf" in row && !visited.has(hash2)) {
+      visited.add(hash2);
+      hash2 = String(row.aliasOf);
+      row = after.perks[hash2];
+    }
+    return Number(hash2);
+  };
+  prove(before, (hash2, lang) => !fallbacks.get(aliasSource(hash2))?.has(lang));
+  const fallbackScope = new Map(
+    [...english].map((lang) => [
+      lang,
+      affectedRows(
+        raw,
+        after,
+        [...fallbacks].flatMap(([hash2, langs]) => langs.has(lang) ? [hash2] : []),
+        lang
+      )
+    ])
+  );
+  Object.assign(fallbackBefore.perks, proofLibraries(live, options, english));
+  prove(fallbackBefore, (hash2, lang) => fallbackScope.get(lang)?.has(hash2) ?? false);
 }
 function assertInPlaceDocuments(documents, options) {
   assertInPlaceRoots(documents.map(({ hash: hash2 }) => hash2));
-  const titleNames = new Set(Object.keys(options.definitions.titles ?? {}));
+  const titleNames = /* @__PURE__ */ new Set([
+    ...Object.keys(options.definitions.titles ?? {}),
+    ...options.unavailable?.titles ?? []
+  ]);
   for (const tooltip of documents)
-    for (const [lang, cell2] of Object.entries(tooltip.text)) {
-      const issue2 = globalsInPlaceSaveIssue(cell2.text, titleNames);
+    for (const [lang, cell] of Object.entries(tooltip.text)) {
+      const issue2 = globalsInPlaceSaveIssue(cell.text, titleNames);
       if (issue2)
         throw new Error(`Tooltip ${tooltip.custom?.name || tooltip.hash} (${lang}): ${issue2}`);
     }
 }
-function editorOf(value2) {
-  return value2?.editor;
-}
-function primary(editor, lang) {
-  const cell2 = editor?.[lang];
-  return cell2 && [cell2.main, cell2.englishFallback === true];
-}
-function resolvedPrimaryDiffers(before, after) {
-  return languages2.some(
-    (lang) => JSON.stringify(primary(editorOf(before), lang)) !== JSON.stringify(primary(editorOf(after), lang))
-  );
-}
-function publicationChanges(entries, pushed, exported, live) {
-  return entries.filter(
-    ({ hash: hash2, digest: digest6 }) => pushed[hash2] !== digest6 || live && resolvedPrimaryDiffers(live.perks[hash2], exported[hash2])
-  ).map(({ hash: hash2 }) => hash2);
-}
-function unreviewedScheduledGlobals(current, published, live, exported) {
-  if (!published || !editorOf(live.perks[current.hash])) return false;
-  return languages2.some(
-    (lang) => globalSourceText(current, lang, "live") === globalSourceText(published, lang, "live") && JSON.stringify(primary(editorOf(live.perks[current.hash]), lang)) !== JSON.stringify(primary(editorOf(exported[current.hash]), lang))
-  );
-}
-function reviewRevisions(pub, live, fence) {
-  const tree = pub.git.tree(live);
-  const byHash = /* @__PURE__ */ new Map();
-  if (live === fence.migratedLive) return byHash;
-  for (const { path } of pub.git.additions(live, ".publish/receipts", fence.migratedLive)) {
-    if (!tree[path]) continue;
-    const receipt = pub.read(tree, path);
-    if (!receipt?.globalsRevision) continue;
-    for (const { hash: hash2 } of receipt.entries) byHash.set(hash2, receipt.globalsRevision);
-  }
-  return byHash;
-}
-function migrationBaseline(pub, fence) {
-  const tree = pub.git.tree(fence.legacyData);
+var sha2562 = (input2) => createHash2("sha256").update(input2).digest("hex");
+var definitionDigest = (entry) => sha2562(stableStringify(entry));
+function stores(pub, tree) {
   const published = globalPublishedSchema.parse(
     pub.read(tree, globalsReleasePaths.published(pub.options.liveBranch))
   );
-  return published.store.entries;
+  if (published.destination !== pub.options.liveBranch)
+    throw new Error("Published global destination mismatch.");
+  return { published, saved: new GlobalsPublisher(pub).store(tree) };
 }
-function inPlaceDiff(before, after) {
-  const left = editorOf(before);
-  const right = editorOf(after);
-  return Object.fromEntries(
-    languages2.flatMap(
-      (lang) => JSON.stringify(primary(left, lang)) === JSON.stringify(primary(right, lang)) ? [] : [[lang, { before: left?.[lang] ?? null, after: right?.[lang] ?? null }]]
-    )
-  );
+function publishedGlobals(pub, tree) {
+  const { published, saved } = stores(pub, tree);
+  return releaseOptions(published.store, saved);
 }
-function rowCauses(tooltip, now, before, after) {
-  const reads = (source2) => {
-    const values = /* @__PURE__ */ new Map();
-    try {
-      exportLegacy(
-        [tooltip],
-        now,
-        void 0,
-        {},
-        {
-          globalsInPlace: {
-            ...source2.options,
-            onRead(kind, name2, lang, body2) {
-              values.set(JSON.stringify([kind, name2, lang]), [kind, name2, body2]);
-            }
-          }
-        }
-      );
-    } catch {
-    }
-    return values;
+function releaseOptions(published, saved) {
+  const definitions = globalsInPlaceDefinitions(published.entries);
+  const unavailable = {
+    exports: /* @__PURE__ */ new Set(),
+    variables: /* @__PURE__ */ new Set(),
+    titles: /* @__PURE__ */ new Set()
   };
-  const oldReads = reads(before);
-  const newReads = reads(after);
-  const causes = /* @__PURE__ */ new Map();
-  for (const [key, [kind, name2]] of new Map([...oldReads, ...newReads])) {
-    if (oldReads.get(key)?.[2] === newReads.get(key)?.[2]) continue;
-    const previous = before.entries.find((entry) => entry.kind === kind && entry.name === name2);
-    const current = after.entries.find((entry) => entry.kind === kind && entry.name === name2);
-    for (const entry of [previous, current]) {
-      if (!entry || entry.tombstone) continue;
-      causes.set(entry.id, {
-        id: entry.id,
-        name: after.entries.find(({ id }) => id === entry.id)?.name ?? entry.name
-      });
+  for (const entry of saved.entries)
+    if (!entry.tombstone && !Object.hasOwn(definitions[entry.kind] ?? {}, entry.name))
+      unavailable[entry.kind].add(entry.name);
+  return { definitions, unavailable };
+}
+function renamesOf(published, selected) {
+  return selected.flatMap((entry) => {
+    const previous = published.entries.find(({ id }) => id === entry.id);
+    return previous && !previous.tombstone && previous.name !== entry.name && !entry.tombstone ? [{ kind: entry.kind, from: previous.name, to: entry.name }] : [];
+  });
+}
+function rewrite(source2, renames) {
+  const edits = renames.flatMap(
+    ({ kind, from, to }) => rewriteGlobalReferences(source2, kind, from, to).edits.map((edit) => ({
+      ...edit,
+      kind,
+      toName: to
+    }))
+  );
+  for (const edit of edits.sort((a, b) => b.from - a.from)) {
+    const value2 = edit.kind === "variables" ? edit.braced ? `#{${edit.toName}}` : `#${edit.toName}` : edit.toName;
+    source2 = source2.slice(0, edit.from) + value2 + source2.slice(edit.to);
+  }
+  return source2;
+}
+function rewriteTooltip(document, renames) {
+  const copy = structuredClone(document);
+  for (const cell of Object.values(copy.text)) cell.text = rewrite(cell.text, renames);
+  return stableStringify(copy.text) === stableStringify(document.text) ? document : copy;
+}
+function rewriteEntries(entries, renames) {
+  return entries.map((entry) => {
+    if (entry.tombstone) return entry;
+    const copy = structuredClone(entry);
+    const renamed = renames.find(({ kind, from }) => kind === copy.kind && from === copy.name);
+    if (renamed) copy.name = renamed.to;
+    for (const definition2 of Object.values(copy.definitions))
+      definition2.body = rewrite(definition2.body, renames);
+    return copy;
+  });
+}
+function sourceIdentity2(entry) {
+  if (!entry || entry.tombstone) return null;
+  return {
+    name: entry.name,
+    definitions: Object.fromEntries(
+      Object.entries(entry.definitions).map(([lang, definition2]) => [
+        lang,
+        [definition2.body, globalsInPlaceDefinition(entry.definitions, lang) !== void 0]
+      ])
+    )
+  };
+}
+function pendingEntries(published, saved) {
+  const renames = renamesOf(published, saved.entries);
+  const normalized = rewriteEntries(published.entries, renames);
+  return saved.entries.filter((entry) => {
+    const old = published.entries.find(({ id }) => id === entry.id);
+    if (old && old.name !== entry.name && !old.tombstone && !entry.tombstone) return true;
+    return stableStringify(sourceIdentity2(normalized.find(({ id }) => id === entry.id))) !== stableStringify(sourceIdentity2(entry));
+  });
+}
+function publishedDocuments(pub, tree, live) {
+  const docs = new GlobalsPublisher(pub).documents(tree, "live/tooltips");
+  return Object.entries(live.perks).flatMap(([hash2, perk]) => {
+    if (globalsInPlaceLibraryText(Number(hash2)) !== void 0 || !("editor" in perk)) return [];
+    const doc = docs[hash2];
+    if (!doc) throw new Error(`Missing the published source for tooltip ${hash2}.`);
+    return isTextlessDescription(doc) ? [] : [doc];
+  });
+}
+function assertWithdrawal(selected, previous, saved, published, documents) {
+  if (!selected.tombstone || !previous || previous.tombstone) return;
+  const names = /* @__PURE__ */ new Set([selected.name, previous.name]);
+  const reads = (text) => globalReferenceSpans(text, selected.kind).some(({ name: name2 }) => names.has(name2));
+  const reader = documents.find((doc) => Object.values(doc.text).some((cell) => reads(cell.text)));
+  if (reader)
+    throw new Error(`Tooltip ${reader.custom?.name || reader.hash} still uses ${selected.name}.`);
+  const dependency = [...saved.entries, ...published.entries].find(
+    (entry) => entry.id !== selected.id && !entry.tombstone && Object.values(entry.definitions).some((cell) => reads(cell.body))
+  );
+  if (dependency) throw new Error(`${dependency.name} still uses ${selected.name}.`);
+}
+function selectedRelease(pub, tree, live, selection2, maintainer) {
+  const { published, saved } = stores(pub, tree);
+  if (!selection2.length)
+    return {
+      options: releaseOptions(published.store, saved),
+      published,
+      refills: {},
+      rewritten: /* @__PURE__ */ new Map()
+    };
+  const selected = selection2.map(({ id, expected: expected2 }) => {
+    const entry = saved.entries.find((candidate) => candidate.id === id);
+    if (!entry || definitionDigest(entry) !== expected2)
+      throw new Error(`Shared definition ${entry?.name || id} changed. Review it again.`);
+    if (entry.tombstone && !maintainer)
+      throw new Error(`Only a maintainer can publish the removal of ${entry.name}.`);
+    return entry;
+  });
+  const liveDocs = publishedDocuments(pub, tree, live);
+  const globals = new GlobalsPublisher(pub);
+  const removalDocs = selected.some((entry) => entry.tombstone) ? [
+    ...liveDocs,
+    ...Object.values(globals.documents(tree, "tooltips")),
+    ...globals.upcoming(tree).flatMap(Object.values)
+  ] : [];
+  for (const entry of selected)
+    assertWithdrawal(
+      entry,
+      published.store.entries.find(({ id }) => id === entry.id),
+      saved,
+      published.store,
+      removalDocs
+    );
+  const renames = renamesOf(published.store, selected);
+  const beforeEntries = rewriteEntries(published.store.entries, renames);
+  const before = reconcileGlobalStore(
+    [
+      ...published.store.aggregates,
+      ...saved.aggregates.filter(
+        (item) => !published.store.aggregates.some((old) => old.document.hash === item.document.hash) && selected.some((entry) => globalAggregateHash(entry.kind) === item.document.hash)
+      )
+    ],
+    beforeEntries
+  );
+  const next = composeGlobalRelease(
+    before,
+    saved,
+    selected.map(({ id }) => id)
+  );
+  const oldOptions = { definitions: globalsInPlaceDefinitions(before.entries) };
+  const options = releaseOptions(next, saved);
+  const rewritten = /* @__PURE__ */ new Map();
+  const affected = [];
+  const changedLanguages = /* @__PURE__ */ new Map();
+  const refills = {};
+  for (const prior of liveDocs) {
+    const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
+    if (doc !== prior) rewritten.set(doc.hash, doc);
+    const old = exportLegacy([doc], 0, void 0, {}, { globalsInPlace: oldOptions })[doc.hash];
+    const filled = exportLegacy([doc], 0, void 0, {}, { globalsInPlace: options })[doc.hash];
+    if (isLegacyAliasStub(old) || isLegacyAliasStub(filled) || stableStringify(old.editor) === stableStringify(filled.editor))
+      continue;
+    affected.push(doc);
+    const perk = live.perks[doc.hash];
+    const changed = languages2.filter(
+      (lang) => stableStringify(old.editor[lang] ?? null) !== stableStringify(filled.editor[lang] ?? null)
+    );
+    changedLanguages.set(doc.hash, changed);
+    const editor = { ...perk.editor };
+    for (const lang of changed) editor[lang] = filled.editor[lang];
+    refills[doc.hash] = { ...perk, editor };
+  }
+  if (affected.length) {
+    assertInPlaceDocuments(affected, options);
+    const { raw, fallbacks } = exportGlobalsProof(affected, 0, void 0, {}, {}, options);
+    const rawPerks = { ...live.perks };
+    for (const { hash: hash2 } of affected) {
+      const existing2 = rawPerks[hash2], source2 = raw[hash2];
+      if (!("editor" in existing2) || isLegacyAliasStub(source2))
+        throw new Error(`Missing shared text proof input for ${hash2}.`);
+      const changed = changedLanguages.get(hash2);
+      const editor = { ...existing2.editor };
+      for (const lang of changed) editor[lang] = source2.editor[lang];
+      const fallback = fallbacks.get(hash2);
+      if (fallback) {
+        for (const lang of fallback) if (!changed.includes(lang)) fallback.delete(lang);
+        if (!fallback.size) fallbacks.delete(hash2);
+      }
+      rawPerks[hash2] = { ...existing2, editor };
+    }
+    proveInPlaceInputs(
+      live,
+      { ...live, perks: rawPerks },
+      { ...live, perks: { ...live.perks, ...refills } },
+      options,
+      affected.map(({ hash: hash2 }) => hash2),
+      fallbacks
+    );
+  }
+  return { options, published: { ...published, store: next }, refills, rewritten };
+}
+function planInPlaceRelease(pub, tree, live, selection2, maintainer) {
+  const plan = (items) => selectedRelease(pub, tree, live, items, maintainer);
+  const refusals = [];
+  try {
+    return { ...plan(selection2), globals: selection2.map(({ id }) => id), refusals };
+  } catch (error62) {
+    if (selection2.length < 2) throw error62;
+    const accepted = [];
+    let result = plan(accepted);
+    for (const item of [...selection2].sort((a, b) => a.id.localeCompare(b.id))) {
+      try {
+        result = plan([...accepted, item]);
+        accepted.push(item);
+      } catch (refusal2) {
+        refusals.push({
+          id: item.id,
+          error: refusal2 instanceof Error ? refusal2.message : String(refusal2)
+        });
+      }
+    }
+    if (!accepted.length) throw error62;
+    return { ...result, globals: accepted.map(({ id }) => id), refusals };
+  }
+}
+function rewritePushed(pub, tree, pushed, rewritten) {
+  if (!rewritten.size) return;
+  const aliases = activeAliases(pub.aliasesAt(tree), pub.movesAt(tree));
+  for (const [hash2, doc] of rewritten) {
+    const old = pub.read(tree, `live/tooltips/${hash2}.json`);
+    for (const context of [aliases, {}]) {
+      if (pushed[hash2] !== sha2562(publishableHashInput(old, context))) continue;
+      pushed[hash2] = sha2562(publishableHashInput(doc, context));
+      break;
     }
   }
-  return [...causes.values()];
 }
-function bundleInPlaceReview(pub, revision2, tree, tooltips, fence) {
+function bundleInPlaceReview(pub, tree, fence) {
   const live = pub.head(pub.options.liveBranch);
   if (!pub.git.ancestor(fence.migratedLive, live))
     throw new Error("LIVE has no in-place migration");
   const input2 = liveGlobalsInput(pub, live);
   assertInPlaceLibraries(input2);
-  const saved = inPlaceSource(pub, revision2, fence);
-  const released = reviewRevisions(pub, live, fence);
-  const baseline = {
-    entries: migrationBaseline(pub, fence),
-    options: {
-      definitions: legacyGlobalsInPlaceDefinitions(
-        liveGlobalsInput(pub, fence.legacyLive).perks
-      ),
-      missingTranslation: "reject"
-    }
-  };
-  const sources = /* @__PURE__ */ new Map([[revision2, saved]]);
-  const aliases = pub.aliasesAt(tree);
-  const moves = pub.movesAt(tree);
-  const now = pub.options.now();
-  const rows = {};
-  for (const tooltip of Object.values(tooltips)) {
-    const { hash: hash2 } = tooltip;
-    if (globalsInPlaceLibraryText(hash2) !== void 0 || resolveAlias(hash2, aliases) !== hash2)
-      continue;
-    const before = input2.perks[hash2];
-    const removed = isMovedInactive(hash2, moves);
-    if (!removed && isTextlessDescription(tooltip)) continue;
-    let after;
+  const { published, saved } = stores(pub, tree);
+  const pending = pendingEntries(published.store, saved);
+  const globalsPending = pending.map((entry) => {
+    const previous = published.store.entries.find(({ id }) => id === entry.id);
+    const digest6 = definitionDigest(entry);
+    let affected = [];
     let refusal2;
     try {
-      if (!removed) {
-        assertInPlaceDocuments([tooltip], saved.options);
-        after = exportLegacy([tooltip], now, void 0, {}, { globalsInPlace: saved.options })[hash2];
-      }
+      const plan = planInPlaceRelease(pub, tree, input2, [{ id: entry.id, expected: digest6 }], true);
+      affected = [.../* @__PURE__ */ new Set([...Object.keys(plan.refills).map(Number), ...plan.rewritten.keys()])];
     } catch (error62) {
-      refusal2 = String(error62);
+      refusal2 = error62 instanceof Error ? error62.message : String(error62);
     }
-    const differs = !refusal2 && resolvedPrimaryDiffers(before, after);
-    if (!differs && !refusal2) continue;
-    const prior = released.get(hash2);
-    if (prior && !sources.has(prior)) sources.set(prior, inPlaceSource(pub, prior, fence));
-    rows[hash2] = {
-      differs,
-      causes: !removed && before && "editor" in before ? rowCauses(tooltip, now, prior ? sources.get(prior) : baseline, saved) : [],
-      diff: differs ? inPlaceDiff(before, after) : {},
+    const cell = (value2, lang) => value2?.tombstone ? null : value2?.definitions[lang]?.body ?? null;
+    return {
+      id: entry.id,
+      name: entry.name,
+      kind: entry.kind,
+      change: entry.tombstone ? "removed" : !previous || previous.tombstone ? "new" : previous.name !== entry.name ? "renamed" : "changed",
+      digest: digest6,
+      affected,
+      languages: Object.fromEntries(
+        languages2.flatMap((lang) => {
+          const before = cell(previous, lang), after = cell(entry, lang);
+          const beforeAvailable = !!previous && !previous.tombstone && !!globalsInPlaceDefinition(previous.definitions, lang);
+          const afterAvailable = !entry.tombstone && !!globalsInPlaceDefinition(entry.definitions, lang);
+          return before !== after || beforeAvailable !== afterAvailable || previous?.name !== entry.name && (before !== null || after !== null) ? [[lang, { before, after }]] : [];
+        })
+      ),
       ...refusal2 ? { refusal: refusal2 } : {}
     };
+  });
+  const pushed = pushedSchema.parse(pub.read(tree, "live/pushed.json"));
+  const renames = renamesOf(published.store, pending);
+  const rewritten = /* @__PURE__ */ new Map();
+  if (renames.length) {
+    for (const document of publishedDocuments(pub, tree, input2)) {
+      const updated = rewriteTooltip(document, renames);
+      if (updated !== document) rewritten.set(document.hash, updated);
+    }
+    rewritePushed(pub, tree, pushed, rewritten);
   }
-  return { revision: revision2, rows };
+  return { globalsPending, pushed };
 }
 
 // scripts/publisher/globals.ts
@@ -32341,15 +32582,15 @@ var GlobalReleaseRejected = class extends Error {
 function globalTreeEntries(tree, prefix, modes = {}) {
   const entries = Object.entries(tree).filter(([path]) => path.startsWith(`${prefix}/`));
   const files = /* @__PURE__ */ new Map(), directories = /* @__PURE__ */ new Set();
-  for (const [path, oid4] of entries) {
+  for (const [path, oid5] of entries) {
     const rest = path.slice(prefix.length + 1), slash = rest.indexOf("/");
-    if (slash < 0) files.set(rest, oid4);
+    if (slash < 0) files.set(rest, oid5);
     else directories.add(rest.slice(0, slash));
   }
   return [
-    ...[...files].map(([name2, oid4]) => ({
+    ...[...files].map(([name2, oid5]) => ({
       name: name2,
-      oid: oid4,
+      oid: oid5,
       mode: modes[`${prefix}/${name2}`] ?? "100644"
     })),
     ...[...directories].map((name2) => ({
@@ -32369,10 +32610,10 @@ function globalTreeOid(tree, prefix, modes = {}) {
   if (!parts.length) return emptyGitTree;
   const bytes = Buffer.concat(
     parts.map(
-      ({ name: name2, oid: oid4, mode }) => Buffer.concat([Buffer.from(`${mode} ${name2}\0`), Buffer.from(oid4, "hex")])
+      ({ name: name2, oid: oid5, mode }) => Buffer.concat([Buffer.from(`${mode} ${name2}\0`), Buffer.from(oid5, "hex")])
     )
   );
-  return createHash2("sha1").update(`tree ${bytes.length}\0`).update(bytes).digest("hex");
+  return createHash3("sha1").update(`tree ${bytes.length}\0`).update(bytes).digest("hex");
 }
 var intentSchema = external_exports.object({
   version: external_exports.literal(1),
@@ -32412,9 +32653,9 @@ var GlobalsPublisher = class _GlobalsPublisher {
       throw new Error("Installed publisher lacks globalsExportsV1");
     const modes = this.git.treeModes?.(head ?? this.publisher.head(this.options.dataBranch)) ?? {};
     const config2 = pin.capabilities.includes(globalsConfigWithoutMarks) ? await globalConfigIdentity(
-      globalTreeEntries(tree, "config", modes).map(({ name: name2, oid: oid4, mode }) => ({
+      globalTreeEntries(tree, "config", modes).map(({ name: name2, oid: oid5, mode }) => ({
         nameRaw: Buffer.from(name2).toString("base64"),
-        oid: oid4,
+        oid: oid5,
         mode: parseInt(mode, 8)
       }))
     ) : globalTreeOid(tree, "config", modes);
@@ -32638,10 +32879,14 @@ var GlobalsPublisher = class _GlobalsPublisher {
     );
     const livePerks = external_exports.object({ perks: livePerksSchema }).parse(this.publisher.read(this.git.tree(liveCommit), "liveDescriptions.json")).perks;
     const inPlace = globalsFence(this.publisher, tree)?.state === "active";
-    const live = inPlace ? { repository: this.options.repo, revision: revision2, aliases: {}, types, tooltips: {}, mode: "live" } : this.liveSnapshot(
+    const live = this.liveSnapshot(
       revision2,
       livePerks,
-      { ...this.documents(tree, "live/tooltips"), ...projectGlobals(published.store) },
+      {
+        ...inPlace ? { 1: { hash: 1, associated: [], text: {} } } : {},
+        ...this.documents(tree, "live/tooltips"),
+        ...projectGlobals(published.store)
+      },
       types
     );
     const exported = inPlace ? {} : exportLegacy(Object.values(live.tooltips), 0, this.options.facts, live.aliases);
@@ -32651,16 +32896,16 @@ var GlobalsPublisher = class _GlobalsPublisher {
       const actualEditor = structuredClone(livePerks[hash2]?.editor ?? null);
       for (const editor of [expectedEditor, actualEditor])
         if (editor && typeof editor === "object" && !Array.isArray(editor)) {
-          for (const cell2 of Object.values(editor))
-            if (cell2 && typeof cell2 === "object" && !Array.isArray(cell2))
-              delete cell2.secondary;
+          for (const cell of Object.values(editor))
+            if (cell && typeof cell === "object" && !Array.isArray(cell))
+              delete cell.secondary;
         }
       if (stableStringify(expectedEditor) !== stableStringify(actualEditor))
         throw new Error("Published snapshots differ from actual live inputs");
     }
     return {
       saved,
-      published: inPlace ? { ...published.store, entries: [] } : published.store,
+      published: published.store,
       authored: {
         repository: this.options.repo,
         revision: revision2,
@@ -33205,8 +33450,8 @@ var GlobalsPublisher = class _GlobalsPublisher {
       for (const document of Object.values(documents)) {
         if (before.aggregates.some((aggregate) => aggregate.document.hash === document.hash))
           continue;
-        for (const cell2 of Object.values(document.text))
-          cell2.text = rewriteGlobalReferences(cell2.text, entry.kind, entry.name, intent.name).text;
+        for (const cell of Object.values(document.text))
+          cell.text = rewriteGlobalReferences(cell.text, entry.kind, entry.name, intent.name).text;
       }
       const after = reconcileGlobalStore(before.aggregates, all, {
         preserveNewLanguageSourceStamp: true
@@ -33319,7 +33564,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
     }
     const snapshots = [
       captured.authored,
-      ...inPlace ? [] : [captured.live],
+      captured.live,
       ...this.upcoming(tree).flatMap(
         (documents) => ["authored", "live"].map((mode) => ({
           ...captured.authored,
@@ -33998,14 +34243,14 @@ function validateScheduleMembers(hashes, files, pushed) {
 }
 
 // scripts/schedule-prepare/intents.ts
-import { createHash as createHash3, createPublicKey, verify } from "node:crypto";
+import { createHash as createHash4, createPublicKey, verify } from "node:crypto";
 init_schedule();
 var InvalidScheduleIntent = class extends Error {
 };
 function verifiedSource(pub, raw) {
   const envelope2 = scheduleEnvelopeSchema.parse(raw);
   const key = createPublicKey(pub.options.publicKey);
-  if (createHash3("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== pub.options.keyFingerprint || !verify(null, Buffer.from(envelope2.payload), key, Buffer.from(envelope2.sig, "base64")))
+  if (createHash4("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== pub.options.keyFingerprint || !verify(null, Buffer.from(envelope2.payload), key, Buffer.from(envelope2.sig, "base64")))
     throw new InvalidScheduleIntent("Invalid schedule signature or key pin");
   const intent = scheduleIntentSchema.parse(JSON.parse(envelope2.payload));
   if (stableStringify(intent) !== envelope2.payload || intent.repo !== pub.options.repo || intent.dataBranch !== pub.options.dataBranch || intent.liveBranch !== pub.options.liveBranch)
@@ -34013,12 +34258,12 @@ function verifiedSource(pub, raw) {
   const tree = pub.git.tree(intent.sourceCommit);
   const batch = batchSchema.parse(pub.read(tree, `schedule/batches/${intent.batchId}/batch.json`));
   const members3 = batchMembers(pub, tree, intent.batchId);
-  const oid4 = members3.length ? globalTreeOid(
+  const oid5 = members3.length ? globalTreeOid(
     tree,
     `schedule/batches/${intent.batchId}/tooltips`,
     pub.git.treeModes?.(intent.sourceCommit)
   ) : null;
-  if (batch.id !== intent.batchId || batch.revision !== intent.expectedRevision || batch.contentRevision !== intent.contentRevision || oid4 !== intent.memberTreeOid || batch.claim || (intent.kind === "save" ? batch.status !== intent.returnStatus : !["draft", "scheduled"].includes(batch.status)))
+  if (batch.id !== intent.batchId || batch.revision !== intent.expectedRevision || batch.contentRevision !== intent.contentRevision || oid5 !== intent.memberTreeOid || batch.claim || (intent.kind === "save" ? batch.status !== intent.returnStatus : !["draft", "scheduled"].includes(batch.status)))
     throw new InvalidScheduleIntent("Signed schedule source identity mismatch");
   const stage = activeDraftStaging(batch, Date.parse(intent.createdAt));
   if (stage && (intent.kind !== "save" || intent.draftStaging?.id !== stage.id || intent.requester.id !== stage.ownerId))
@@ -34032,7 +34277,7 @@ function verifiedRequest(pub, tree, path) {
   const bodyOid = tree[scheduleIntentPaths.body(intent.requestId)];
   if (!bodyOid) throw new InvalidScheduleIntent("Missing submitted schedule bytes");
   const body2 = pub.git.blob(bodyOid);
-  if (Buffer.byteLength(body2) > 300 * 1024 || createHash3("sha256").update(body2).digest("hex") !== intent.bodyDigest || request.bodyDigest !== intent.bodyDigest || request.requestId !== intent.requestId || path !== scheduleIntentPaths.request(intent.requestId) || request.batchId !== intent.batchId || request.requesterId !== intent.requester.id || request.admissionRevision <= intent.expectedRevision)
+  if (Buffer.byteLength(body2) > 300 * 1024 || createHash4("sha256").update(body2).digest("hex") !== intent.bodyDigest || request.bodyDigest !== intent.bodyDigest || request.requestId !== intent.requestId || path !== scheduleIntentPaths.request(intent.requestId) || request.batchId !== intent.batchId || request.requesterId !== intent.requester.id || request.admissionRevision <= intent.expectedRevision)
     throw new InvalidScheduleIntent("Schedule request or submitted bytes mismatch");
   const input2 = JSON.parse(body2);
   if (input2.requestId !== intent.requestId || input2.revision !== intent.expectedRevision)
@@ -34048,9 +34293,9 @@ function verifiedRequest(pub, tree, path) {
     const changes2 = [];
     let message;
     for (let part = 0; part < manifest.parts; part++) {
-      const oid4 = source2.tree[scheduleIntentPaths.stagedPart(intent.batchId, manifest.id, part)];
-      if (!oid4) throw new InvalidScheduleIntent("Missing staged save part");
-      const raw = pub.git.blob(oid4);
+      const oid5 = source2.tree[scheduleIntentPaths.stagedPart(intent.batchId, manifest.id, part)];
+      if (!oid5) throw new InvalidScheduleIntent("Missing staged save part");
+      const raw = pub.git.blob(oid5);
       if (Buffer.byteLength(raw) > 300 * 1024)
         throw new InvalidScheduleIntent("Staged save part exceeds the request budget");
       const chunk = JSON.parse(raw);
@@ -34675,7 +34920,7 @@ var SchedulePreparer = class {
 
 // scripts/publisher/currentSave.ts
 init_zod();
-import { createHash as createHash4, createPublicKey as createPublicKey2, verify as verify2 } from "node:crypto";
+import { createHash as createHash5, createPublicKey as createPublicKey2, verify as verify2 } from "node:crypto";
 
 // apps/worker/src/save.ts
 init_zod();
@@ -34841,7 +35086,7 @@ Clarity-Carried: ${carried.join(";")}` : ""}`
 }
 
 // scripts/publisher/currentSave.ts
-var sha2562 = (bytes) => createHash4("sha256").update(bytes).digest("hex");
+var sha2563 = (bytes) => createHash5("sha256").update(bytes).digest("hex");
 var pinSchema = external_exports.object({
   sourceSha: external_exports.string(),
   sha256: external_exports.string(),
@@ -34850,7 +35095,7 @@ var pinSchema = external_exports.object({
 function readSubmission(pub, head, id, record3) {
   const { payload, sig } = record3.envelope;
   const key = createPublicKey2(pub.options.publicKey);
-  if (sha2562(key.export({ type: "spki", format: "der" })) !== pub.options.keyFingerprint || !verify2(null, Buffer.from(payload), key, Buffer.from(sig, "base64")))
+  if (sha2563(key.export({ type: "spki", format: "der" })) !== pub.options.keyFingerprint || !verify2(null, Buffer.from(payload), key, Buffer.from(sig, "base64")))
     throw new Error("Invalid staged Current save signature");
   const intent = currentSaveIntent.parse(JSON.parse(payload));
   if (stableStringify(intent) !== payload || intent.requestId !== id || intent.repo !== pub.options.repo || intent.branch !== pub.options.dataBranch || intent.parts !== record3.parts || stableStringify(intent.requester) !== stableStringify(record3.requester) || !pub.git.ancestor(intent.sourceCommit, head))
@@ -34869,7 +35114,7 @@ function readSubmission(pub, head, id, record3) {
     chunks.push(bytes2);
   }
   const bytes = Buffer.concat(chunks);
-  if (sha2562(bytes) !== intent.digest) throw new Error("Staged Current save content changed");
+  if (sha2563(bytes) !== intent.digest) throw new Error("Staged Current save content changed");
   return savedChangesSchema.parse(
     JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes))
   );
@@ -34941,7 +35186,7 @@ async function drainCurrentSaves(pub) {
             );
           const fence = globalsFence(pub, tree);
           if (fence && !("conflicts" in validated))
-            assertInPlaceDocuments(validated.tooltips, inPlaceSource(pub, head, fence).options);
+            assertInPlaceDocuments(validated.tooltips, publishedGlobals(pub, tree));
           plan = validated;
         } catch (error62) {
           if (!(error62 instanceof Error)) throw error62;
@@ -35249,17 +35494,13 @@ var Publisher = class _Publisher {
       if (!["maintainer", "editor"].includes(permissions2.users[String(payload.requester.id)]?.role))
         throw new Error("Requester revoked");
       requesterCredits(payload.requester);
-      const { sourceCommit } = scheduleIntentSchema.parse(
-        JSON.parse(envelope2.sourceIntent.payload)
-      );
-      const globalsRevision = this.git.tree(sourceCommit)[globalsInPlacePath] ? sourceCommit : void 0;
-      requireGlobalsMode(this, tree, globalsRevision);
-      return globalsRevision ? { ...payload, globalsRevision } : payload;
+      requireGlobalsMode(this, tree);
+      return payload;
     }
     if (typeof envelope2.payload !== "string" || typeof envelope2.sig !== "string")
       throw new Error("Invalid signed envelope");
     const key = createPublicKey3(this.options.publicKey);
-    const fingerprint = createHash5("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex");
+    const fingerprint = createHash6("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex");
     if (fingerprint !== this.options.keyFingerprint || !verify3(null, Buffer.from(envelope2.payload), key, Buffer.from(envelope2.sig, "base64")))
       throw new Error("Invalid signature or key pin");
     const p = await parsePublishRequestPayload(JSON.parse(envelope2.payload));
@@ -35271,9 +35512,7 @@ var Publisher = class _Publisher {
     if (!["maintainer", "editor"].includes(permissions.users[String(p.requester.id)]?.role))
       throw new Error("Requester revoked");
     requesterCredits(p.requester);
-    requireGlobalsMode(this, tree, p.globalsRevision);
-    if (p.globalsRevision && p.kind === "batch")
-      throw new Error("Shared text schedules require their signed preparation source.");
+    requireGlobalsMode(this, tree, p.kind === "push" && !!p.globals);
     return p;
   }
   /** Recovery credits come from the signed envelope, never from an unverified log or receipt. */
@@ -35287,7 +35526,7 @@ var Publisher = class _Publisher {
       return requesterCredits(intent.requester);
     }
     const key = createPublicKey3(this.options.publicKey);
-    if (createHash5("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== this.options.keyFingerprint || typeof envelope2.payload !== "string" || typeof envelope2.sig !== "string" || !verify3(null, Buffer.from(envelope2.payload), key, Buffer.from(envelope2.sig, "base64")))
+    if (createHash6("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== this.options.keyFingerprint || typeof envelope2.payload !== "string" || typeof envelope2.sig !== "string" || !verify3(null, Buffer.from(envelope2.payload), key, Buffer.from(envelope2.sig, "base64")))
       throw new Error("Invalid credit envelope");
     const raw = JSON.parse(envelope2.payload);
     const payload = raw.kind === "batch" ? batchPublishPayloadSchema.parse(raw) : publishPayloadSchema.parse(raw);
@@ -35333,9 +35572,14 @@ var Publisher = class _Publisher {
       if (sourceTree[aliasGroupsPath] && r.generatorSha !== this.options.generatorSha)
         throw new Error("Generator revision differs from frozen alias-group receipt");
       hasMoves = Object.keys(this.movesAt(sourceTree)).length > 0;
-      perks = this.mergePublicationPerks(
+      const base = r.inPlace ? { ...live.perks } : live.perks;
+      for (const hash2 of r.inPlace?.refills ?? []) {
+        base[hash2] = entries[hash2];
+        delete entries[hash2];
+      }
+      perks = r.inPlace && !r.entries.length ? base : this.mergePublicationPerks(
         sourceTree,
-        live.perks,
+        base,
         entries,
         r.entries.map((e) => e.hash)
       );
@@ -35347,7 +35591,7 @@ var Publisher = class _Publisher {
     const { publisherSha, publisherDigest } = this.options;
     const pin = JSON.stringify([publisherSha, publisherDigest]);
     const presets = hasMoves ? [...deployedLegacyPresets, "clarityV2"] : deployedLegacyPresets;
-    const checkKey = createHash5("sha256").update(JSON.stringify([parent, pin, presets])).update(bytes).digest("hex");
+    const checkKey = createHash6("sha256").update(JSON.stringify([parent, pin, presets])).update(bytes).digest("hex");
     if (this.checkedOutput?.key !== checkKey) {
       const candidate = this.candidateOutput;
       const before = candidate?.commit === parent && candidate.pin === pin ? candidate.after : void 0;
@@ -35444,21 +35688,21 @@ var Publisher = class _Publisher {
         return true;
       if (/^tooltips\/(?:0|[1-9]\d*)\.json$/.test(path) || /^globals\/(?:layout\.json$|sync\.json$|catalog\.json$|(?:entries|causes|intents|names|reviews|projections|pages)\/)/.test(
         path
-      ) || derivedGlobalPath(path) || path.startsWith("schedule/") || [snippetsPath, inactiveMovesPath, aliasGroupsPath, sandboxPointersPath].includes(path)) {
+      ) || reviewed[globalsInPlacePath] && path === globalsReleasePaths.published(this.options.liveBranch) || derivedGlobalPath(path) || path.startsWith("schedule/") || [snippetsPath, inactiveMovesPath, aliasGroupsPath, sandboxPointersPath].includes(path)) {
         rebuild = true;
         return true;
       }
       if (batch) rebuild = true;
       return batch;
     };
-    for (const [path, oid4] of Object.entries(reviewed)) {
+    for (const [path, oid5] of Object.entries(reviewed)) {
       if (!Object.hasOwn(tree, path)) {
         if (!(regular(reviewedModes, path) && nameProofRequest(reviewed, path)) && !acceptChange(path))
           return "blocked";
       } else {
         if (currentModes && (!Object.hasOwn(currentModes, path) || currentModes[path] !== reviewedModes?.[path]))
           return "blocked";
-        if (tree[path] !== oid4 && !acceptChange(path)) return "blocked";
+        if (tree[path] !== oid5 && !acceptChange(path)) return "blocked";
       }
     }
     for (const path of Object.keys(tree)) {
@@ -35502,14 +35746,14 @@ var Publisher = class _Publisher {
     const aliases = this.aliasesAt(frozen, options);
     const moves = this.movesAt(frozen);
     const pushed = pushedSchema.parse(this.read(frozen, "live/pushed.json"));
-    if (signed.globalsRevision !== receipt.globalsRevision || receipt.globalsRevision && receipt.globals)
+    if (Boolean(frozen[globalsInPlacePath]) !== Boolean(receipt.inPlace) || receipt.inPlace && receipt.globals)
       throw new ConsumerOutputRejected("Receipt does not match the reviewed shared text.");
     if (signed.intentDigest !== receipt.intentDigest || stableStringify(signed.requester) !== stableStringify(receipt.requester))
       throw new ConsumerOutputRejected("Receipt does not match the signed publication intent");
     if (!receipt.globals && receipt.entries.length !== new Set(signed.hashes.map((hash2) => resolveAlias(hash2, aliases))).size)
       throw new ConsumerOutputRejected("Receipt does not match the requested rows");
     if (signed.kind === "push") {
-      if (!atomic)
+      if (!atomic || receipt.inPlace)
         this.assertRequestedDigests(
           receipt.entries,
           signed.hashes,
@@ -35547,7 +35791,7 @@ var Publisher = class _Publisher {
         aliases
       );
     }
-    if (atomic && !receipt.globalsRevision) return;
+    if (atomic && !receipt.inPlace) return;
     try {
       const documents = [];
       for (const entry of receipt.entries) {
@@ -35566,7 +35810,7 @@ var Publisher = class _Publisher {
         documents.map(({ hash: hash2 }) => hash2),
         aliases
       );
-      const inPlace = this.inPlaceOptions(frozen, receipt.sourceCommit, signed, receipt.liveParent);
+      const inPlace = this.inPlaceOptions(frozen, signed, receipt.liveParent);
       if (inPlace) assertInPlaceDocuments(documents, inPlace.options);
       const exported = exportWithInactiveMoves(
         documents,
@@ -35576,7 +35820,7 @@ var Publisher = class _Publisher {
         selected,
         inPlace && { globalsInPlace: inPlace.options }
       );
-      if (inPlace)
+      if (inPlace && documents.length)
         provePublication(
           this,
           frozen,
@@ -35588,19 +35832,22 @@ var Publisher = class _Publisher {
           exported,
           inPlace.options
         );
-      if (stableStringify(exported) !== stableStringify(receipt.exported) || stableStringify(publicationChanges(receipt.entries, pushed, exported, inPlace?.live)) !== stableStringify(receipt.changed))
+      if (stableStringify({ ...inPlace?.refills, ...exported }) !== stableStringify(receipt.exported) || stableStringify(inPlace ? this.inPlaceReceipt(inPlace, exported) : null) !== stableStringify(receipt.inPlace ?? null) || stableStringify(
+        receipt.entries.filter(({ hash: hash2, digest: digest6 }) => pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2)
+      ) !== stableStringify(receipt.changed))
         throw new Error("Publication receipt export or upload markers differ from its snapshots");
+      return inPlace;
     } catch (error62) {
       throw new ConsumerOutputRejected(String(error62));
     }
   }
   async record(opId, receipt, candidate, result, requestBlob, landing, atomicLive, failureHead) {
     const p = paths2(opId);
-    if (receipt) await this.verifyReceiptDigests(receipt, atomicLive !== void 0);
+    const inPlace = receipt && await this.verifyReceiptDigests(receipt, atomicLive !== void 0);
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch), tree = this.git.tree(h);
       if (tree[p.log]) return;
-      if (receipt && (Boolean(tree[globalsInPlacePath]) !== Boolean(receipt.globalsRevision) || receipt.globalsRevision && tree[globalsInPlacePath] !== this.git.tree(receipt.sourceCommit)[globalsInPlacePath]))
+      if (receipt && (Boolean(tree[globalsInPlacePath]) !== Boolean(receipt.inPlace) || receipt.inPlace && tree[globalsInPlacePath] !== this.git.tree(receipt.sourceCommit)[globalsInPlacePath]))
         throw new ConsumerOutputRejected("Publication is fenced by a different shared text mode.");
       if (failureHead && failureHead !== h) throw new RefRace("Batch refusal source moved");
       if (!receipt && new SchedulePreparer(this).batches(tree).some(
@@ -35630,7 +35877,7 @@ var Publisher = class _Publisher {
             );
           throw error62;
         });
-        if (receipt.globalsRevision && (tree[p.request] !== receipt.requestBlob || signed.globalsRevision !== receipt.globalsRevision))
+        if (receipt.inPlace && tree[p.request] !== receipt.requestBlob)
           throw new ConsumerOutputRejected(
             "Publication changed before landing; review the tooltip again."
           );
@@ -35651,7 +35898,7 @@ var Publisher = class _Publisher {
               signed.kind === "batch"
             );
         }
-        if (!receipt.globalsRevision) {
+        if (!receipt.inPlace) {
           let documents;
           let entryOnlyAggregates = [];
           if (signed.kind === "batch") {
@@ -35737,6 +35984,14 @@ var Publisher = class _Publisher {
       const batchTimes = batchPayload ? this.recordBatch(tree, opId, batchPayload, receipt, candidate, result, landing) : void 0;
       if (receipt) {
         const pushed = pushedSchema.parse(this.read(tree, "live/pushed.json"));
+        if (inPlace && receipt.inPlace?.globals.length) {
+          rewritePushed(this, tree, pushed, inPlace.rewritten);
+          for (const [hash2, tooltip] of inPlace.rewritten)
+            tree[`live/tooltips/${hash2}.json`] = this.git.writeBlob(json5(tooltip));
+          tree[globalsReleasePaths.published(this.options.liveBranch)] = this.git.writeBlob(
+            json5(inPlace.published)
+          );
+        }
         for (const e of receipt.entries) {
           pushed[e.hash] = e.digest;
           tree[`live/tooltips/${e.hash}.json`] = e.tooltipBlob;
@@ -35793,7 +36048,9 @@ var Publisher = class _Publisher {
               hash: e.hash,
               digest: e.digest,
               status: receipt.outcome
-            }))
+            })),
+            ...receipt?.inPlace?.globals.length ? { globals: receipt.inPlace.globals } : {},
+            ...receipt?.inPlace?.refusals?.length ? { globalRefusals: receipt.inPlace.refusals } : {}
           },
           liveCommit: candidate ?? null,
           recordCommit: null,
@@ -35934,7 +36191,7 @@ var Publisher = class _Publisher {
     );
     if (runtime && paths3.some((path) => tree[path] !== runtime[path]))
       throw new RefRace("Publisher installation changed during this run");
-    if (this.options.publisherConfigDigest && (!tree[paths3[1]] || createHash5("sha256").update(this.git.blob(tree[paths3[1]])).digest("hex") !== this.options.publisherConfigDigest))
+    if (this.options.publisherConfigDigest && (!tree[paths3[1]] || createHash6("sha256").update(this.git.blob(tree[paths3[1]])).digest("hex") !== this.options.publisherConfigDigest))
       throw new RefRace("Wait for the installed publisher configuration to run");
     if (tree[paths3[0]] || this.options.publisherConfigDigest) {
       const pin = this.read(tree, paths3[0]);
@@ -36044,9 +36301,9 @@ var Publisher = class _Publisher {
           return;
         }
         for (const hash2 of payload.hashes) {
-          const canonical = resolveAlias(hash2, aliases), oid4 = tree[`tooltips/${canonical}.json`];
+          const canonical = resolveAlias(hash2, aliases), oid5 = tree[`tooltips/${canonical}.json`];
           const tooltip = tooltipSchema.safeParse(
-            oid4 ? JSON.parse(this.git.blob(oid4)) : isMovedInactive(canonical, moves) ? { hash: canonical, text: {}, associated: [] } : void 0
+            oid5 ? JSON.parse(this.git.blob(oid5)) : isMovedInactive(canonical, moves) ? { hash: canonical, text: {}, associated: [] } : void 0
           );
           if (!tooltip.success || tooltip.data.hash !== canonical) {
             outcomes.push({ hash: canonical, status: "missing" });
@@ -36061,7 +36318,7 @@ var Publisher = class _Publisher {
             entries.push({
               hash: canonical,
               digest: digest6,
-              tooltipBlob: oid4 ?? this.git.writeBlob(json5(tooltip.data))
+              tooltipBlob: oid5 ?? this.git.writeBlob(json5(tooltip.data))
             });
             tooltips.push(tooltip.data);
             seen.add(canonical);
@@ -36082,7 +36339,7 @@ var Publisher = class _Publisher {
         }
         let globals;
         let entryOnlyAggregates = [];
-        if (hasGlobals(tree) && !payload.globalsRevision) {
+        if (hasGlobals(tree) && !tree[globalsInPlacePath]) {
           try {
             const release = await new GlobalsPublisher(this).release(tree, s, payload.hashes, live);
             if (!release) throw new Error("Missing global release");
@@ -36118,7 +36375,7 @@ var Publisher = class _Publisher {
           (hash2) => payload.expected[hash2],
           aliases
         );
-        const inPlace = this.inPlaceOptions(tree, s, payload, live);
+        const inPlace = this.inPlaceOptions(tree, payload, live);
         const checked = this.checkAndExport(tree, tooltips, aliases, inPlace);
         if ("error" in checked) {
           await this.record(
@@ -36142,12 +36399,12 @@ var Publisher = class _Publisher {
           ...this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {},
           outcome: "published",
           entries,
-          exported: checked.exported,
-          changed: publicationChanges(entries, pushed, checked.exported, inPlace?.live),
+          exported: { ...inPlace?.refills, ...checked.exported },
+          changed: entries.filter(({ hash: hash2, digest: digest6 }) => pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2),
           requester: payload.requester,
           intentDigest: payload.intentDigest,
           ...globals ? { globals } : {},
-          ...payload.globalsRevision ? { globalsRevision: payload.globalsRevision } : {}
+          ...inPlace ? { inPlace: this.inPlaceReceipt(inPlace, checked.exported) } : {}
         };
         candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
       }
@@ -36175,11 +36432,8 @@ var Publisher = class _Publisher {
         return;
       }
       try {
-        requireGlobalsMode(
-          this,
-          this.git.tree(this.head(this.options.dataBranch)),
-          r.globalsRevision
-        );
+        const mode = requireGlobalsMode(this, this.git.tree(this.head(this.options.dataBranch)));
+        if (Boolean(mode) !== Boolean(r.inPlace)) throw new Error("Publication mode changed.");
       } catch (error62) {
         throw new ConsumerOutputRejected(String(error62));
       }
@@ -36190,7 +36444,7 @@ var Publisher = class _Publisher {
           throw new ConsumerOutputRejected(
             "stored candidate differs from its checked receipt; nothing published"
           );
-        if (r.batchId || r.globals || r.globalsRevision || hasGlobals(this.git.tree(this.head(this.options.dataBranch)))) {
+        if (r.batchId || r.globals || r.inPlace || hasGlobals(this.git.tree(this.head(this.options.dataBranch)))) {
           try {
             await this.record(
               opId,
@@ -36233,7 +36487,7 @@ var Publisher = class _Publisher {
           return;
         }
       } else {
-        if (r.globalsRevision) {
+        if (r.inPlace) {
           const head = this.head(this.options.dataBranch);
           throw new SourceAdvanced(
             c,
@@ -36301,7 +36555,7 @@ var Publisher = class _Publisher {
         moves,
         inPlace && { globalsInPlace: inPlace.options }
       );
-      if (inPlace)
+      if (inPlace && tooltips.length)
         provePublication(
           this,
           tree,
@@ -36325,24 +36579,36 @@ var Publisher = class _Publisher {
       };
     return { now, exported };
   }
-  inPlaceOptions(tree, source2, payload, live) {
+  inPlaceOptions(tree, payload, live) {
     try {
-      const fence = requireGlobalsMode(this, tree, payload.globalsRevision);
-      if (!fence || !payload.globalsRevision) return;
+      const selection2 = payload.kind === "push" ? payload.globals ?? [] : [];
+      const fence = requireGlobalsMode(this, tree, selection2.length > 0);
+      if (!fence) return;
       this.assertBatchRuntime(tree);
       const pin = this.read(tree, ".publisher/PIN");
       if (!pin?.capabilities.includes(globalsInPlaceCapability))
         throw new Error("Update the installed publisher before publishing shared text.");
       assertInPlaceRoots(payload.hashes);
-      if (!this.git.ancestor(payload.globalsRevision, source2) || !this.git.ancestor(fence.migratedLive, live))
-        throw new Error("The shared text revision is outside publication history.");
+      if (!this.git.ancestor(fence.migratedLive, live))
+        throw new Error("LIVE has no in-place migration.");
+      const input2 = liveGlobalsInput(this, live);
+      assertInPlaceLibraries(input2);
+      const role = permissionsSchema.parse(this.read(tree, "config/permissions.json")).users[payload.requester.id]?.role;
+      const plan = planInPlaceRelease(this, tree, input2, selection2, role === "maintainer");
       return {
-        options: inPlaceSource(this, payload.globalsRevision, fence).options,
-        live: liveGlobalsInput(this, live)
+        ...plan,
+        live: { ...input2, perks: { ...input2.perks, ...plan.refills } }
       };
     } catch (error62) {
       throw new ConsumerOutputRejected(String(error62));
     }
+  }
+  inPlaceReceipt(plan, exported) {
+    return {
+      globals: plan.globals,
+      refills: Object.keys(plan.refills).filter((hash2) => !exported[hash2]).map(Number),
+      ...plan.refusals.length ? { refusals: plan.refusals } : {}
+    };
   }
   createCandidate(opId, blob, live, r, previous) {
     const p = paths2(opId);
@@ -36462,7 +36728,7 @@ var Publisher = class _Publisher {
           }
         };
     }
-    if (hasGlobals(tree) && !payload.globalsRevision) {
+    if (hasGlobals(tree) && !tree[globalsInPlacePath]) {
       try {
         new SchedulePreparer(this).pin(tree);
         const pin = this.read(tree, ".publisher/PIN");
@@ -36498,28 +36764,12 @@ var Publisher = class _Publisher {
     }
     let inPlace;
     try {
-      inPlace = this.inPlaceOptions(tree, revision2, payload, live);
+      inPlace = this.inPlaceOptions(tree, payload, live);
     } catch (error62) {
       return { failure: { status: "rejected", error: String(error62) } };
     }
     const checked = this.checkAndExport(tree, documents, aliases, inPlace);
     if ("error" in checked) return { failure: { status: "rejected", ...checked } };
-    if (inPlace) {
-      for (const tooltip of documents) {
-        if (unreviewedScheduledGlobals(
-          tooltip,
-          this.read(tree, `live/tooltips/${tooltip.hash}.json`),
-          inPlace.live,
-          checked.exported
-        ))
-          return {
-            failure: {
-              status: "rejected",
-              error: `Review the shared text change for ${this.partNames(tree, [tooltip.hash])} before scheduling this batch.`
-            }
-          };
-      }
-    }
     const entries = [];
     for (const tooltip of documents)
       entries.push({
@@ -36546,7 +36796,8 @@ var Publisher = class _Publisher {
       entries,
       now: checked.now,
       exported: checked.exported,
-      changed: publicationChanges(entries, pushed, checked.exported, inPlace?.live),
+      changed: entries.filter(({ hash: hash2, digest: digest6 }) => pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2),
+      ...inPlace ? { inPlace: this.inPlaceReceipt(inPlace, checked.exported) } : {},
       ...globals ? { globals } : {}
     };
   }
@@ -36707,7 +36958,7 @@ var Publisher = class _Publisher {
       batchId: payload.batchId,
       contentRevision: payload.contentRevision,
       ...plan.globals ? { globals: plan.globals } : {},
-      ...payload.globalsRevision ? { globalsRevision: payload.globalsRevision } : {}
+      ...plan.inPlace ? { inPlace: plan.inPlace } : {}
     };
     this.merge(live, receipt);
     let sourceCommit = s;
@@ -36916,7 +37167,13 @@ var Publisher = class _Publisher {
         const value2 = JSON.parse(e.payload);
         if (value2?.kind === "batch") return batchEntry(batchPublishPayloadSchema.parse(value2));
         const p = publishPayloadSchema.parse(value2);
-        return { opId: id, requester: p.requester, hashes: p.hashes, createdAt: p.createdAt };
+        return {
+          opId: id,
+          requester: p.requester,
+          hashes: p.hashes,
+          createdAt: p.createdAt,
+          ...p.globals ? { globals: p.globals.map(({ id: id2 }) => id2) } : {}
+        };
       } catch {
         return { opId: id, invalid: true };
       }
@@ -36930,12 +37187,13 @@ var Publisher = class _Publisher {
       if (t[inactiveMovesPath]) inactiveMoves = this.movesAt(t);
     } catch {
     }
+    const inPlace = fence && bundleInPlaceReview(this, t, fence);
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, "config/permissions.json")),
-      pushed: pushedSchema.parse(this.read(t, "live/pushed.json")),
+      pushed: inPlace?.pushed ?? pushedSchema.parse(this.read(t, "live/pushed.json")),
       // Preserve malformed config too: omitting it would resurrect archived members in readers.
       // Raw invalid JSON becomes null, which the web schema rejects, without wedging the queue.
       ...t[aliasGroupsPath] ? {
@@ -36951,7 +37209,7 @@ var Publisher = class _Publisher {
       ...sandboxPointers && Object.keys(sandboxPointers.pointers).length ? { sandboxPointers } : {},
       publishQueue,
       ...scheduledQueue.length ? { scheduledQueue } : {},
-      ...fence ? { globalsInPlace: bundleInPlaceReview(this, h, t, tooltips, fence) } : {},
+      ...inPlace ? { globalsPending: inPlace.globalsPending } : {},
       // The globals catalogue at this same head; null (never a partial list) when malformed,
       // so the editor says it is unavailable without stopping the bundle or the queue.
       ...hasGlobals(t) ? {
@@ -36997,7 +37255,7 @@ var Publisher = class _Publisher {
 
 // scripts/publisher/pipeline.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
-import { createHash as createHash6, createPublicKey as createPublicKey4 } from "node:crypto";
+import { createHash as createHash7, createPublicKey as createPublicKey4 } from "node:crypto";
 import { mkdtempSync as mkdtempSync2, mkdirSync, readFileSync, rmSync as rmSync2, writeFileSync } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join3, resolve as resolve2 } from "node:path";
@@ -37061,14 +37319,14 @@ var RemoteRepository = class extends LocalRepository {
       throw new TransportUnresolved("Invalid remote ref advertisement");
     if (super.head(ref) === advertisedOid) return advertisedOid;
     this.remoteGit(["fetch", "--no-tags", this.remote, ref]);
-    const oid4 = this.git(["rev-parse", "--verify", "FETCH_HEAD"]).trim();
-    this.git(["update-ref", ref, oid4]);
-    return oid4;
+    const oid5 = this.git(["rev-parse", "--verify", "FETCH_HEAD"]).trim();
+    this.git(["update-ref", ref, oid5]);
+    return oid5;
   }
   cas(ref, old, next) {
     this.validate(ref);
-    for (const oid4 of [old, next])
-      if (oid4 !== void 0 && !/^[0-9a-f]{40}$/.test(oid4)) throw new Error("Invalid object ID");
+    for (const oid5 of [old, next])
+      if (oid5 !== void 0 && !/^[0-9a-f]{40}$/.test(oid5)) throw new Error("Invalid object ID");
     const candidate = ref.startsWith("refs/heads/publish-candidate/");
     if (!candidate && (!next || old && !this.ancestor(old, next)))
       throw new Error("Data/live/bundle refs must advance monotonically");
@@ -37153,7 +37411,7 @@ function publicationIdentity(repo, branch = "converter") {
   const log = JSON.parse(repo.blob(recordTree[paths2(receipt.opId).log]));
   if (log.candidateCommit !== commit2 || !["done", "unchanged"].includes(log.result?.status))
     throw new Error("Publication RECORD differs from receipt");
-  const hash2 = (bytes) => createHash6("sha256").update(bytes).digest("hex");
+  const hash2 = (bytes) => createHash7("sha256").update(bytes).digest("hex");
   const enginePin = tree[".exports/PIN"] ? repo.blob(tree[".exports/PIN"]).trim() : null;
   if (!/^[a-f0-9]{40}$/.test(receipt.generatorSha) || branch === "converter" && (!enginePin || !/^[a-f0-9]{40}$/.test(enginePin) || !tree[".exports/engine.mjs"] || !receipt.verifierSha256 || !/^[a-f0-9]{64}$/.test(receipt.verifierSha256) || !recordTree[".publisher/verify-publication.mjs"] || hash2(repo.blob(recordTree[".publisher/verify-publication.mjs"])) !== receipt.verifierSha256))
     throw new Error("Invalid immutable publication identity");
@@ -37232,9 +37490,9 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
       "refs/remotes/origin/"
     ]);
     for (const line of refs.trim().split("\n")) {
-      const [ref, oid4] = line.split(" ");
+      const [ref, oid5] = line.split(" ");
       if (ref.endsWith("/HEAD")) continue;
-      command(["update-ref", ref.replace("refs/remotes/origin/", "refs/heads/"), oid4]);
+      command(["update-ref", ref.replace("refs/remotes/origin/", "refs/heads/"), oid5]);
     }
     const remoteNames = new Set(
       refs.split("\n").map((l) => l.split(" ")[0].replace("refs/remotes/origin/", "refs/heads/"))
@@ -37302,7 +37560,7 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
       });
       if (!response.ok) throw new Error("Worker key unavailable");
       const key = await response.json();
-      const fingerprint = createHash6("sha256").update(createPublicKey4(key.publicKey).export({ type: "spki", format: "der" })).digest("hex");
+      const fingerprint = createHash7("sha256").update(createPublicKey4(key.publicKey).export({ type: "spki", format: "der" })).digest("hex");
       if (key.algorithm !== "Ed25519" || fingerprint !== config2.keyFingerprint || key.fingerprint !== fingerprint)
         throw new Error("Worker key fingerprint mismatch");
       options.publicKey = key.publicKey;
@@ -37376,7 +37634,7 @@ publication=${productionPush ? JSON.stringify(handoff2) : ""}
 }
 function verifyRuntime(root) {
   const pin = JSON.parse(readFileSync(join3(root, "PIN"), "utf8"));
-  if (!/^[0-9a-f]{64}$/.test(pin.verifierSha256) || createHash6("sha256").update(readFileSync(join3(root, "verify-publication.mjs"))).digest("hex") !== pin.verifierSha256 || !/^[0-9a-f]{40}$/.test(pin.sourceSha) || createHash6("sha256").update(readFileSync(join3(root, "publisher.mjs"))).digest("hex") !== pin.sha256)
+  if (!/^[0-9a-f]{64}$/.test(pin.verifierSha256) || createHash7("sha256").update(readFileSync(join3(root, "verify-publication.mjs"))).digest("hex") !== pin.verifierSha256 || !/^[0-9a-f]{40}$/.test(pin.sourceSha) || createHash7("sha256").update(readFileSync(join3(root, "publisher.mjs"))).digest("hex") !== pin.sha256)
     throw new Error("Publisher PIN mismatch");
   return pin;
 }
@@ -37457,10 +37715,8 @@ async function dryRunGlobalsMigration(pub, inputs, checkpoint) {
   const source2 = pub.head(pub.options.dataBranch);
   const tree = git.tree(source2);
   const installed = pub.read(tree, ".publisher/PIN");
-  if (inputs.clearance !== "review" || !installed?.capabilities.includes(globalsInPlaceCapability))
-    throw new Error(
-      "Migration requires explicit ordinary Review clearance and the in-place publisher PIN."
-    );
+  if (!installed?.capabilities.includes(globalsInPlaceCapability))
+    throw new Error("Install the in-place publisher PIN before migration.");
   let journal = globalsFence(pub, tree);
   let hold = source2;
   const legacyLive = journal?.legacyLive ?? pub.head(pub.options.liveBranch);
@@ -37480,8 +37736,6 @@ async function dryRunGlobalsMigration(pub, inputs, checkpoint) {
     );
     journal = globalsInPlaceFenceSchema.parse({
       state: "hold",
-      clearance: inputs.clearance,
-      missingTranslation: inputs.missingTranslation,
       destination: pub.options.liveBranch,
       legacyData: source2,
       legacyLive,
@@ -37504,7 +37758,7 @@ async function dryRunGlobalsMigration(pub, inputs, checkpoint) {
   const migratedTree = git.tree(migratedLive);
   if (git.blob(migratedTree["liveDescriptions.json"]) !== json6(next) || !git.ancestor(legacyLive, migratedLive) || Object.keys(originalTree).length !== Object.keys(migratedTree).length || Object.keys(originalTree).some(
     (path) => path !== "liveDescriptions.json" && originalTree[path] !== migratedTree[path]
-  ) || journal.missingTranslation !== (inputs.missingTranslation ?? "english") || !git.ancestor(journal.legacyData, hold))
+  ) || !git.ancestor(journal.legacyData, hold))
     throw new Error("Migration journal differs from its proven inputs.");
   const currentLive = pub.head(pub.options.liveBranch);
   if (currentLive === legacyLive && journal.state === "hold") {
@@ -37516,30 +37770,13 @@ async function dryRunGlobalsMigration(pub, inputs, checkpoint) {
   const fence = { ...journal, state: "active" };
   const recordTree = { ...git.tree(hold), [globalsInPlacePath]: git.writeBlob(json6(fence)) };
   const record3 = journal.state === "active" ? hold : git.commit(hold, recordTree, "Record shared text migration and enable Review", appCredits);
-  const tooltips = Object.fromEntries(
-    Object.keys(recordTree).filter((path) => /^tooltips\/\d+\.json$/.test(path)).map((path) => {
-      const tooltip = tooltipSchema.parse(pub.read(recordTree, path));
-      return [tooltip.hash, tooltip];
-    })
-  );
-  const review = bundleInPlaceReview(pub, record3, recordTree, tooltips, fence);
-  const pushed = pushedSchema.parse(pub.read(recordTree, "live/pushed.json"));
-  const aliases = pub.aliasesAt(recordTree);
-  const moves = pub.movesAt(recordTree);
-  for (const [hash2, row] of Object.entries(review.rows)) {
-    const tooltip = tooltips[hash2];
-    if (inputWasPublished(before, hash2) && pushed[hash2] === await inactivePublishableHash(tooltip, aliases, moves))
-      throw new Error(
-        `Migration makes tooltip ${hash2} pending: ${row.refusal ?? "resolved text changed"}.`
-      );
-  }
+  publishedGlobals(pub, recordTree);
   if (journal.state === "hold") {
     git.cas(dataRef2, hold, record3);
     checkpoint?.("record");
   }
   return { record: record3, live: migratedLive, files };
 }
-var inputWasPublished = (input2, hash2) => Boolean(input2.perks[hash2] && "editor" in input2.perks[hash2]);
 function restoreGlobalsMigration(pub) {
   const git = assertDisposable(pub);
   const data = pub.head(pub.options.dataBranch);
@@ -37575,7 +37812,7 @@ async function main() {
         ...options,
         publisherDigest: pin.sha256,
         verifierDigest: pin.verifierSha256,
-        publisherConfigDigest: flag === "--pipeline-publish" ? createHash7("sha256").update(bytes).digest("hex") : void 0
+        publisherConfigDigest: flag === "--pipeline-publish" ? createHash8("sha256").update(bytes).digest("hex") : void 0
       },
       output2,
       flag === "--pipeline-publish"

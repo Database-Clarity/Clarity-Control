@@ -35,7 +35,12 @@ export async function createRequest(
     if (decision.status !== 'create') return decision;
     if (attempt === 3) throw new Error('Create unresolved; retry SAME opId');
     validatePublishBody(
-      { opId: intent.opId, hashes: intent.hashes, expected: intent.expected },
+      {
+        opId: intent.opId,
+        hashes: intent.hashes,
+        expected: intent.expected,
+        globals: intent.globals,
+      },
       now(),
     );
     const payload = stableStringify({

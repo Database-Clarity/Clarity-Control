@@ -18,7 +18,7 @@ import type { Publisher } from './publisher.js';
 import { appCredits, RefRace, requesterCredits, type Tree } from './git.js';
 import { json } from './batch.js';
 import { hasGlobals } from './globals.js';
-import { assertInPlaceDocuments, globalsFence, inPlaceSource } from './globalsInPlace.js';
+import { assertInPlaceDocuments, globalsFence, publishedGlobals } from './globalsInPlace.js';
 import {
   planSaveChanges,
   savedChangesSchema,
@@ -167,7 +167,7 @@ export async function drainCurrentSaves(pub: Publisher) {
             );
           const fence = globalsFence(pub, tree);
           if (fence && !('conflicts' in validated))
-            assertInPlaceDocuments(validated.tooltips, inPlaceSource(pub, head, fence).options);
+            assertInPlaceDocuments(validated.tooltips, publishedGlobals(pub, tree));
           plan = validated;
         } catch (error) {
           if (!(error instanceof Error)) throw error;

@@ -47,8 +47,8 @@ Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the ma
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.
 No installation, activation, or external data write is authorized by generating this template.
 
-Template source PIN: `2917843910b3757b172837a139f3a4e61951910e`.
-Expected publisher.mjs SHA-256: `6afd3ab6b30b1460ea161b1c36b403f252c7e844c9ba19188d48a56c2834e9b9`.
+Template source PIN: `4dee7401621a3c9b9862de915aacff7e95c3e027`.
+Expected publisher.mjs SHA-256: `7cac9f579bc1d68ec85101e5bfb327ce037d1fe5cfce5bcb3dd1307891acadcd`.
 
 ### In-place shared text dry run
 
@@ -60,7 +60,7 @@ finish or unschedule any batches that can still publish before planning a switch
 Run `publisher.mjs --globals-migration-dry-run <local repository> <config.json>
 <artifact directory> <migration-inputs.json>` with the proposed runtime
 installed in a local source checkout. The fourth file carries the pinned
-`catalog`, `inventoryItems`, `sandboxPerks`, and `clearance: "review"`. The command mirrors into a
+`catalog`, `inventoryItems`, and `sandboxPerks`. The command mirrors into a
 local-only object store, checks manifest selection and 34 consumer files,
 exercises restore, then generates a simulated commit bundle. It preserves every
 authored marker and the upload stamps of existing LIVE rows.
@@ -68,8 +68,8 @@ authored marker and the upload stamps of existing LIVE rows.
 When a used shared definition has no usable translation, the affected
 language publishes the English tooltip and keeps the existing fallback flag.
 
-Ordinary Review is the active clearance seam. Activation requires the owner's
-clearance approval and a separate authorization for the LIVE/DATA migration.
+Ordinary Review roles apply to each shared definition. Obtain the owner's
+authorization for the LIVE/DATA migration before activating the mode.
 During the journal hold, admissions are paused. Restore the paired inputs and
 the pre-switch bundle and runtime before the first switched publication. The
 dry-run restore refuses intervening saves or publications. Later rollback

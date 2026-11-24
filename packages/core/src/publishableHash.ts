@@ -18,28 +18,30 @@ import { tooltipSchema, type Tooltip } from './schemas.js';
  * changes exported bytes is. On text without element tags, `#{name}`, or `<enhanced/>` that form is
  * the text itself, so every digest recorded before those forms existed still matches.
  */
-export async function publishableHash(tooltip: Tooltip, aliases: Aliases = {}): Promise<string> {
+export function publishableHashInput(tooltip: Tooltip, aliases: Aliases = {}): string {
   const parsed = tooltipSchema.parse(tooltip);
   const english = parsed.text.en;
   const incoming = incomingAliases(parsed.hash, aliases);
   const fallback = Object.keys(parsed.text).filter((language) =>
     usesEnglishFallback(parsed, language as keyof Tooltip['text']),
   );
-  const bytes = new TextEncoder().encode(
-    stableStringify({
-      text: Object.fromEntries(
-        Object.entries(parsed.text).map(([language, value]) => [
-          language,
-          lowerConsumerMarkup(fallback.includes(language) && english ? english.text : value.text),
-        ]),
-      ),
-      associated: parsed.associated,
-      custom: parsed.custom,
-      numbers: english?.numbers,
-      ...(fallback.length ? { fallback: fallback.sort() } : {}),
-      ...(incoming.length ? { aliases: incoming } : {}),
-    }),
-  );
+  return stableStringify({
+    text: Object.fromEntries(
+      Object.entries(parsed.text).map(([language, value]) => [
+        language,
+        lowerConsumerMarkup(fallback.includes(language) && english ? english.text : value.text),
+      ]),
+    ),
+    associated: parsed.associated,
+    custom: parsed.custom,
+    numbers: english?.numbers,
+    ...(fallback.length ? { fallback: fallback.sort() } : {}),
+    ...(incoming.length ? { aliases: incoming } : {}),
+  });
+}
+
+export async function publishableHash(tooltip: Tooltip, aliases: Aliases = {}): Promise<string> {
+  const bytes = new TextEncoder().encode(publishableHashInput(tooltip, aliases));
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }

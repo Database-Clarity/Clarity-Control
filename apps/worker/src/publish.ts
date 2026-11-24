@@ -211,15 +211,9 @@ export async function publish(
         value.hashes,
         github.env.LIVE_BRANCH,
       );
-      if (Boolean(fence) !== Boolean(value.globalsRevision))
-        throw new HttpError(409, 'The publication mode changed. Review the tooltip again.');
-      if (value.globalsRevision) {
-        if (!(await github.sameGlobalDefinitions(snapshot.head, value.globalsRevision)))
-          throw new HttpError(409, 'Shared text changed since review. Refresh saved changes.');
-        // Actions verifies the authored expectations before creating a candidate. Admission
-        // of shared text uses immutable definition identity without loading tooltip bodies.
-        checkedHead = snapshot.head;
-      }
+      if (!fence && value.globals)
+        throw new HttpError(409, 'Review shared definitions with the current publisher.');
+      if (fence) checkedHead = snapshot.head;
     }
     if (checkedHead !== snapshot.head) {
       // Sandbox picks join the aliases only for a publisher build that merges them itself, so the

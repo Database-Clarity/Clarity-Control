@@ -575,7 +575,7 @@ async function withGlobals(
   return { store, proposed };
 }
 
-it('keeps the signed shared text through preparation, claim, and an atomic landing race', async () => {
+it('uses the shared text published at landing after a scheduled claim race', async () => {
   const f = await fixture();
   const { store } = await withGlobals(f, 'Fixed #Alpha');
   const legacyData = f.pub.head(f.options.dataBranch);
@@ -593,23 +593,36 @@ it('keeps the signed shared text through preparation, claim, and an atomic landi
   f.git.cas(L, legacyLive, migratedLive);
   const pin = f.read<{ capabilities: string[] }>('.publisher/PIN');
   pin.capabilities.push(globalsInPlaceCapability);
-  const reviewed = f.change({
+  f.change({
     '.publisher/PIN': pin,
     [globalsInPlacePath]: {
       state: 'active',
-      clearance: 'review',
       destination: f.options.liveBranch,
       legacyData,
       legacyLive,
       migratedLive,
     },
   });
-  const change = (value: string) => {
+  const change = (value: string, release = false) => {
     const alpha = structuredClone(store.entries.find(({ name }) => name === 'Alpha')!);
     alpha.revision = `alpha-${value}`;
     alpha.definitions.en!.revision = alpha.revision;
     alpha.definitions.en!.body = value;
-    f.change({ [`globals/entries/${alpha.id}.json`]: alpha });
+    f.change({
+      [`globals/entries/${alpha.id}.json`]: alpha,
+      ...(release
+        ? {
+            'globals/live/converter-v2-test.json': {
+              version: 1,
+              destination: f.options.liveBranch,
+              store: {
+                ...store,
+                entries: store.entries.map((item) => (item.id === alpha.id ? alpha : item)),
+              },
+            },
+          }
+        : {}),
+    });
   };
   f.admit('schedule');
   change('11');
@@ -619,14 +632,17 @@ it('keeps the signed shared text through preparation, claim, and an atomic landi
   (f.git as Memory).beforeAtomic = () => {
     expect(f.batch().status).toBe('publishing');
     expect(f.pub.head(f.options.liveBranch)).toBe(migratedLive);
-    change('13');
+    change('13', true);
   };
   await f.pub.operation(R);
   const live = f.pub.head(f.options.liveBranch);
   expect(f.batch().status).toBe('published');
-  expect(f.pub.receipt(live, R)).toMatchObject({ globalsRevision: reviewed, changed: [123] });
+  expect(f.pub.receipt(live, R)).toMatchObject({
+    inPlace: { globals: [], refills: [] },
+    changed: [123],
+  });
   expect(f.pub.read(f.git.tree(live), 'liveDescriptions.json')).toMatchObject({
-    perks: { 123: { editor: { en: { main: 'Fixed 10' } } } },
+    perks: { 123: { editor: { en: { main: 'Fixed 13' } } } },
   });
 });
 

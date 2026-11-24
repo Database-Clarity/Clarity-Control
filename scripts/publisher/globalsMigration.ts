@@ -2,9 +2,6 @@ import {
   globalsInPlaceCapability,
   globalsInPlaceFenceSchema,
   globalsInPlacePath,
-  inactivePublishableHash,
-  pushedSchema,
-  tooltipSchema,
   type GlobalsInPlaceFence,
 } from '../../packages/core/src/index.js';
 import { batchSchema } from '@clarity/core/schedule';
@@ -22,7 +19,7 @@ import {
 } from '../../packages/export/src/index.js';
 import { appCredits, LocalRepository } from './git.js';
 import {
-  bundleInPlaceReview,
+  publishedGlobals,
   globalsFence,
   liveGlobalsInput,
   migrateInPlace,
@@ -33,7 +30,6 @@ export interface MigrationInputs {
   catalog: Catalog;
   inventoryItems: InventoryItems;
   sandboxPerks: SandboxPerks;
-  clearance: 'review';
 }
 
 export function proveMigrationFiles(
@@ -136,10 +132,8 @@ export async function dryRunGlobalsMigration(
   const source = pub.head(pub.options.dataBranch);
   const tree = git.tree(source);
   const installed = pub.read<{ capabilities: string[] }>(tree, '.publisher/PIN');
-  if (inputs.clearance !== 'review' || !installed?.capabilities.includes(globalsInPlaceCapability))
-    throw new Error(
-      'Migration requires explicit ordinary Review clearance and the in-place publisher PIN.',
-    );
+  if (!installed?.capabilities.includes(globalsInPlaceCapability))
+    throw new Error('Install the in-place publisher PIN before migration.');
 
   let journal = globalsFence(pub, tree);
   let hold = source;
@@ -160,7 +154,6 @@ export async function dryRunGlobalsMigration(
     );
     journal = globalsInPlaceFenceSchema.parse({
       state: 'hold',
-      clearance: inputs.clearance,
       destination: pub.options.liveBranch,
       legacyData: source,
       legacyLive,
@@ -204,38 +197,13 @@ export async function dryRunGlobalsMigration(
     journal.state === 'active'
       ? hold
       : git.commit(hold, recordTree, 'Record shared text migration and enable Review', appCredits);
-  const tooltips = Object.fromEntries(
-    Object.keys(recordTree)
-      .filter((path) => /^tooltips\/\d+\.json$/.test(path))
-      .map((path) => {
-        const tooltip = tooltipSchema.parse(pub.read(recordTree, path));
-        return [tooltip.hash, tooltip];
-      }),
-  );
-  const review = bundleInPlaceReview(pub, record, recordTree, tooltips, fence);
-  const pushed = pushedSchema.parse(pub.read(recordTree, 'live/pushed.json'));
-  const aliases = pub.aliasesAt(recordTree);
-  const moves = pub.movesAt(recordTree);
-  for (const [hash, row] of Object.entries(review.rows)) {
-    if (!row.differs && !row.refusal) continue;
-    const tooltip = tooltips[hash];
-    if (
-      inputWasPublished(before, hash) &&
-      pushed[hash] === (await inactivePublishableHash(tooltip, aliases, moves))
-    )
-      throw new Error(
-        `Migration makes tooltip ${hash} pending: ${row.refusal ?? 'resolved text changed'}.`,
-      );
-  }
+  publishedGlobals(pub, recordTree);
   if (journal.state === 'hold') {
     git.cas(dataRef, hold, record);
     checkpoint?.('record');
   }
   return { record, live: migratedLive, files };
 }
-
-const inputWasPublished = (input: LegacyInput, hash: string) =>
-  Boolean(input.perks[hash] && 'editor' in input.perks[hash]);
 
 /** Restore only the exact migration snapshots in the disposable clone. */
 export function restoreGlobalsMigration(pub: Publisher) {

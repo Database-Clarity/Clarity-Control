@@ -732,30 +732,15 @@ export class GitHub {
   /** Whether `head` carries any global entry metadata (the globals/ namespace). */
   async globalsBootstrapped(head: string): Promise<boolean> {
     if (!refPattern.test(head)) throw new HttpError(400, 'Invalid repository file reference');
-    return (await this.objectOid(head, 'globals')) !== null;
-  }
-
-  private async objectOid(head: string, path: string): Promise<string | null> {
     const repository = z
       .object({ object: z.object({ oid: z.string() }).passthrough().nullable() })
       .parse(
         await this.graphql(
           'query($owner:String!,$name:String!,$e:String!){repository(owner:$owner,name:$name){object(expression:$e){oid}}}',
-          { owner: this.env.GITHUB_OWNER, name: this.env.GITHUB_REPO, e: `${head}:${path}` },
+          { owner: this.env.GITHUB_OWNER, name: this.env.GITHUB_REPO, e: `${head}:globals` },
         ),
       );
-    return repository.object?.oid ?? null;
-  }
-
-  /** Two immutable definition directory identities, with no catalogue read or resolver work. */
-  async sameGlobalDefinitions(head: string, reviewed: string): Promise<boolean> {
-    if (!refPattern.test(head) || !refPattern.test(reviewed)) return false;
-    if (head === reviewed) return true;
-    const [current, prior] = await Promise.all([
-      this.objectOid(head, 'globals/entries'),
-      this.objectOid(reviewed, 'globals/entries'),
-    ]);
-    return current !== null && current === prior;
+    return repository.object !== null;
   }
 
   /** Several files at one commit; see `blobs`. */
