@@ -4,6 +4,7 @@ import { calculateGlobalImpact, GlobalSnapshotScans } from '../globals/impact.js
 import { projectGlobals } from '../globals/projection.js';
 import { globalReferenceSpans } from '../globals/references.js';
 import { globalSourceText } from '../globals/source.js';
+import type { Lang } from '../languages.js';
 import type {
   GlobalImpactChange,
   GlobalImpactRow,
@@ -81,9 +82,44 @@ function impacts(
   store: GlobalStore,
   ids: string[],
   scans: GlobalSnapshotScans,
+  withdrawals?: ReadonlyMap<string, readonly Lang[] | null>,
 ) {
   const beforeGlobals = projectGlobals(input.published),
     afterGlobals = projectGlobals(store);
+  const alternativeGlobals = new Map<string, Record<number, Tooltip> | undefined>();
+  const fallbackAlternatives = (before: GlobalImpactSnapshot, singleton: boolean) => {
+    return new Map(
+      ids.map((id) => {
+        const key = `${singleton}:${id}`;
+        if (!alternativeGlobals.has(key)) {
+          try {
+            alternativeGlobals.set(
+              key,
+              projectGlobals(
+                composeGlobalRelease(
+                  input.published,
+                  input.saved,
+                  singleton ? [id] : ids.filter((candidate) => candidate !== id),
+                ),
+              ),
+            );
+          } catch {
+            // An invalid candidate cannot prove a cause's role in fallback.
+            alternativeGlobals.set(key, undefined);
+          }
+        }
+        const globals = alternativeGlobals.get(key);
+        return [
+          id,
+          globals &&
+            scans.resolve({
+              ...before,
+              tooltips: { ...before.tooltips, ...globals },
+            }),
+        ] as const;
+      }),
+    );
+  };
   const afterLive = Object.fromEntries(
     Object.entries({ ...input.live.tooltips, ...input.authored.tooltips, ...afterGlobals }).filter(
       ([, document]) => resolveAlias(document.hash, input.authored.aliases) === document.hash,
@@ -119,6 +155,7 @@ function impacts(
     ],
   ] as const;
   return pairs.map(([before, after, names, published]) => {
+    const edited = changes(input, ids, names);
     if (
       published &&
       !calculateGlobalImpact(published, published, [], input.destination, scans).complete
@@ -128,7 +165,7 @@ function impacts(
     let result = calculateGlobalImpact(
       observedBefore,
       after,
-      changes(input, ids, names),
+      edited,
       input.destination,
       scans,
     );
@@ -151,19 +188,37 @@ function impacts(
       result = calculateGlobalImpact(
         observedBefore,
         after,
-        changes(input, ids, names),
+        edited,
         input.destination,
         scans,
       );
     }
     if (!result.complete) throw new Error('Sync pending: resolver closure is incomplete');
+    // A fallback or shared-source review can be required even when no consumer reads
+    // the withdrawn definition. Only the resolver's direct impact can block removal.
+    if (withdrawals?.size) {
+      // Historical reads still need review. Only a read in a current snapshot
+      // can make a previously admitted withdrawal unsafe to sync.
+      const current = names
+        ? calculateGlobalImpact(after, after, edited, input.destination, scans)
+        : result;
+      for (const row of current.rows)
+        for (const { globalId } of row.causes) {
+          const removed = withdrawals.get(globalId);
+          if (removed === null || removed?.includes(row.consumer.lang) || removed?.includes('en'))
+            throw new Error('Sync pending: a removed global dependency is still referenced');
+        }
+    }
     return expandReleaseDependencies(
       input,
       observedBefore,
       after,
       result,
-      changes(input, ids, names).map((change) => change.cause),
+      edited.map((change) => change.cause),
       scans,
+      withdrawals && ids.length > 1
+        ? (singleton) => fallbackAlternatives(observedBefore, singleton)
+        : undefined,
     );
   });
 }
@@ -178,6 +233,9 @@ function expandReleaseDependencies(
   impact: GlobalImpact,
   causes: GlobalCause[],
   scans: GlobalSnapshotScans,
+  counterfactuals?: (
+    singleton: boolean,
+  ) => ReadonlyMap<string, ReturnType<GlobalSnapshotScans['resolve']> | undefined>,
 ): GlobalImpact {
   const probe = [
     { kind: 'titles' as const, beforeName: 'Release', afterName: 'Release', cause: causes[0] },
@@ -207,15 +265,46 @@ function expandReleaseDependencies(
     scans,
   );
   if (!globalOnly.complete) throw new Error('Sync pending: global fallback closure is incomplete');
+  let omissions: ReturnType<NonNullable<typeof counterfactuals>> | undefined;
+  let singletons: typeof omissions;
   for (const row of globalOnly.rows)
     if (row.before?.rendered !== row.after?.rendered && !rows.has(key(row))) {
       const actual = census.rows.find((candidate) => key(candidate) === key(row));
-      if (actual)
-        rows.set(key(actual), {
-          ...actual,
-          reason: 'variable-read',
-          causes: [...new Map(causes.map((cause) => [stableStringify(cause), cause])).values()],
-        });
+      if (!actual) continue;
+      // Attribute fallback in the final release to edits needed to reproduce it,
+      // including when a withdrawn cell never appeared in the published store.
+      omissions ??= counterfactuals?.(false);
+      const matching = (candidates: typeof omissions) =>
+        candidates && [...candidates.values()].every((scan) => scan?.blockers.size === 0)
+          ? new Set(
+              [...candidates]
+                .filter(
+                  ([, scan]) => scan?.cells.get(key(row))?.result.rendered === row.after?.rendered,
+                )
+                .map(([id]) => id),
+            )
+          : undefined;
+      const unchangedWithout = matching(omissions);
+      let attributable = causes.filter(({ globalId }) => !unchangedWithout?.has(globalId));
+      if (!attributable.length) {
+        // Redundant edits can each produce the same fallback. A proven
+        // singleton identifies those edits when no one edit is necessary.
+        singletons ??= counterfactuals?.(true);
+        const unchangedWithOnly = matching(singletons);
+        attributable = causes.filter(({ globalId }) => unchangedWithOnly?.has(globalId));
+      }
+      rows.set(key(actual), {
+        ...actual,
+        reason: 'variable-read',
+        causes: [
+          ...new Map(
+            (attributable.length ? attributable : causes).map((cause) => [
+              stableStringify(cause),
+              cause,
+            ]),
+          ).values(),
+        ],
+      });
     }
   const dependencies = new Map<number, Map<string, GlobalCause>>();
   let progress = true;
@@ -341,7 +430,17 @@ export async function planGlobalRelease(
   for (const group of groups) {
     const ids = [...group].sort();
     const store = composeGlobalRelease(input.published, input.saved, ids);
-    const contexts = impacts(input, store, ids, scans);
+    const withdrawals = new Map<string, readonly Lang[] | null>();
+    for (const entry of store.entries) {
+      if (!group.has(entry.id)) continue;
+      const previous = input.published.entries.find(({ id }) => id === entry.id);
+      const removed = (Object.keys(previous?.definitions ?? {}) as Lang[]).filter(
+        (lang) => !entry.definitions[lang],
+      );
+      if (entry.tombstone || removed.length)
+        withdrawals.set(entry.id, entry.tombstone ? null : removed);
+    }
+    const contexts = impacts(input, store, ids, scans, withdrawals);
     const rows = new Map<string, GlobalReleaseRow>();
     for (const impact of contexts)
       for (const view of impact.rows) {

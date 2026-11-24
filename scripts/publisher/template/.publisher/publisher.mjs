@@ -28231,8 +28231,40 @@ function changes(input2, ids, names) {
     }));
   });
 }
-function impacts(input2, store, ids, scans) {
+function impacts(input2, store, ids, scans, withdrawals) {
   const beforeGlobals = projectGlobals(input2.published), afterGlobals = projectGlobals(store);
+  const alternativeGlobals = /* @__PURE__ */ new Map();
+  const fallbackAlternatives = (before, singleton) => {
+    return new Map(
+      ids.map((id) => {
+        const key = `${singleton}:${id}`;
+        if (!alternativeGlobals.has(key)) {
+          try {
+            alternativeGlobals.set(
+              key,
+              projectGlobals(
+                composeGlobalRelease(
+                  input2.published,
+                  input2.saved,
+                  singleton ? [id] : ids.filter((candidate) => candidate !== id)
+                )
+              )
+            );
+          } catch {
+            alternativeGlobals.set(key, void 0);
+          }
+        }
+        const globals = alternativeGlobals.get(key);
+        return [
+          id,
+          globals && scans.resolve({
+            ...before,
+            tooltips: { ...before.tooltips, ...globals }
+          })
+        ];
+      })
+    );
+  };
   const afterLive = Object.fromEntries(
     Object.entries({ ...input2.live.tooltips, ...input2.authored.tooltips, ...afterGlobals }).filter(
       ([, document]) => resolveAlias(document.hash, input2.authored.aliases) === document.hash
@@ -28266,13 +28298,14 @@ function impacts(input2, store, ids, scans) {
     ]
   ];
   return pairs.map(([before, after, names, published]) => {
+    const edited = changes(input2, ids, names);
     if (published && !calculateGlobalImpact(published, published, [], input2.destination, scans).complete)
       throw new Error("Sync pending: historical published closure is incomplete");
     let observedBefore = before;
     let result = calculateGlobalImpact(
       observedBefore,
       after,
-      changes(input2, ids, names),
+      edited,
       input2.destination,
       scans
     );
@@ -28292,23 +28325,33 @@ function impacts(input2, store, ids, scans) {
       result = calculateGlobalImpact(
         observedBefore,
         after,
-        changes(input2, ids, names),
+        edited,
         input2.destination,
         scans
       );
     }
     if (!result.complete) throw new Error("Sync pending: resolver closure is incomplete");
+    if (withdrawals?.size) {
+      const current = names ? calculateGlobalImpact(after, after, edited, input2.destination, scans) : result;
+      for (const row of current.rows)
+        for (const { globalId } of row.causes) {
+          const removed = withdrawals.get(globalId);
+          if (removed === null || removed?.includes(row.consumer.lang) || removed?.includes("en"))
+            throw new Error("Sync pending: a removed global dependency is still referenced");
+        }
+    }
     return expandReleaseDependencies(
       input2,
       observedBefore,
       after,
       result,
-      changes(input2, ids, names).map((change) => change.cause),
-      scans
+      edited.map((change) => change.cause),
+      scans,
+      withdrawals && ids.length > 1 ? (singleton) => fallbackAlternatives(observedBefore, singleton) : void 0
     );
   });
 }
-function expandReleaseDependencies(input2, before, after, impact, causes, scans) {
+function expandReleaseDependencies(input2, before, after, impact, causes, scans, counterfactuals) {
   const probe = [
     { kind: "titles", beforeName: "Release", afterName: "Release", cause: causes[0] }
   ];
@@ -28335,15 +28378,37 @@ function expandReleaseDependencies(input2, before, after, impact, causes, scans)
     scans
   );
   if (!globalOnly.complete) throw new Error("Sync pending: global fallback closure is incomplete");
+  let omissions;
+  let singletons;
   for (const row of globalOnly.rows)
     if (row.before?.rendered !== row.after?.rendered && !rows.has(key(row))) {
       const actual = census.rows.find((candidate) => key(candidate) === key(row));
-      if (actual)
-        rows.set(key(actual), {
-          ...actual,
-          reason: "variable-read",
-          causes: [...new Map(causes.map((cause) => [stableStringify(cause), cause])).values()]
-        });
+      if (!actual) continue;
+      omissions ??= counterfactuals?.(false);
+      const matching = (candidates) => candidates && [...candidates.values()].every((scan) => scan?.blockers.size === 0) ? new Set(
+        [...candidates].filter(
+          ([, scan]) => scan?.cells.get(key(row))?.result.rendered === row.after?.rendered
+        ).map(([id]) => id)
+      ) : void 0;
+      const unchangedWithout = matching(omissions);
+      let attributable = causes.filter(({ globalId }) => !unchangedWithout?.has(globalId));
+      if (!attributable.length) {
+        singletons ??= counterfactuals?.(true);
+        const unchangedWithOnly = matching(singletons);
+        attributable = causes.filter(({ globalId }) => unchangedWithOnly?.has(globalId));
+      }
+      rows.set(key(actual), {
+        ...actual,
+        reason: "variable-read",
+        causes: [
+          ...new Map(
+            (attributable.length ? attributable : causes).map((cause) => [
+              stableStringify(cause),
+              cause
+            ])
+          ).values()
+        ]
+      });
     }
   const dependencies = /* @__PURE__ */ new Map();
   let progress = true;
@@ -28450,7 +28515,17 @@ async function planGlobalRelease(input2) {
   for (const group of groups) {
     const ids = [...group].sort();
     const store = composeGlobalRelease(input2.published, input2.saved, ids);
-    const contexts = impacts(input2, store, ids, scans);
+    const withdrawals = /* @__PURE__ */ new Map();
+    for (const entry of store.entries) {
+      if (!group.has(entry.id)) continue;
+      const previous = input2.published.entries.find(({ id }) => id === entry.id);
+      const removed = Object.keys(previous?.definitions ?? {}).filter(
+        (lang) => !entry.definitions[lang]
+      );
+      if (entry.tombstone || removed.length)
+        withdrawals.set(entry.id, entry.tombstone ? null : removed);
+    }
+    const contexts = impacts(input2, store, ids, scans, withdrawals);
     const rows = /* @__PURE__ */ new Map();
     for (const impact of contexts)
       for (const view of impact.rows) {
@@ -31287,25 +31362,12 @@ var GlobalsPublisher = class _GlobalsPublisher {
         names: Object.fromEntries(beforeStore.entries.map((entry) => [entry.id, entry.name]))
       });
     }
-    const result = await planGlobalRelease({
+    return planGlobalRelease({
       ...captured,
       causes,
       priorAuthored: [...prior.values()],
       destination: this.options.liveBranch
     });
-    for (const component of result)
-      for (const id of component.ids) {
-        const entry = captured.saved.entries.find((entry2) => entry2.id === id);
-        const previous = captured.published.entries.find((entry2) => entry2.id === id);
-        const removed = Object.keys(previous?.definitions ?? {}).filter(
-          (lang) => !entry.definitions[lang]
-        );
-        if (component.rows.some(
-          (row) => row.view.causes.some((cause) => cause.globalId === id) && (entry.tombstone || removed.includes(row.view.consumer.lang) || removed.includes("en"))
-        ))
-          throw new Error("Sync pending: a removed global dependency is still referenced");
-      }
-    return result;
   }
   async validateCauses(tree, head) {
     const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
@@ -31600,7 +31662,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
           }
         });
         this.write(tree, path, value2, limits.entryBytes);
-        for (const id of component.ids)
+        for (const id of new Set(row.view.causes.map(({ globalId }) => globalId)))
           rowsByEntry.set(id, [...rowsByEntry.get(id) ?? [], row.id]);
       }
     for (const entry of store.entries) {

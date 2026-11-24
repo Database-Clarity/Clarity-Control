@@ -630,33 +630,14 @@ export class GlobalsPublisher {
         names: Object.fromEntries(beforeStore.entries.map((entry) => [entry.id, entry.name])),
       });
     }
-    const result = await planGlobalRelease({
+    // Upcoming versions are checked against their signed pin by SchedulePreparer and
+    // again at claim. They must not prevent the sync that computes current review rows.
+    return planGlobalRelease({
       ...captured,
       causes,
       priorAuthored: [...prior.values()],
       destination: this.options.liveBranch,
     });
-    for (const component of result)
-      for (const id of component.ids) {
-        const entry = captured.saved.entries.find((entry) => entry.id === id)!;
-        const previous = captured.published.entries.find((entry) => entry.id === id);
-        const removed = Object.keys(previous?.definitions ?? {}).filter(
-          (lang) => !entry.definitions[lang as Lang],
-        );
-        if (
-          component.rows.some(
-            (row) =>
-              row.view.causes.some((cause) => cause.globalId === id) &&
-              (entry.tombstone ||
-                removed.includes(row.view.consumer.lang) ||
-                removed.includes('en')),
-          )
-        )
-          throw new Error('Sync pending: a removed global dependency is still referenced');
-      }
-    // Upcoming versions are checked against their signed pin by SchedulePreparer and
-    // again at claim. They must not prevent the sync that computes current review rows.
-    return result;
   }
   private async validateCauses(tree: Tree, head: string) {
     const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
@@ -1051,7 +1032,7 @@ export class GlobalsPublisher {
           },
         });
         this.write(tree, path, value, limits.entryBytes);
-        for (const id of component.ids)
+        for (const id of new Set(row.view.causes.map(({ globalId }) => globalId)))
           rowsByEntry.set(id, [...(rowsByEntry.get(id) ?? []), row.id]);
       }
     for (const entry of store.entries) {
