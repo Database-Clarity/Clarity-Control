@@ -211,6 +211,7 @@ async function setup(transport: 'simulator' | 'remote' = 'simulator') {
     notBefore: string,
     contentRevision: number,
     createdAt: string,
+    batchId = BATCH,
   ) {
     const intent: BatchPublishIntent = {
       kind: 'batch',
@@ -219,7 +220,7 @@ async function setup(transport: 'simulator' | 'remote' = 'simulator') {
       dataBranch: options.dataBranch,
       liveBranch: options.liveBranch,
       requester: alice,
-      batchId: BATCH,
+      batchId,
       contentRevision,
       notBefore,
       hashes: members.map((m) => m.hash).sort((a, b) => a - b),
@@ -702,6 +703,104 @@ describe('scheduled batches (simulator)', () => {
     expect(
       assertPublished(f).batch.events.filter((event) => event.action === 'claim'),
     ).toHaveLength(1);
+  });
+
+  it('publishes a claim when a sibling batch is cancelled during RECORD', async () => {
+    const f = await setup();
+    const members = [{ hash: 123, base: tip(), proposed: proposedEn() }];
+    const a = await f.schedule(members);
+    const other = '01K95H000000000000000000B2';
+    const otherPath = `schedule/batches/${other}/batch.json`;
+    const otherBase = tip({}, 124);
+    const otherProposed = tip({ text: { en: entry('other batch') } }, 124);
+    const otherMembers = [{ hash: 124, base: otherBase, proposed: otherProposed }];
+    const request = await f.signedBatch(
+      OP2,
+      otherMembers,
+      LATER,
+      1,
+      new Date(START).toISOString(),
+      other,
+    );
+    const b = { ...a, id: other, opId: OP2, notBefore: LATER, name: 'Other scheduled batch' };
+    const index = f.read<ScheduleIndex>('schedule/index.json')!;
+    index.batches.push({
+      ...index.batches[0],
+      id: other,
+      name: b.name,
+      opId: OP2,
+      notBefore: LATER,
+      hashes: [124],
+    });
+    const due = f.read<Due>('schedule/due.json')!;
+    due.entries.push({ batchId: other, opId: OP2, notBefore: LATER, claimed: false });
+    f.change(D, {
+      [otherPath]: b,
+      'tooltips/124.json': otherBase,
+      [`schedule/batches/${other}/tooltips/124.json`]: {
+        hash: 124,
+        base: otherBase,
+        baseCommit: f.head(),
+        proposed: otherProposed,
+        updatedAt: new Date(START).toISOString(),
+        updatedBy: alice.login,
+      },
+      [paths(OP2).request]: request,
+      'schedule/index.json': index,
+      'schedule/due.json': due,
+    });
+    const atomic = f.git.casMany.bind(f.git);
+    let cancelled = false;
+    f.git.casMany = (updates) => {
+      if (!cancelled) {
+        cancelled = true;
+        const index = f.read<ScheduleIndex>('schedule/index.json')!;
+        const row = index.batches.find(({ id }) => id === other)!;
+        Object.assign(row, {
+          status: 'cancelled',
+          revision: b.revision + 1,
+          opId: null,
+          notBefore: null,
+        });
+        f.change(
+          D,
+          {
+            [otherPath]: {
+              ...b,
+              status: 'cancelled',
+              revision: b.revision + 1,
+              opId: null,
+              notBefore: null,
+              zone: null,
+              scheduledContentRevision: null,
+              events: [
+                ...b.events,
+                {
+                  at: new Date(START).toISOString(),
+                  by: alice,
+                  action: 'cancel',
+                  revision: b.revision + 1,
+                  contentRevision: b.contentRevision,
+                },
+              ],
+            },
+            [paths(OP2).log]: { request, result: { status: 'cancelled' } },
+            'schedule/index.json': index,
+            'schedule/due.json': {
+              entries: f.read<Due>('schedule/due.json')!.entries.filter(({ opId }) => opId !== OP2),
+            },
+          },
+          [paths(OP2).request],
+        );
+      }
+      atomic(updates);
+    };
+    await f.pub.run();
+    assertPublished(f);
+    expect(f.read(otherPath)).toMatchObject({ status: 'cancelled', opId: null });
+    expect(f.read(paths(OP2).log)).toMatchObject({ result: { status: 'cancelled' } });
+    await new Publisher(new LocalRepository(f.root), f.options).run();
+    expect(f.receipts()).toHaveLength(1);
   });
 
   it('a ready reschedule committed before claim RECORD keeps its new due date', async () => {

@@ -720,6 +720,28 @@ export class Publisher {
       const request = nameProofRequestSchema.safeParse(this.read(snapshot, path));
       return request.success && request.data.id === id;
     };
+    const siblingQueueChange = (path: string) => {
+      const id = /^publish\/requests\/([^/]+)\.json$/.exec(path)?.[1];
+      if (!id || id === opId || !publishOpIdSchema.safeParse(id).success) return false;
+      try {
+        const envelope = this.read<{ payload: string }>(reviewed, path);
+        const request = batchPublishPayloadSchema.safeParse(JSON.parse(envelope?.payload ?? ''));
+        if (!request.success || request.data.opId !== id) return false;
+        const batchPath = schedulePaths.batch(request.data.batchId);
+        const before = batchSchema.safeParse(this.read(reviewed, batchPath)).data;
+        const after = batchSchema.safeParse(this.read(tree, batchPath)).data;
+        if (before?.status !== 'scheduled' || before.opId !== id || !after) return false;
+        if (tree[path])
+          return (
+            after.opId === id &&
+            after.status === 'scheduled' &&
+            after.preparedRequestId !== before.preparedRequestId
+          );
+        return after.opId !== id || after.preparation?.returnStatus === 'scheduled';
+      } catch {
+        return false;
+      }
+    };
     let rebuild = false;
     const acceptChange = (path: string) => {
       if (
@@ -727,6 +749,8 @@ export class Publisher {
         (Object.hasOwn(tree, path) && !regular(currentModes, path))
       )
         return false;
+      // The Worker may cancel, reschedule, or withdraw a sibling's ready envelope.
+      if (batch && siblingQueueChange(path)) return true;
       // A concurrent staged Current save consumes its kick with the staged parts.
       if (batch && !tree[path]) {
         const staged = /^publish\/kicks\/current-save-([^/]+)\.json$/.exec(path)?.[1];
@@ -1118,15 +1142,7 @@ export class Publisher {
       // Batch requests: activation, conflict files, and the batch/due/index updates join THIS
       // commit (spec "Publication path" 6), computed from the receipt and this RECORD snapshot.
       const batchTimes = batchPayload
-        ? this.recordBatch(
-            tree,
-            opId,
-            batchPayload,
-            receipt,
-            candidate,
-            result,
-            atomicLive ? { at: this.options.now(), source: 'cas' } : landing,
-          )
+        ? this.recordBatch(tree, opId, batchPayload, receipt, candidate, result, landing)
         : undefined;
       if (receipt) {
         const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
@@ -1159,6 +1175,29 @@ export class Publisher {
         );
       }
       delete tree[p.request];
+      let credits = appCredits;
+      if (receipt) credits = this.credits(blob, opId);
+      else {
+        try {
+          credits = this.credits(blob, opId);
+        } catch {
+          /* Unverified rejection is app-only; successful recovery must retain its author. */
+        }
+      }
+      // Globals materialization and validation can take a full minute. Stamp each atomic
+      // attempt only after that work, when sealing the commit that will be pushed.
+      if (atomicLive && batchPayload && batchTimes) {
+        const landedAt = iso(this.options.now());
+        const path = schedulePaths.batch(batchPayload.batchId);
+        const batch = batchSchema.parse(this.read(tree, path));
+        if (batch.result?.status === 'published') {
+          batch.result.landedAt = landedAt;
+          batch.result.landedAtSource = 'cas';
+          tree[path] = this.git.writeBlob(json(batch));
+        }
+        batchTimes.landedAt = landedAt;
+        batchTimes.landedAtSource = 'cas';
+      }
       // A commit cannot contain its own SHA. recordCommit is deliberately null; resolve it via log blob history.
       tree[p.log] = this.git.writeBlob(
         json({
@@ -1182,15 +1221,6 @@ export class Publisher {
           times: { now: receipt?.now ?? this.options.now(), ...batchTimes },
         }),
       );
-      let credits = appCredits;
-      if (receipt) credits = this.credits(blob, opId);
-      else {
-        try {
-          credits = this.credits(blob, opId);
-        } catch {
-          /* Unverified rejection is app-only; successful recovery must retain its author. */
-        }
-      }
       const c = this.git.commit(h, tree, `Record ${opId}`, credits);
       try {
         if (atomicLive)

@@ -2029,9 +2029,22 @@ it('rebuilds a scheduledGlobalsV1 candidate without replacing its signed depende
       }
       atomic(updates);
     };
-    await f.pub.run();
+    const writeGlobals = GlobalsPublisher.prototype.record;
+    let records = 0;
+    const stamp = vi.spyOn(GlobalsPublisher.prototype, 'record').mockImplementation(
+      async function (this: GlobalsPublisher, ...args) {
+        await writeGlobals.call(this, ...args);
+        if (++records === 2) f.clock.now = NOW + 61_000;
+      },
+    );
+    try {
+      await f.pub.run();
+    } finally {
+      stamp.mockRestore();
+    }
     expect(saved).toBe(true);
     expect(f.batch().status).toBe('published');
+    expect(f.batch().result?.landedAt).toBe(new Date(NOW + 61_000).toISOString());
     const receipt = f.pub.receipt(f.pub.head('converter-v2-test'), R)!;
     expect(receipt.globals?.batchSource).toBe(sourceCommit);
     expect(receipt.sourceCommit).not.toBe(sourceCommit);

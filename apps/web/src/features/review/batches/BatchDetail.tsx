@@ -420,7 +420,7 @@ function StatusLines({
             <>
               {at(result.landedAt)} (
               {result.landedAtSource === 'cas'
-                ? 'publisher clock at the live write'
+                ? 'publisher clock for the live write'
                 : 'first observed after an interrupted run'}
               )
             </>
