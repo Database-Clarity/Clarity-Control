@@ -5,6 +5,7 @@ import {
   languages,
   carryNumberTranslations,
   hashSchema,
+  globalsInPlacePath,
   merge3,
   permissionsSchema,
   reconcileNumberMap,
@@ -28,6 +29,7 @@ import {
   type Access,
 } from './permissions.js';
 import type { Identity } from './types.js';
+import { refuseInPlaceSave } from './globals/inPlace.js';
 
 export const currentSaveRoles: Access['role'][] = ['maintainer', 'editor', 'trial', 'translator'];
 
@@ -106,7 +108,7 @@ export async function saveChanges(
 ): Promise<SaveResult> {
   let aliases: Aliases | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const snapshot = await github.publishSnapshot(['config/permissions.json']);
+    const snapshot = await github.publishSnapshot(['config/permissions.json', globalsInPlacePath]);
     const headCommit = snapshot.head;
     const permissionFile = snapshot.files[0];
     if (!permissionFile)
@@ -159,6 +161,7 @@ export async function saveChanges(
     };
     const plan = await planSaveChanges(input, access, current, saveAliases, exporterPin);
     if ('conflicts' in plan) return plan;
+    if (snapshot.files[1]) for (const tooltip of plan.tooltips) refuseInPlaceSave(tooltip);
     if (!Object.keys(plan.writes).length)
       return { commit: headCommit, tooltips: plan.tooltips, savedAt: Date.now() };
     try {

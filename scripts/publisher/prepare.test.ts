@@ -10,6 +10,8 @@ import {
   currentSaveStageLifetime,
   currentSaveStagingCapability,
   exportLegacy,
+  globalsInPlaceCapability,
+  globalsInPlacePath,
   publishableHash,
   stableStringify,
   type Tooltip,
@@ -31,6 +33,7 @@ import {
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import { publication, schedulePayload } from '../schedule-prepare/intents.js';
 import { GlobalsPublisher, globalTreeOid } from './globals.js';
+import { migrateInPlace } from './globalsInPlace.js';
 import { inventoryGlobals } from '../../packages/core/src/globals/projection.js';
 import { LocalRepository, RefRace, type Tree, type Repository } from './git.js';
 import { Publisher, paths, type Options } from './publisher.js';
@@ -571,6 +574,61 @@ async function withGlobals(
   );
   return { store, proposed };
 }
+
+it('keeps the signed shared text through preparation, claim, and an atomic landing race', async () => {
+  const f = await fixture();
+  const { store } = await withGlobals(f, 'Fixed #Alpha');
+  const legacyData = f.pub.head(f.options.dataBranch);
+  const legacyLive = f.pub.head(f.options.liveBranch);
+  const liveTree = f.git.tree(legacyLive);
+  const input = f.pub.read<LegacyInput>(liveTree, 'liveDescriptions.json')!;
+  const migratedLive = f.git.commit(
+    legacyLive,
+    {
+      ...liveTree,
+      'liveDescriptions.json': f.git.writeBlob(json(migrateInPlace(input))),
+    },
+    'In-place migration fixture',
+  );
+  f.git.cas(L, legacyLive, migratedLive);
+  const pin = f.read<{ capabilities: string[] }>('.publisher/PIN');
+  pin.capabilities.push(globalsInPlaceCapability);
+  const reviewed = f.change({
+    '.publisher/PIN': pin,
+    [globalsInPlacePath]: {
+      state: 'active',
+      clearance: 'review',
+      destination: f.options.liveBranch,
+      legacyData,
+      legacyLive,
+      migratedLive,
+    },
+  });
+  const change = (value: string) => {
+    const alpha = structuredClone(store.entries.find(({ name }) => name === 'Alpha')!);
+    alpha.revision = `alpha-${value}`;
+    alpha.definitions.en!.revision = alpha.revision;
+    alpha.definitions.en!.body = value;
+    f.change({ [`globals/entries/${alpha.id}.json`]: alpha });
+  };
+  f.admit('schedule');
+  change('11');
+  await f.prep.drain();
+  expect(f.batch().status).toBe('scheduled');
+  change('12');
+  (f.git as Memory).beforeAtomic = () => {
+    expect(f.batch().status).toBe('publishing');
+    expect(f.pub.head(f.options.liveBranch)).toBe(migratedLive);
+    change('13');
+  };
+  await f.pub.operation(R);
+  const live = f.pub.head(f.options.liveBranch);
+  expect(f.batch().status).toBe('published');
+  expect(f.pub.receipt(live, R)).toMatchObject({ globalsRevision: reviewed, changed: [123] });
+  expect(f.pub.read(f.git.tree(live), 'liveDescriptions.json')).toMatchObject({
+    perks: { 123: { editor: { en: { main: 'Fixed 10' } } } },
+  });
+});
 
 describe('scheduled global closure', () => {
   it.each([

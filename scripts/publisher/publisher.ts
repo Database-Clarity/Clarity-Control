@@ -17,6 +17,8 @@ import {
   publishOpIdSchema,
   exportLegacy,
   exportWithInactiveMoves,
+  globalsInPlaceCapability,
+  globalsInPlacePath,
   applyInactiveLive,
   inactiveMovesPath,
   inactiveMovesSchema,
@@ -47,6 +49,7 @@ import {
   type SandboxConflicts,
   type LegacyCatalog,
   type Tooltip,
+  type GlobalsInPlaceOptions,
 } from '../../packages/core/src/index.js';
 import {
   activate,
@@ -58,6 +61,7 @@ import {
   compose,
   schedulePaths,
   scheduleIntentPaths,
+  scheduleIntentSchema,
   canClaimPreparedBatch,
   withField,
   type BatchMember,
@@ -98,6 +102,18 @@ import {
 } from './globals.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import { drainCurrentSaves } from './currentSave.js';
+import {
+  assertInPlaceDocuments,
+  assertInPlaceRoots,
+  bundleInPlaceReview,
+  globalsFence,
+  inPlaceSource,
+  liveGlobalsInput,
+  provePublication,
+  publicationChanges,
+  requireGlobalsMode,
+  unreviewedScheduledGlobals,
+} from './globalsInPlace.js';
 import {
   verifiedSource,
   verifiedRequest,
@@ -168,6 +184,7 @@ export interface Receipt {
   batchId?: string;
   contentRevision?: number;
   globals?: GlobalReleaseReceipt;
+  globalsRevision?: string;
 }
 /** When the live write was confirmed by this run's CAS, or first observed after an ambiguity (R8). */
 export interface Landing {
@@ -522,7 +539,15 @@ export class Publisher {
       if (!['maintainer', 'editor'].includes(permissions.users[String(payload.requester.id)]?.role))
         throw new Error('Requester revoked');
       requesterCredits(payload.requester);
-      return payload;
+      // verifyPreparedPublication already verified the envelope and its immutable source.
+      const { sourceCommit } = scheduleIntentSchema.parse(
+        JSON.parse(envelope.sourceIntent.payload),
+      );
+      const globalsRevision = this.git.tree(sourceCommit)[globalsInPlacePath]
+        ? sourceCommit
+        : undefined;
+      requireGlobalsMode(this, tree, globalsRevision);
+      return globalsRevision ? { ...payload, globalsRevision } : payload;
     }
     if (typeof envelope.payload !== 'string' || typeof envelope.sig !== 'string')
       throw new Error('Invalid signed envelope');
@@ -552,6 +577,9 @@ export class Publisher {
     if (!['maintainer', 'editor'].includes(permissions.users[String(p.requester.id)]?.role))
       throw new Error('Requester revoked');
     requesterCredits(p.requester);
+    requireGlobalsMode(this, tree, p.globalsRevision);
+    if (p.globalsRevision && p.kind === 'batch')
+      throw new Error('Shared text schedules require their signed preparation source.');
     return p;
   }
   /** Recovery credits come from the signed envelope, never from an unverified log or receipt. */
@@ -878,6 +906,11 @@ export class Publisher {
     const moves = this.movesAt(frozen);
     const pushed = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
     if (
+      signed.globalsRevision !== receipt.globalsRevision ||
+      (receipt.globalsRevision && receipt.globals)
+    )
+      throw new ConsumerOutputRejected('Receipt does not match the reviewed shared text.');
+    if (
       signed.intentDigest !== receipt.intentDigest ||
       stableStringify(signed.requester) !== stableStringify(receipt.requester)
     )
@@ -936,7 +969,7 @@ export class Publisher {
       );
     }
     // Atomic RECORD checks these bytes against the approved composition at the current head.
-    if (atomic) return;
+    if (atomic && !receipt.globalsRevision) return;
     // Recovery verifies the frozen bytes independently of the receipt's claimed markers.
     try {
       const documents: Tooltip[] = [];
@@ -958,24 +991,37 @@ export class Publisher {
         }
         documents.push(document);
       }
+      const selected = selectedInactiveMoves(
+        moves,
+        documents.map(({ hash }) => hash),
+        aliases,
+      );
+      const inPlace = this.inPlaceOptions(frozen, receipt.sourceCommit, signed, receipt.liveParent);
+      if (inPlace) assertInPlaceDocuments(documents, inPlace.options);
       const exported = exportWithInactiveMoves(
         documents,
         receipt.now,
         options.facts,
         aliases,
-        selectedInactiveMoves(
-          moves,
-          documents.map(({ hash }) => hash),
-          aliases,
-        ),
+        selected,
+        inPlace && { globalsInPlace: inPlace.options },
       );
+      if (inPlace)
+        provePublication(
+          this,
+          frozen,
+          inPlace.live,
+          documents,
+          aliases,
+          selected,
+          receipt.now,
+          exported,
+          inPlace.options,
+        );
       if (
         stableStringify(exported) !== stableStringify(receipt.exported) ||
-        stableStringify(
-          receipt.entries
-            .filter(({ hash, digest }) => pushed[hash] !== digest)
-            .map(({ hash }) => hash),
-        ) !== stableStringify(receipt.changed)
+        stableStringify(publicationChanges(receipt.entries, pushed, exported, inPlace?.live)) !==
+          stableStringify(receipt.changed)
       )
         throw new Error('Publication receipt export or upload markers differ from its snapshots');
     } catch (error) {
@@ -998,6 +1044,13 @@ export class Publisher {
       const h = this.head(this.options.dataBranch),
         tree = this.git.tree(h);
       if (tree[p.log]) return;
+      if (
+        receipt &&
+        (Boolean(tree[globalsInPlacePath]) !== Boolean(receipt.globalsRevision) ||
+          (receipt.globalsRevision &&
+            tree[globalsInPlacePath] !== this.git.tree(receipt.sourceCommit)[globalsInPlacePath]))
+      )
+        throw new ConsumerOutputRejected('Publication is fenced by a different shared text mode.');
       if (failureHead && failureHead !== h) throw new RefRace('Batch refusal source moved');
       // An admitted save keeps the publication opId but withdraws its ready envelope.
       // A late rejection must never tombstone it or remove the preparation's due kick.
@@ -1034,6 +1087,14 @@ export class Publisher {
             );
           throw error;
         });
+        if (
+          receipt.globalsRevision &&
+          (tree[p.request] !== receipt.requestBlob ||
+            signed.globalsRevision !== receipt.globalsRevision)
+        )
+          throw new ConsumerOutputRejected(
+            'Publication changed before landing; review the tooltip again.',
+          );
         const liveMoved =
           signed.kind === 'batch' &&
           i > 0 &&
@@ -1054,98 +1115,100 @@ export class Publisher {
               signed.kind === 'batch',
             );
         }
-        let documents: Tooltip[] | undefined;
-        let entryOnlyAggregates: number[] = [];
-        if (signed.kind === 'batch') {
-          const plan = await this.batchPlan(
-            tree,
-            signed,
-            this.aliasesAt(tree),
-            source,
-            atomicLive.parent,
-          );
+        if (!receipt.globalsRevision) {
+          let documents: Tooltip[] | undefined;
+          let entryOnlyAggregates: number[] = [];
+          if (signed.kind === 'batch') {
+            const plan = await this.batchPlan(
+              tree,
+              signed,
+              this.aliasesAt(tree),
+              source,
+              atomicLive.parent,
+            );
+            if (
+              'failure' in plan ||
+              stableStringify(plan.globals ?? null) !== stableStringify(receipt.globals ?? null)
+            )
+              throw new ConsumerOutputRejected('Scheduled global receipt identity mismatch');
+            documents = plan.entries.map((entry) =>
+              tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob))),
+            );
+          } else {
+            const reviewed = this.reviewedRelease;
+            const release = await new GlobalsPublisher(this).validate(
+              receipt.globals,
+              tree,
+              source,
+              atomicLive.parent,
+              source === h &&
+                reviewed?.key === this.releaseKey(receipt.requestBlob, h, atomicLive.parent)
+                ? reviewed.release
+                : undefined,
+            );
+            documents = release?.documents;
+            entryOnlyAggregates = release?.entryOnlyAggregates ?? [];
+          }
           if (
-            'failure' in plan ||
-            stableStringify(plan.globals ?? null) !== stableStringify(receipt.globals ?? null)
+            !documents ||
+            ((signed.kind === 'push' || receipt.globals) &&
+              stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots)) ||
+            stableStringify(signed.requester) !== stableStringify(receipt.requester) ||
+            receipt.publisherSha !== this.options.publisherSha ||
+            receipt.generatorSha !== this.options.generatorSha
           )
-            throw new ConsumerOutputRejected('Scheduled global receipt identity mismatch');
-          documents = plan.entries.map((entry) =>
-            tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob))),
-          );
-        } else {
-          const reviewed = this.reviewedRelease;
-          const release = await new GlobalsPublisher(this).validate(
-            receipt.globals,
-            tree,
-            source,
-            atomicLive.parent,
-            source === h &&
-              reviewed?.key === this.releaseKey(receipt.requestBlob, h, atomicLive.parent)
-              ? reviewed.release
-              : undefined,
-          );
-          documents = release?.documents;
-          entryOnlyAggregates = release?.entryOnlyAggregates ?? [];
-        }
-        if (
-          !documents ||
-          ((signed.kind === 'push' || receipt.globals) &&
-            stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots)) ||
-          stableStringify(signed.requester) !== stableStringify(receipt.requester) ||
-          receipt.publisherSha !== this.options.publisherSha ||
-          receipt.generatorSha !== this.options.generatorSha
-        )
-          throw new ConsumerOutputRejected('Global receipt identity mismatch');
-        const aliases = this.aliasesAt(tree);
-        if (signed.kind === 'push')
-          this.assertRequestedDigests(
-            receipt.entries,
-            signed.hashes.filter(
-              (hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases)),
-            ),
-            (hash) => signed.expected[hash],
+            throw new ConsumerOutputRejected('Global receipt identity mismatch');
+          const aliases = this.aliasesAt(tree);
+          if (signed.kind === 'push')
+            this.assertRequestedDigests(
+              receipt.entries,
+              signed.hashes.filter(
+                (hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases)),
+              ),
+              (hash) => signed.expected[hash],
+              aliases,
+            );
+          const moves = selectedInactiveMoves(
+            this.movesAt(tree),
+            documents.map((document) => document.hash),
             aliases,
           );
-        const moves = selectedInactiveMoves(
-          this.movesAt(tree),
-          documents.map((document) => document.hash),
-          aliases,
-        );
-        const exported = exportWithInactiveMoves(
-          documents,
-          receipt.now,
-          this.options.facts,
-          aliases,
-          moves,
-        );
-        if (
-          stableStringify(exported) !== stableStringify(receipt.exported) ||
-          documents.length !== receipt.entries.length
-        )
-          throw new ConsumerOutputRejected(
-            receipt.globals
-              ? 'Global receipt export mismatch'
-              : 'Publication receipt export mismatch',
+          const exported = exportWithInactiveMoves(
+            documents,
+            receipt.now,
+            this.options.facts,
+            aliases,
+            moves,
           );
-        for (const document of documents) {
-          const entry = receipt.entries.find((entry) => entry.hash === document.hash);
           if (
-            !entry ||
-            entry.digest !== (await inactivePublishableHash(document, aliases, moves)) ||
-            stableStringify(document) !==
-              stableStringify(JSON.parse(this.git.blob(entry.tooltipBlob)))
+            stableStringify(exported) !== stableStringify(receipt.exported) ||
+            documents.length !== receipt.entries.length
           )
-            throw new ConsumerOutputRejected('Global receipt dependency mismatch');
+            throw new ConsumerOutputRejected(
+              receipt.globals
+                ? 'Global receipt export mismatch'
+                : 'Publication receipt export mismatch',
+            );
+          for (const document of documents) {
+            const entry = receipt.entries.find((entry) => entry.hash === document.hash);
+            if (
+              !entry ||
+              entry.digest !== (await inactivePublishableHash(document, aliases, moves)) ||
+              stableStringify(document) !==
+                stableStringify(JSON.parse(this.git.blob(entry.tooltipBlob)))
+            )
+              throw new ConsumerOutputRejected('Global receipt dependency mismatch');
+          }
+          const markers = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
+          if (
+            stableStringify(
+              receipt.entries
+                .filter((entry) => markers[entry.hash] !== entry.digest)
+                .map((entry) => entry.hash),
+            ) !== stableStringify(receipt.changed)
+          )
+            throw new ConsumerOutputRejected('Global receipt upload marker mismatch');
         }
-        const markers = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
-        if (
-          stableStringify(
-            receipt.entries
-              .filter((entry) => markers[entry.hash] !== entry.digest)
-              .map((entry) => entry.hash),
-          ) !== stableStringify(receipt.changed)
-        )
-          throw new ConsumerOutputRejected('Global receipt upload marker mismatch');
       }
       const blob = receipt?.requestBlob ?? requestBlob ?? tree[p.request];
       let request: unknown;
@@ -1592,7 +1655,7 @@ export class Publisher {
         }
         let globals: GlobalReleaseReceipt | undefined;
         let entryOnlyAggregates: number[] = [];
-        if (hasGlobals(tree)) {
+        if (hasGlobals(tree) && !payload.globalsRevision) {
           try {
             const release = await new GlobalsPublisher(this).release(tree, s, payload.hashes, live);
             if (!release) throw new Error('Missing global release');
@@ -1630,7 +1693,8 @@ export class Publisher {
           (hash) => payload.expected[hash],
           aliases,
         );
-        const checked = this.checkAndExport(tree, tooltips, aliases);
+        const inPlace = this.inPlaceOptions(tree, s, payload, live);
+        const checked = this.checkAndExport(tree, tooltips, aliases, inPlace);
         if ('error' in checked) {
           await this.record(
             opId,
@@ -1654,10 +1718,11 @@ export class Publisher {
           outcome: 'published',
           entries,
           exported: checked.exported,
-          changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
+          changed: publicationChanges(entries, pushed, checked.exported, inPlace?.live),
           requester: payload.requester,
           intentDigest: payload.intentDigest,
           ...(globals ? { globals } : {}),
+          ...(payload.globalsRevision ? { globalsRevision: payload.globalsRevision } : {}),
         };
         candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
       }
@@ -1690,6 +1755,15 @@ export class Publisher {
         }
         return;
       }
+      try {
+        requireGlobalsMode(
+          this,
+          this.git.tree(this.head(this.options.dataBranch)),
+          r.globalsRevision,
+        );
+      } catch (error) {
+        throw new ConsumerOutputRejected(String(error));
+      }
       if (l === r.liveParent) {
         // A candidate may predate this safety gate; validate it again before any live CAS.
         const checked = this.merge(l, r);
@@ -1701,6 +1775,7 @@ export class Publisher {
         if (
           r.batchId ||
           r.globals ||
+          r.globalsRevision ||
           hasGlobals(this.git.tree(this.head(this.options.dataBranch)))
         ) {
           try {
@@ -1753,6 +1828,17 @@ export class Publisher {
           return;
         }
       } else {
+        if (r.globalsRevision) {
+          const head = this.head(this.options.dataBranch);
+          throw new SourceAdvanced(
+            c,
+            blob,
+            r.sourceCommit,
+            head,
+            r.entries.map(({ hash }) => hash),
+            !!r.batchId,
+          );
+        }
         if (r.batchId && r.globals) {
           const head = this.head(this.options.dataBranch);
           if (
@@ -1783,6 +1869,7 @@ export class Publisher {
     tree: Tree,
     tooltips: Tooltip[],
     aliases: Aliases,
+    inPlace?: { live: LegacyInput; options: GlobalsInPlaceOptions },
   ):
     | { error: string; proposalRejected?: true; retryable?: true }
     | { now: number; exported: ReturnType<typeof exportLegacy> } {
@@ -1816,8 +1903,29 @@ export class Publisher {
     const now = this.options.now();
     let exported: ReturnType<typeof exportLegacy>;
     try {
-      exported = exportWithInactiveMoves(tooltips, now, this.options.facts, aliases, moves);
+      if (inPlace) assertInPlaceDocuments(active, inPlace.options);
+      exported = exportWithInactiveMoves(
+        tooltips,
+        now,
+        this.options.facts,
+        aliases,
+        moves,
+        inPlace && { globalsInPlace: inPlace.options },
+      );
+      if (inPlace)
+        provePublication(
+          this,
+          tree,
+          inPlace.live,
+          tooltips,
+          aliases,
+          moves,
+          now,
+          exported,
+          inPlace.options,
+        );
     } catch (error) {
+      if (inPlace) return { error: String(error), proposalRejected: true };
       throw new ConsumerOutputRejected(String(error));
     }
     // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`, and
@@ -1830,6 +1938,28 @@ export class Publisher {
         proposalRejected: true,
       };
     return { now, exported };
+  }
+  private inPlaceOptions(tree: Tree, source: string, payload: PublishRequestPayload, live: string) {
+    try {
+      const fence = requireGlobalsMode(this, tree, payload.globalsRevision);
+      if (!fence || !payload.globalsRevision) return;
+      this.assertBatchRuntime(tree);
+      const pin = this.read<{ capabilities: string[] }>(tree, '.publisher/PIN');
+      if (!pin?.capabilities.includes(globalsInPlaceCapability))
+        throw new Error('Update the installed publisher before publishing shared text.');
+      assertInPlaceRoots(payload.hashes);
+      if (
+        !this.git.ancestor(payload.globalsRevision, source) ||
+        !this.git.ancestor(fence.migratedLive, live)
+      )
+        throw new Error('The shared text revision is outside publication history.');
+      return {
+        options: inPlaceSource(this, payload.globalsRevision, fence).options,
+        live: liveGlobalsInput(this, live),
+      };
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
   }
   createCandidate(opId: string, blob: string, live: string, r: Receipt, previous?: string) {
     const p = paths(opId);
@@ -1969,7 +2099,7 @@ export class Publisher {
           },
         };
     }
-    if (hasGlobals(tree)) {
+    if (hasGlobals(tree) && !payload.globalsRevision) {
       try {
         new SchedulePreparer(this).pin(tree);
         const pin = this.read<{ capabilities: string[] }>(tree, '.publisher/PIN');
@@ -2003,8 +2133,32 @@ export class Publisher {
         };
       }
     }
-    const checked = this.checkAndExport(tree, documents, aliases);
+    let inPlace;
+    try {
+      inPlace = this.inPlaceOptions(tree, revision, payload, live);
+    } catch (error) {
+      return { failure: { status: 'rejected', error: String(error) } };
+    }
+    const checked = this.checkAndExport(tree, documents, aliases, inPlace);
     if ('error' in checked) return { failure: { status: 'rejected', ...checked } };
+    if (inPlace) {
+      for (const tooltip of documents) {
+        if (
+          unreviewedScheduledGlobals(
+            tooltip,
+            this.read<Tooltip>(tree, `live/tooltips/${tooltip.hash}.json`),
+            inPlace.live,
+            checked.exported,
+          )
+        )
+          return {
+            failure: {
+              status: 'rejected',
+              error: `Review the shared text change for ${this.partNames(tree, [tooltip.hash])} before scheduling this batch.`,
+            },
+          };
+      }
+    }
     const entries: Entry[] = [];
     for (const tooltip of documents)
       entries.push({
@@ -2032,7 +2186,7 @@ export class Publisher {
       entries,
       now: checked.now,
       exported: checked.exported,
-      changed: entries.filter((e) => pushed[e.hash] !== e.digest).map((e) => e.hash),
+      changed: publicationChanges(entries, pushed, checked.exported, inPlace?.live),
       ...(globals ? { globals } : {}),
     };
   }
@@ -2240,6 +2394,7 @@ export class Publisher {
       batchId: payload.batchId,
       contentRevision: payload.contentRevision,
       ...(plan.globals ? { globals: plan.globals } : {}),
+      ...(payload.globalsRevision ? { globalsRevision: payload.globalsRevision } : {}),
     };
     // A refused batch must not leave even a claim commit behind.
     this.merge(live, receipt);
@@ -2441,6 +2596,8 @@ export class Publisher {
     const h = this.head(this.options.dataBranch),
       t = this.git.tree(h),
       oldTree = old ? this.git.tree(old) : {};
+    const fence = globalsFence(this, t);
+    if (fence?.state === 'hold') return;
     const prior = old ? this.read<{ sourceCommit: string }>(oldTree, 'bundle.json') : undefined;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
@@ -2517,6 +2674,7 @@ export class Publisher {
         : {}),
       publishQueue,
       ...(scheduledQueue.length ? { scheduledQueue } : {}),
+      ...(fence ? { globalsInPlace: bundleInPlaceReview(this, h, t, tooltips, fence) } : {}),
       // The globals catalogue at this same head; null (never a partial list) when malformed,
       // so the editor says it is unavailable without stopping the bundle or the queue.
       ...(hasGlobals(t)
@@ -2545,6 +2703,7 @@ export class Publisher {
   async run(syncGlobals = true) {
     const start = this.options.now();
     const runtime = this.git.tree(this.head(this.options.dataBranch));
+    if (globalsFence(this, runtime)?.state === 'hold') return;
     try {
       if (syncGlobals) {
         await drainCurrentSaves(this);

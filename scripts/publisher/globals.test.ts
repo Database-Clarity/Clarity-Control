@@ -17,7 +17,14 @@ import { descriptionConverter, expandAliases } from '../../packages/export/src/c
 import { languages } from '../../packages/core/src/languages.js';
 import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/admission.js';
 import { calculateGlobalImpact } from '../../packages/core/src/globals/impact.js';
-import { inactivePublishableHash, type InactiveMoves } from '../../packages/core/src/inactiveMoves.js';
+import {
+  globalsInPlaceCapability,
+  globalsInPlacePath,
+} from '../../packages/core/src/globals/inPlaceReview.js';
+import {
+  inactivePublishableHash,
+  type InactiveMoves,
+} from '../../packages/core/src/inactiveMoves.js';
 import type { Tooltip } from '../../packages/core/src/schemas.js';
 import {
   batchSchema,
@@ -27,6 +34,7 @@ import {
 } from '../../packages/core/src/schedule/schemas.js';
 import { globalFileBytes, rowSchema, syncSchema } from '../../apps/worker/src/globals/model.js';
 import { GlobalsPublisher, globalTreeOid } from './globals.js';
+import { migrateInPlace } from './globalsInPlace.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { createRequest } from './request.js';
 import { LocalRepository, RefRace, type Repository, type Tree } from './git.js';
@@ -116,6 +124,16 @@ class Memory implements Repository {
     return result;
   }
   additions(head: string, path: string) {
+    if (path === '.publish/receipts')
+      return this.history(head)
+        .reverse()
+        .flatMap((commit) => {
+          const parent = this.parents.get(commit);
+          const previous = parent ? this.tree(parent) : {};
+          return Object.keys(this.tree(commit))
+            .filter((file) => file.startsWith(`${path}/`) && !previous[file])
+            .map((file) => ({ commit, path: file }));
+        });
     return this.history(head)
       .filter(
         (commit) => this.tree(commit)[path] && !this.tree(this.parents.get(commit) ?? commit)[path],
@@ -124,15 +142,15 @@ class Memory implements Repository {
   }
 }
 
-async function fixture(titleSource = '', exports = false, translatedVariables = false) {
+async function fixture(titleSource = '', exports = false, translatedVariables = false, offset = 0) {
   const git = new Memory();
   const docs = [
     tooltip(1, exports ? 'export Barrier (\nOld\n)' : ''),
     tooltip(2, '// ordered\nvar Alpha = 10\n\nvar Beta = 20\n'),
     tooltip(3, titleSource),
-    tooltip(40, exports ? 'import Barrier from global' : '#Alpha'),
-    tooltip(41, '#Beta'),
-    tooltip(42, 'unrelated'),
+    tooltip(40 + offset, exports ? 'import Barrier from global' : '#Alpha'),
+    tooltip(41 + offset, '#Beta'),
+    tooltip(42 + offset, 'unrelated'),
   ];
   if (translatedVariables) {
     docs[1].text.de = {
@@ -255,7 +273,7 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
       change({ [path]: row });
     }
   };
-  const request = async (hashes: number[], opId = A) => {
+  const request = async (hashes: number[], opId = A, globalsRevision?: string) => {
     const aliases = pub.aliasesAt(current());
     const expected = Object.fromEntries(
       await Promise.all(
@@ -276,6 +294,7 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
         requester: { id: 1, login: 'alice' },
         hashes,
         expected,
+        ...(globalsRevision ? { globalsRevision } : {}),
       },
       () => now,
       (payload) => sign(null, Buffer.from(payload), keys.privateKey).toString('base64'),
@@ -287,6 +306,114 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
       : { hash, text: {}, associated: [] }) as Tooltip;
   return { git, pub, globals, saved, published, options, current, read, change, approve, request };
 }
+
+async function inPlaceFixture() {
+  const f = await fixture('', false, true, 100);
+  const legacyData = f.pub.head(f.options.dataBranch);
+  const legacyLive = f.pub.head(f.options.liveBranch);
+  const tree = f.git.tree(legacyLive);
+  const before = f.pub.read<LegacyInput>(tree, 'liveDescriptions.json')!;
+  const migratedLive = f.git.commit(legacyLive, {
+    ...tree,
+    'liveDescriptions.json': f.git.writeBlob(encode(migrateInPlace(before))),
+  });
+  f.git.cas(L, legacyLive, migratedLive);
+  const entry = f.saved.entries.find(({ name }) => name === 'Beta')!;
+  entry.definitions.en!.updatedAt = '2026-06-01T00:00:00Z';
+  const entryPath = `globals/entries/${entry.id}.json`;
+  const pin = f.read('.publisher/PIN');
+  pin.capabilities.push(globalsInPlaceCapability);
+  f.change({
+    '.publisher/PIN': pin,
+    [globalsInPlacePath]: {
+      state: 'active',
+      clearance: 'review',
+      missingTranslation: 'english',
+      destination: f.options.liveBranch,
+      legacyData,
+      legacyLive,
+      migratedLive,
+    },
+    [entryPath]: entry,
+  });
+  return { ...f, entry, entryPath };
+}
+
+describe('in-place shared text publication', () => {
+  it('pins a stale translation stand-in, publishes only the selected row, and leaves the newer definition pending', async () => {
+    const f = await inPlaceFixture();
+    const revision = f.pub.head(f.options.dataBranch);
+    await f.request([141], A, revision);
+    const current = structuredClone(f.entry);
+    current.revision = 'Beta3';
+    current.definitions.en!.revision = current.revision;
+    current.definitions.en!.body = '300';
+    f.change({ [f.entryPath]: current });
+
+    await f.pub.run(false);
+    const live = f.pub.head(f.options.liveBranch);
+    const input = f.pub.read<LegacyInput>(f.git.tree(live), 'liveDescriptions.json')!;
+    expect(input.perks[141]).toMatchObject({
+      editor: { en: { main: '200' }, de: { main: '200' } },
+      uploadedBy: 'alice',
+    });
+    expect(input.perks[140]).toMatchObject({ editor: { en: { main: '10' } } });
+    expect(input.perks[2]).toMatchObject({ editor: { en: { main: 'var e = 🡅' } } });
+    expect(input.perks[1]).toMatchObject({ editor: {} });
+    expect(input.perks[3]).toMatchObject({ editor: {} });
+    expect(f.pub.receipt(live, A)).toMatchObject({ globalsRevision: revision, changed: [141] });
+    const bundle = f.pub.read(f.git.tree(f.pub.head('editor-data-bundle')), 'bundle.json');
+    expect(bundle).toMatchObject({
+      globalsInPlace: {
+        rows: {
+          141: {
+            differs: true,
+            causes: [{ id: f.entry.id, name: 'Beta' }],
+            diff: { de: { before: { main: '200' }, after: { main: '300' } } },
+          },
+        },
+      },
+    });
+  });
+
+  it('refuses raw shared rows and old-mode requests in the new mode', async () => {
+    const f = await inPlaceFixture();
+    const live = f.pub.head(f.options.liveBranch);
+    await f.request([2], A, f.pub.head(f.options.dataBranch));
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.error).toContain('affected tooltip');
+    const unpinned = A.replace(/1$/, '2');
+    await f.request([141], unpinned);
+    await f.pub.run(false);
+    expect(f.read(paths(unpinned).log).result.error).toContain('publication mode changed');
+    expect(f.pub.head(f.options.liveBranch)).toBe(live);
+  });
+
+  it('publishes a rewritten tooltip after its old shared definition is withdrawn', async () => {
+    const f = await inPlaceFixture();
+    const stored = f.read('tooltips/141.json') as Tooltip;
+    const withdrawn = {
+      ...f.entry,
+      tombstone: { at: new Date(now).toISOString(), by: 'alice' },
+    };
+    f.change({
+      [f.entryPath]: withdrawn,
+      'tooltips/141.json': {
+        ...stored,
+        text: { en: cell('Standalone text'), de: cell('Eigenständiger Text') },
+      },
+      'globals/reviews/obsolete.json': { legacyWithdrawal: true },
+    });
+    // A waiting historical row belongs to the old release policy.
+    await f.request([141], A, f.pub.head(f.options.dataBranch));
+    await f.pub.run(false);
+    const live = f.pub.head(f.options.liveBranch);
+    expect(f.pub.receipt(live, A)?.globalsRevision).toBeTruthy();
+    expect(f.pub.read(f.git.tree(live), 'liveDescriptions.json')).toMatchObject({
+      perks: { 141: { editor: { en: { main: 'Standalone text' } } } },
+    });
+  });
+});
 
 async function mutationPort(f: Awaited<ReturnType<typeof fixture>>) {
   for (const entry of f.saved.entries)

@@ -5,6 +5,26 @@ import { globalIdSchema } from './model.js';
 /** Immutable DATA commit supplying the saved definitions the reviewer saw. */
 export const globalsRevisionSchema = z.string().regex(/^[0-9a-f]{40}$/);
 
+/** Absent before migration. Both states prohibit the old publication path. */
+export const globalsInPlacePath = 'config/globals-in-place.json';
+export const globalsInPlaceCapability = 'globalsInPlaceV1';
+export const globalsInPlaceFenceSchema = z
+  .object({
+    state: z.enum(['hold', 'active']),
+    clearance: z.literal('review'),
+    missingTranslation: z.enum(['english', 'reject']).default('english'),
+    destination: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
+    legacyData: globalsRevisionSchema,
+    legacyLive: globalsRevisionSchema,
+    migratedLive: globalsRevisionSchema,
+  })
+  .strict();
+export type GlobalsInPlaceFence = z.infer<typeof globalsInPlaceFenceSchema>;
+
+export function globalsInPlaceClearance(fence: GlobalsInPlaceFence): boolean {
+  return fence.state === 'active' && fence.clearance === 'review';
+}
+
 const cell = z.object({
   main: z.string(),
   secondary: z.string(),
@@ -19,7 +39,10 @@ export const globalsInPlaceReviewSchema = z.object({
     z.object({
       differs: z.boolean(),
       causes: z.array(z.object({ id: globalIdSchema, name: z.string() })),
-      diff: z.partialRecord(langSchema, z.object({ before: cell.nullable(), after: cell.nullable() })),
+      diff: z.partialRecord(
+        langSchema,
+        z.object({ before: cell.nullable(), after: cell.nullable() }),
+      ),
       refusal: z.string().optional(),
     }),
   ),

@@ -12,6 +12,7 @@ import { pinAppliesInactiveMoves, storedInactiveMoves } from './inactiveMoves.js
 import { z } from 'zod';
 import {
   classifyPublishIntent,
+  globalsInPlacePath,
   aliasGroupsPath,
   isTextlessDescription,
   permissionsSchema,
@@ -43,6 +44,7 @@ import { switches } from './schedule/store.js';
 import type { Env, Identity } from './types.js';
 import { assertGlobalsPublication } from './globals/guards.js';
 import { publicationSchema, sameSources, sourcesSchema, syncSchema } from './globals/model.js';
+import { inPlaceAdmission, refuseInPlaceSave } from './globals/inPlace.js';
 
 const envelopeSchema = z.object({ payload: z.string(), sig: z.string() }).strict();
 const logSchema = z.object({ intentDigest: z.string().nullable(), result: z.unknown() });
@@ -171,6 +173,7 @@ export async function publish(
         aliasGroupsPath,
         'globals/sync.json',
         'globals/layout.json',
+        globalsInPlacePath,
       ],
       ['globals/sync.json', 'globals/layout.json'],
       [
@@ -204,6 +207,19 @@ export async function publish(
       // Sandbox picks join the aliases only for a publisher build that merges them itself, so the
       // reviewed digests match what that build records (an older build: a mismatch refuses).
       const pin = snapshot.files[1 + paths.length]?.value;
+      const fence = inPlaceAdmission(
+        snapshot.files.at(-1)?.value,
+        pin,
+        value.hashes,
+        github.env.LIVE_BRANCH,
+      );
+      if (Boolean(fence) !== Boolean(value.globalsRevision))
+        throw new HttpError(409, 'The publication mode changed. Review the tooltip again.');
+      if (
+        value.globalsRevision &&
+        !(await github.sameGlobalDefinitions(snapshot.head, value.globalsRevision))
+      )
+        throw new HttpError(409, 'Shared text changed since review. Refresh saved changes.');
       const groups = snapshot.files[4 + paths.length];
       if (groups) refuseUnsupportedAliasGroups(groups, pin);
       if (!groups) generatorAliases ??= await loadAliases(github.env, github);
@@ -235,14 +251,16 @@ export async function publish(
         (hash) => !isMovedInactive(resolveAlias(hash, aliases), moves),
       );
       const checked = active.length
-        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases, [], scope)
+        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases, [], scope, !!fence)
         : new Map<number, Tooltip>();
       aliases = scope?.aliases ?? aliases;
       // A tagged span, `#{name}`, or `<enhanced/>` in a published tooltip or a document it reads
       // (imports, globals 2 and 3) needs a publisher build that lowers it; an older build would
       // export it unlowered.
-      for (const document of checked.values())
+      for (const document of checked.values()) {
         refuseUnlowerable(document, { value: pin }, 'published');
+        if (fence) refuseInPlaceSave(document);
+      }
       refuseHeldSetBonuses(
         active.flatMap((hash) => checked.get(resolveAlias(hash, aliases)) ?? []),
       );
@@ -263,7 +281,7 @@ export async function publish(
           throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
         }
       }
-      if (snapshot.trees[switches.scheduled() ? 1 : 0] !== null) {
+      if (!fence && snapshot.trees[switches.scheduled() ? 1 : 0] !== null) {
         const capabilities = (pin as { capabilities?: unknown } | undefined)?.capabilities;
         if (
           !Array.isArray(capabilities) ||

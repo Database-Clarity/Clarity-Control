@@ -47,7 +47,7 @@ export interface Repository {
   casMany?(updates: { ref: string; old: string; next: string }[]): void;
   ancestor(a: string, b: string): boolean;
   history(ref: string): string[];
-  additions(head: string, path: string): { commit: string; path: string }[];
+  additions(head: string, path: string, after?: string): { commit: string; path: string }[];
 }
 
 /** Per-document files: a publisher step that reads one reads (nearly) all of them. */
@@ -281,7 +281,7 @@ export class LocalRepository implements Repository {
       .split('\n')
       .filter(Boolean);
   }
-  additions(head: string, path: string) {
+  additions(head: string, path: string, after?: string) {
     const lines = this.git([
       'log',
       '--first-parent',
@@ -292,7 +292,7 @@ export class LocalRepository implements Repository {
       '--reverse',
       '--format=%H',
       '--name-only',
-      head,
+      after ? `${after}..${head}` : head,
       '--',
       path,
     ]).split('\n');

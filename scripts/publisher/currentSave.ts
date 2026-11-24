@@ -18,6 +18,7 @@ import type { Publisher } from './publisher.js';
 import { appCredits, RefRace, requesterCredits, type Tree } from './git.js';
 import { json } from './batch.js';
 import { hasGlobals } from './globals.js';
+import { assertInPlaceDocuments, globalsFence, inPlaceSource } from './globalsInPlace.js';
 import {
   planSaveChanges,
   savedChangesSchema,
@@ -164,6 +165,9 @@ export async function drainCurrentSaves(pub: Publisher) {
               409,
               'Use global entry mutations; Sync pending protection is required',
             );
+          const fence = globalsFence(pub, tree);
+          if (fence && !('conflicts' in validated))
+            assertInPlaceDocuments(validated.tooltips, inPlaceSource(pub, head, fence).options);
           plan = validated;
         } catch (error) {
           if (!(error instanceof Error)) throw error;

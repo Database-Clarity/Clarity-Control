@@ -82,6 +82,9 @@ if (!runtime.includes('withUnpublishedRemovals('))
 for (const marker of ['drainCurrentSaves(', 'Invalid staged Current save signature'])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks staged Current saves (${marker}); refusing its PIN`);
+for (const marker of ['config/globals-in-place.json', 'proveInPlaceInputs(', 'dryRunGlobalsMigration('])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks in-place globals (${marker}); refusing its PIN`);
 for (const marker of [
   'Installed publisher lacks globalsExportsV1',
   'Expected aggregate 1, 2, or 3',
@@ -133,6 +136,7 @@ writeFileSync(
         'currentSaveStagingV1',
         'exoticTags',
         'aliasGroupRemovals',
+        'globalsInPlaceV1',
       ],
     },
     null,

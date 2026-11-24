@@ -23,6 +23,7 @@ export async function refuseBaseEnhanced(
   aliases: Aliases,
   loaded: readonly Tooltip[] = [],
   scope?: AliasScope,
+  selectedOnly = false,
 ): Promise<ReadonlyMap<number, Tooltip>> {
   const known = new Map(loaded.map((tooltip) => [tooltip.hash, tooltip]));
   const loadMissing = async (hashes: readonly number[]) => {
@@ -40,7 +41,7 @@ export async function refuseBaseEnhanced(
     });
   };
   const visited = new Set<number>();
-  let pending = [...roots, 2, 3];
+  let pending = selectedOnly ? [...roots] : [...roots, 2, 3];
   while (pending.length) {
     if (scope) aliases = scope.extend(pending);
     const hashes = [...new Set(pending.map((hash) => resolveAlias(hash, aliases)))].filter(
@@ -59,6 +60,7 @@ export async function refuseBaseEnhanced(
         if (!translation) continue;
         const text = translation.text;
         if (text.includes('{{')) throw new HttpError(422, baseEnhancedPublishMessage);
+        if (selectedOnly) continue;
         for (const line of markupImports(text)) {
           const from = line.match(/ from (\d+|global) *$/)?.[1];
           if (from) pending.push(from === 'global' ? 1 : Number(from));
@@ -66,6 +68,7 @@ export async function refuseBaseEnhanced(
       }
     }
   }
+  if (selectedOnly) return known;
   // Associations reference live entries, not their draft markup or draft associations.
   // Check only direct targets of the selected roots, separately from the import walk.
   const targets = roots.flatMap((hash) => known.get(resolveAlias(hash, aliases))?.associated ?? []);

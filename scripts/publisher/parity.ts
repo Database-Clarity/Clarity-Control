@@ -15,11 +15,17 @@ import {
   aliasGroupsSchema,
   sandboxPointersPath,
   sandboxPointersSchema,
+  globalRecordSchema,
+  globalsInPlaceDefinitions,
+  globalsInPlaceFenceSchema,
+  globalsInPlacePath,
   type Tooltip,
 } from '../../packages/core/src/index.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { maxBuffer } from './childProcess.mjs';
 import { Publisher, type Options } from './publisher.js';
+import { assertInPlaceDocuments, proveInPlaceInputs } from './globalsInPlace.js';
+import type { LegacyInput } from '../../packages/export/src/index.js';
 const [repo, commit, receiptPath, configPath, adapterPath, outArg] = process.argv.slice(2);
 if (!outArg)
   throw new Error(
@@ -61,43 +67,86 @@ for (let i = 0; i < tooltips.length; i++)
   if ((await inactivePublishableHash(tooltips[i], aliases, moves)) !== receipt.entries[i].digest)
     throw new Error('Receipt digest mismatch');
 const hashes = tooltips.map((tooltip) => tooltip.hash);
+const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
+const payload = JSON.parse(request.payload);
+const fence = globalsInPlaceFenceSchema.optional().parse(atSource(globalsInPlacePath));
+const reviewed = request.sourceIntent
+  ? fence
+    ? JSON.parse(request.sourceIntent.payload).sourceCommit
+    : undefined
+  : payload.globalsRevision;
+if (receipt.globalsRevision !== reviewed || Boolean(fence) !== Boolean(reviewed))
+  throw new Error('Receipt shared text revision differs from the reviewed publication');
+const globalsInPlace =
+  fence &&
+  (() => {
+    if (fence.state !== 'active' || !/^[a-f0-9]{40}$/.test(reviewed))
+      throw new Error('Expected the reviewed shared text revision');
+    git('merge-base', '--is-ancestor', reviewed, receipt.sourceCommit);
+    if (
+      git('rev-parse', `${reviewed}:${globalsInPlacePath}`).trim() !==
+      git('rev-parse', `${receipt.sourceCommit}:${globalsInPlacePath}`).trim()
+    )
+      throw new Error('The reviewed shared text belongs to another migration');
+    const entries = git('ls-tree', '--name-only', '-r', reviewed, '--', 'globals/entries')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((path) => {
+        const entry = globalRecordSchema.parse(read(reviewed, path));
+        if (path !== `globals/entries/${entry.id}.json`)
+          throw new Error('Invalid shared text identity');
+        return entry;
+      });
+    return {
+      definitions: globalsInPlaceDefinitions(entries),
+      missingTranslation: fence.missingTranslation,
+    };
+  })();
+if (globalsInPlace) assertInPlaceDocuments(tooltips, globalsInPlace);
+const selectedMoves = selectedInactiveMoves(moves, hashes, aliases);
 const exported = exportWithInactiveMoves(
   tooltips,
   receipt.now,
   config.facts,
   aliases,
-  selectedInactiveMoves(moves, hashes, aliases),
+  selectedMoves,
+  globalsInPlace && { globalsInPlace },
 );
-const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
-const requester = JSON.parse(request.payload).requester;
+const requester = payload.requester;
 stampUploads(exported, new Set<number>(receipt.changed), base.perks, receipt.now, requester.login);
-const expected =
-  JSON.stringify(
-    {
-      ...base,
-      perks: applyInactiveLive(
-        mergeLivePerks(
-          base.perks,
-          exported,
-          picks === undefined
-            ? undefined
-            : {
-                keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
-                aliases,
-                catalog: config.facts,
-              },
-          groups === undefined ? undefined : { aliases, catalog: config.facts },
-          groups === undefined ? undefined : aliasGroupsSchema.parse(groups).removed,
-        ),
-        moves,
-        hashes,
-        aliases,
-        base.perks,
-      ),
-    },
-    null,
-    2,
-  ) + '\n';
+const merge = (entries: typeof exported): LegacyInput => ({
+  ...base,
+  perks: applyInactiveLive(
+    mergeLivePerks(
+      base.perks,
+      entries,
+      picks === undefined
+        ? undefined
+        : {
+            keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
+            aliases,
+            catalog: config.facts,
+          },
+      groups === undefined ? undefined : { aliases, catalog: config.facts },
+      groups === undefined ? undefined : aliasGroupsSchema.parse(groups).removed,
+    ),
+    moves,
+    hashes,
+    aliases,
+    base.perks,
+  ),
+});
+const merged = merge(exported);
+if (globalsInPlace)
+  proveInPlaceInputs(
+    base,
+    merge(exportWithInactiveMoves(tooltips, receipt.now, config.facts, aliases, selectedMoves)),
+    merged,
+    globalsInPlace,
+    hashes,
+  );
+const expected = JSON.stringify(merged, null, 2) + '\n';
 const out = resolve(outArg);
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'expected-liveDescriptions.json'), expected);

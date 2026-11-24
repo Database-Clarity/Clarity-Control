@@ -8,10 +8,15 @@ import { maxBuffer } from './childProcess.mjs';
 import { LocalRepository } from './git.js';
 import { Publisher, type Options } from './publisher.js';
 import { runPipeline, verifyRuntime } from './pipeline.js';
+import {
+  dryRunGlobalsMigration,
+  restoreGlobalsMigration,
+  type MigrationInputs,
+} from './globalsMigration.js';
 
 // Publication requires the explicit pipeline-publish flag plus both configuration gates.
 async function main() {
-  const [flag, source, config, output] = process.argv.slice(2);
+  const [flag, source, config, output, migrationInput] = process.argv.slice(2);
   if (['--pipeline-dry-run', '--pipeline-publish'].includes(flag) && source && config && output) {
     const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
     const bytes = readFileSync(config);
@@ -34,9 +39,15 @@ async function main() {
     );
     return;
   }
-  if (flag !== '--dry-run' || !source || !config || !output)
+  if (
+    !['--dry-run', '--globals-migration-dry-run'].includes(flag) ||
+    !source ||
+    !config ||
+    !output ||
+    (flag === '--globals-migration-dry-run' && !migrationInput)
+  )
     throw new Error(
-      'Usage: publisher.mjs --dry-run <local repository> <config.json> <artifact directory>',
+      'Usage: publisher.mjs --dry-run <local repository> <config.json> <artifact directory>, or --globals-migration-dry-run with an additional migration-inputs.json',
     );
   const local = realpathSync(resolve(source)),
     out = resolve(output);
@@ -61,8 +72,22 @@ async function main() {
       now: Date.now,
     });
     let failure: unknown;
+    let migration: Awaited<ReturnType<typeof dryRunGlobalsMigration>> | undefined;
+    let restored: boolean | undefined;
     try {
-      await publisher.run();
+      if (flag === '--globals-migration-dry-run') {
+        const originalData = publisher.head(options.dataBranch);
+        const originalLive = publisher.head(options.liveBranch);
+        const inputs = JSON.parse(readFileSync(migrationInput!, 'utf8')) as MigrationInputs;
+        migration = await dryRunGlobalsMigration(publisher, inputs);
+        restoreGlobalsMigration(publisher);
+        restored =
+          publisher.head(options.dataBranch) === originalData &&
+          publisher.head(options.liveBranch) === originalLive;
+        if (!restored) throw new Error('Migration restore did not recover the original refs.');
+        migration = await dryRunGlobalsMigration(publisher, inputs);
+        publisher.bundle();
+      } else await publisher.run();
     } catch (e) {
       failure = e;
     }
@@ -80,6 +105,7 @@ async function main() {
           writesEnabled: false,
           dataHead: publisher.head(options.dataBranch),
           liveHead: publisher.head(options.liveBranch),
+          ...(migration ? { migration, restored } : {}),
           error: failure ? String(failure) : null,
         },
         null,

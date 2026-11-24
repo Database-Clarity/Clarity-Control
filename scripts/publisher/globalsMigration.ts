@@ -1,0 +1,257 @@
+import {
+  globalsInPlaceCapability,
+  globalsInPlaceFenceSchema,
+  globalsInPlacePath,
+  inactivePublishableHash,
+  pushedSchema,
+  tooltipSchema,
+  type GlobalsInPlaceFence,
+} from '../../packages/core/src/index.js';
+import { batchSchema } from '@clarity/core/schedule';
+import {
+  buildLegacy,
+  bungieIdentical,
+  compile,
+  exportLanguages,
+  legacyPresets,
+  newStyleFile,
+  type Catalog,
+  type InventoryItems,
+  type LegacyInput,
+  type SandboxPerks,
+} from '../../packages/export/src/index.js';
+import { appCredits, LocalRepository } from './git.js';
+import {
+  bundleInPlaceReview,
+  globalsFence,
+  liveGlobalsInput,
+  migrateInPlace,
+} from './globalsInPlace.js';
+import type { Publisher } from './publisher.js';
+
+export interface MigrationInputs {
+  catalog: Catalog;
+  inventoryItems: InventoryItems;
+  sandboxPerks: SandboxPerks;
+  clearance: 'review';
+  missingTranslation?: 'english' | 'reject';
+}
+
+export function proveMigrationFiles(
+  before: LegacyInput,
+  after: LegacyInput,
+  inputs: MigrationInputs,
+) {
+  const { catalog, inventoryItems, sandboxPerks } = inputs;
+  if (
+    !Object.keys(inventoryItems).length ||
+    !Object.keys(catalog.items).length ||
+    !catalog.categories.length
+  )
+    throw new Error('Migration requires the pinned manifest and format-v2 catalog.');
+  const identical = bungieIdentical(before, inventoryItems, sandboxPerks);
+  if (
+    JSON.stringify(identical) !==
+    JSON.stringify(bungieIdentical(after, inventoryItems, sandboxPerks))
+  )
+    throw new Error('Migration changes Bungie-identical selection.');
+  const files: string[] = [];
+  const compare = (name: string, old: Uint8Array, next: Uint8Array) => {
+    if (!Buffer.from(old).equals(next)) throw new Error(`Migration changes ${name}.`);
+    files.push(name);
+  };
+  for (const preset of legacyPresets)
+    compare(
+      preset,
+      buildLegacy(before, preset, { identical }),
+      buildLegacy(after, preset, { identical }),
+    );
+  for (const style of ['structured', 'markdown'] as const)
+    for (const lang of exportLanguages) {
+      const file = newStyleFile('migration', style, {
+        categories: catalog.categories.map(({ id }) => id),
+        sandboxPerks: [],
+        frameAliases: true,
+        languages: [lang],
+        keys: ['name'],
+        languageFiles: 'combined',
+        bungieIdentical: false,
+      });
+      const options = { catalog, identical };
+      compare(
+        `${style}/${lang}`,
+        compile(before, file, options).bytes,
+        compile(after, file, options).bytes,
+      );
+    }
+  return files;
+}
+
+function assertDisposable(pub: Publisher): LocalRepository {
+  if (pub.git.constructor !== LocalRepository)
+    throw new Error('Migration is available only in a disposable local clone.');
+  return pub.git as LocalRepository;
+}
+
+function assertDrained(pub: Publisher, git: LocalRepository, data: string) {
+  const tree = git.tree(data);
+  for (const path of Object.keys(tree)) {
+    if (path.startsWith('publish/requests/') || path.startsWith('globals/intents/'))
+      throw new Error(`Drain ${path} with the old publisher first.`);
+    if (/^schedule\/batches\/[^/]+\/batch\.json$/.test(path)) {
+      const batch = batchSchema.parse(pub.read(tree, path));
+      if (
+        ['preparing', 'scheduled', 'publishing'].includes(batch.status) ||
+        (batch.status === 'needs_attention' && batch.preparation?.returnStatus === 'scheduled')
+      )
+        throw new Error(`Finish or unschedule batch ${batch.id} with the old publisher first.`);
+    }
+  }
+  if (git.git(['for-each-ref', '--format=%(refname)', 'refs/heads/publish-candidate/']).trim())
+    throw new Error('Recover old publisher candidates before migration.');
+}
+
+const json = (value: unknown) => JSON.stringify(value, null, 2) + '\n';
+
+/**
+ * The hold is also the recovery journal. While it exists, a retry accepts only the
+ * exact planned LIVE ref. The companion RECORD preserves every authored marker.
+ */
+export async function dryRunGlobalsMigration(
+  pub: Publisher,
+  inputs: MigrationInputs,
+  checkpoint?: (step: 'hold' | 'live' | 'record') => void,
+) {
+  const git = assertDisposable(pub);
+  const dataRef = `refs/heads/${pub.options.dataBranch}`;
+  const liveRef = `refs/heads/${pub.options.liveBranch}`;
+  const source = pub.head(pub.options.dataBranch);
+  const tree = git.tree(source);
+  const installed = pub.read<{ capabilities: string[] }>(tree, '.publisher/PIN');
+  if (inputs.clearance !== 'review' || !installed?.capabilities.includes(globalsInPlaceCapability))
+    throw new Error(
+      'Migration requires explicit ordinary Review clearance and the in-place publisher PIN.',
+    );
+
+  let journal = globalsFence(pub, tree);
+  let hold = source;
+  const legacyLive = journal?.legacyLive ?? pub.head(pub.options.liveBranch);
+  const before = liveGlobalsInput(pub, legacyLive);
+  const next = migrateInPlace(before);
+  const files = proveMigrationFiles(before, next, inputs);
+  if (!journal) {
+    assertDrained(pub, git, source);
+    const migratedLive = git.commit(
+      legacyLive,
+      {
+        ...git.tree(legacyLive),
+        'liveDescriptions.json': git.writeBlob(json(next)),
+      },
+      'Inline shared text in existing LIVE tooltips',
+      appCredits,
+    );
+    journal = globalsInPlaceFenceSchema.parse({
+      state: 'hold',
+      clearance: inputs.clearance,
+      missingTranslation: inputs.missingTranslation,
+      destination: pub.options.liveBranch,
+      legacyData: source,
+      legacyLive,
+      migratedLive,
+    });
+    hold = git.commit(
+      source,
+      {
+        ...tree,
+        [globalsInPlacePath]: git.writeBlob(json(journal)),
+      },
+      'Hold publication for shared text migration',
+      appCredits,
+    );
+    git.cas(dataRef, source, hold);
+    checkpoint?.('hold');
+  }
+  const { migratedLive } = journal;
+  const originalTree = git.tree(legacyLive);
+  const migratedTree = git.tree(migratedLive);
+  if (
+    git.blob(migratedTree['liveDescriptions.json']) !== json(next) ||
+    !git.ancestor(legacyLive, migratedLive) ||
+    Object.keys(originalTree).length !== Object.keys(migratedTree).length ||
+    Object.keys(originalTree).some(
+      (path) => path !== 'liveDescriptions.json' && originalTree[path] !== migratedTree[path],
+    ) ||
+    journal.missingTranslation !== (inputs.missingTranslation ?? 'english') ||
+    !git.ancestor(journal.legacyData, hold)
+  )
+    throw new Error('Migration journal differs from its proven inputs.');
+  const currentLive = pub.head(pub.options.liveBranch);
+  if (currentLive === legacyLive && journal.state === 'hold') {
+    git.cas(liveRef, legacyLive, migratedLive);
+    checkpoint?.('live');
+  } else if (currentLive !== migratedLive) {
+    throw new Error('LIVE moved during the shared text migration.');
+  }
+  const fence: GlobalsInPlaceFence = { ...journal, state: 'active' };
+  const recordTree = { ...git.tree(hold), [globalsInPlacePath]: git.writeBlob(json(fence)) };
+  const record =
+    journal.state === 'active'
+      ? hold
+      : git.commit(hold, recordTree, 'Record shared text migration and enable Review', appCredits);
+  const tooltips = Object.fromEntries(
+    Object.keys(recordTree)
+      .filter((path) => /^tooltips\/\d+\.json$/.test(path))
+      .map((path) => {
+        const tooltip = tooltipSchema.parse(pub.read(recordTree, path));
+        return [tooltip.hash, tooltip];
+      }),
+  );
+  const review = bundleInPlaceReview(pub, record, recordTree, tooltips, fence);
+  const pushed = pushedSchema.parse(pub.read(recordTree, 'live/pushed.json'));
+  const aliases = pub.aliasesAt(recordTree);
+  const moves = pub.movesAt(recordTree);
+  for (const [hash, row] of Object.entries(review.rows)) {
+    const tooltip = tooltips[hash];
+    if (
+      inputWasPublished(before, hash) &&
+      pushed[hash] === (await inactivePublishableHash(tooltip, aliases, moves))
+    )
+      throw new Error(
+        `Migration makes tooltip ${hash} pending: ${row.refusal ?? 'resolved text changed'}.`,
+      );
+  }
+  if (journal.state === 'hold') {
+    git.cas(dataRef, hold, record);
+    checkpoint?.('record');
+  }
+  return { record, live: migratedLive, files };
+}
+
+const inputWasPublished = (input: LegacyInput, hash: string) =>
+  Boolean(input.perks[hash] && 'editor' in input.perks[hash]);
+
+/** Restore only the exact migration snapshots in the disposable clone. */
+export function restoreGlobalsMigration(pub: Publisher) {
+  const git = assertDisposable(pub);
+  const data = pub.head(pub.options.dataBranch);
+  const live = pub.head(pub.options.liveBranch);
+  const tree = git.tree(data);
+  const fence = globalsFence(pub, tree);
+  if (!fence) return;
+  const { legacyData, legacyLive, migratedLive } = fence;
+  const before = git.tree(legacyData);
+  if (
+    !git.ancestor(legacyData, data) ||
+    (live !== legacyLive && live !== migratedLive) ||
+    Object.keys(before).length + 1 !== Object.keys(tree).length ||
+    Object.keys(before).some((path) => tree[path] !== before[path])
+  )
+    throw new Error('Publication or a save advanced after migration; restore is unavailable.');
+  const update = { ref: `refs/heads/${pub.options.dataBranch}`, old: data, next: legacyData };
+  if (live === migratedLive)
+    git.casMany([
+      update,
+      { ref: `refs/heads/${pub.options.liveBranch}`, old: live, next: legacyLive },
+    ]);
+  else git.cas(update.ref, update.old, update.next);
+}
