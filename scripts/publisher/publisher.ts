@@ -66,6 +66,7 @@ import { nameProofRequestSchema } from '../../apps/worker/src/globals/model.js';
 import { snippetsPath } from '../../packages/core/src/customSnippets.js';
 import { langSchema } from '../../packages/core/src/languages.js';
 import { marksPath } from '../../packages/core/src/marks.js';
+import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/admission.js';
 import {
   appCredits,
   requesterCredits,
@@ -730,7 +731,7 @@ export class Publisher {
         return true;
       if (
         /^tooltips\/(?:0|[1-9]\d*)\.json$/.test(path) ||
-        /^globals\/(?:layout\.json$|sync\.json$|(?:entries|causes|intents|names|reviews)\/)/.test(
+        /^globals\/(?:layout\.json$|sync\.json$|catalog\.json$|(?:entries|causes|intents|names|reviews|projections|pages)\/)/.test(
           path,
         ) ||
         derivedGlobalPath(path) ||
@@ -1065,7 +1066,10 @@ export class Publisher {
           const materialized = this.git.tree(checked);
           const previous = this.git.tree(rebuilding.source);
           const paths = new Set([...Object.keys(previous), ...Object.keys(tree)]);
+          const sources = publicationSourcesPath(this.options.liveBranch);
           if (
+            tree[sources] &&
+            tree[sources] === materialized[sources] &&
             [...paths].some(
               (path) =>
                 derivedGlobalPath(path) &&
