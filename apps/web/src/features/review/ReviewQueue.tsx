@@ -163,7 +163,7 @@ const GroupHeader = memo(function GroupHeader({
         {group.global !== 'edited' && (
           <span className={styles.groupCount}>
             {countFormat.format(group.count)}
-            {group.global && (group.count === 1 ? ' tooltip' : ' tooltips')}
+            {group.global && <span>{group.count === 1 ? ' tooltip' : ' tooltips'}</span>}
           </span>
         )}
       </button>
@@ -345,6 +345,7 @@ export function ReviewQueue({
         return;
       // Native notifications arrive after layout and before paint. Commit the
       // correctly scaled window now without a synchronous geometry read.
+      const hidden = !observedViewport.current.height;
       flushSync(() => {
         setRowHeight(row);
         setHeaderHeight(header);
@@ -352,6 +353,8 @@ export function ReviewQueue({
           previous.height === height ? previous : { ...previous, height },
         );
       });
+      // A closed phone sheet forgets its scroll position; the window kept it.
+      if (hidden && height) element.scrollTop = observedViewport.current.top;
     });
     observer.observe(element);
     observer.observe(sizer.current!);

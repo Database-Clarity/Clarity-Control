@@ -471,10 +471,19 @@
     margin-bottom: 0.25rem;
   }
 
+  // No saver line above it: a global's change was not saved here.
+  &[data-apart] {
+    margin-top: 0.75rem;
+  }
+
   // A removed word and its replacement sit apart, so "2" then "3" never reads as "23".
   :global(del + ins) {
     margin-inline-start: 2px;
   }
+}
+
+.noteChange {
+  margin-bottom: 0.75rem;
 }
 
 .single {

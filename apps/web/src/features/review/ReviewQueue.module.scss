@@ -421,6 +421,17 @@
   color: var(--text3);
 }
 
+// In a narrow column a global's name, and the line under it, take the whole row.
+@container review-list (max-width: 17rem) {
+  .groupCount > span {
+    display: none;
+  }
+
+  .group[data-global='edited'] button {
+    padding-inline-start: 0.5rem;
+  }
+}
+
 @media (max-width: 700px) {
   .filters input,
   .filters select,

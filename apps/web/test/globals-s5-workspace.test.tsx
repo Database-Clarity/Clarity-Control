@@ -189,6 +189,31 @@ it('renders the definition while only the opened entry reviews wait, fail, and r
   expect(button('Rename').disabled).toBe(false);
 });
 
+it('says nothing about waiting or paused publishing once globals fill in tooltips', async () => {
+  const snapshot: GlobalSnapshot = {
+    ...globalFixtureSnapshot,
+    status: 'sync-pending',
+    destinationSync: { test: { status: 'sync-pending', causeIds: [], lastFailure: null } },
+  };
+  const id = globalFixtureSnapshot.entries[0]!.id;
+  await mount(`/globals/${id}`, service(snapshot));
+  expect(host.textContent).toContain('is paused.');
+  await act(async () => root!.unmount());
+  host.remove();
+  useDataStore.setState({
+    data: {
+      items: {},
+      categories: [],
+      aliases: {},
+      bundle: { tooltips: {}, pushed: {}, globalsInPlace: { revision: 'a'.repeat(40), rows: {} } },
+    } as unknown as EditorData,
+    status: 'ready',
+  });
+  await mount(`/globals/${id}`, service(snapshot));
+  expect(host.textContent).not.toContain('is paused.');
+  expect(host.querySelector('[aria-label="Refresh sync"]')).toBeNull();
+});
+
 it('recovers reviews from a newer Worker head without replacing the draft or reloading the catalogue', async () => {
   const catalogue = structuredClone(globalFixtureSnapshot);
   catalogue.impacts = {};

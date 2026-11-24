@@ -218,19 +218,22 @@ export function queueView(
 
 /**
  * The next shown row from `current` in `delta` direction, skipping rows of collapsed groups.
- * A current row that is itself hidden (its group collapsed) still steps from its own position.
+ * A current row that is itself hidden (its group collapsed) still steps from its own position; one
+ * opened inside a closed global's group also steps through that group.
  */
 export function stepRow(view: QueueView, current: number, delta: number): number {
   const { ordered, shown } = view;
   if (!ordered.length) return -1;
   const direction = Math.sign(delta) || 1;
+  const inside = ordered[current]?.under?.id;
   let remaining = Math.abs(delta);
   let index = current;
   let found = current;
   while (remaining > 0) {
     index += direction;
     if (index < 0 || index >= ordered.length) break;
-    if (!shown.has(rowKey(ordered[index]!))) continue;
+    const row = ordered[index]!;
+    if (!shown.has(rowKey(row)) && (!inside || row.under?.id !== inside)) continue;
     found = index;
     remaining--;
   }

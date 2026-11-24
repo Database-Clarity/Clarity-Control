@@ -176,7 +176,8 @@ it.each([false, true])(
       digest: digest(1),
       previous: undefined,
     }));
-    const group = await first.create(reviewed);
+    const globalsRevision = 'c'.repeat(40);
+    const group = await first.create(reviewed, globalsRevision);
     await settle();
     const admitted = h.api.post.mock.calls.map(([body]) => body);
     expect(admitted.map(({ hashes }) => hashes.length)).toEqual([50, 50, 1]);
@@ -199,6 +200,9 @@ it.each([false, true])(
     const retried = h.api.post.mock.calls.slice(3).map(([body]) => body);
     expect(retried.slice(0, 2)).toEqual(refused);
     expect(retried[2]?.hashes).toEqual(refused.flatMap(({ hashes }) => hashes));
+    expect(h.api.post.mock.calls.map(([body]) => body.globalsRevision)).toEqual(
+      h.api.post.mock.calls.map(() => globalsRevision),
+    );
     expect(retried[2]?.expected).toEqual(
       Object.assign({}, ...refused.map(({ expected }) => expected)),
     );

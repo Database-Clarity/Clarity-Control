@@ -218,9 +218,11 @@ async function computePending(
       pushedMarker !== undefined &&
       digests[index].bare === pushedMarker;
     const unedited = !authored || leftover;
+    const ahead = !!row?.differs && row.causes.length > 0 && savedAhead(tooltip.hash);
     // A removal, a return, or a first publish is judged whole, whatever globals its text uses.
     const globals: PendingTooltip['globals'] =
       row?.differs &&
+      !ahead &&
       !removing &&
       !restoring &&
       pushedMarker !== undefined &&
@@ -251,7 +253,7 @@ async function computePending(
         : {}),
       ...(!removing ? heldSetBonus(categoryId) : {}),
       ...(globals ? { globals } : {}),
-      ...(globals && savedAhead(tooltip.hash)
+      ...(ahead && !removing && !restoring
         ? {
             unpublishable:
               'It was saved after this list was built. Refresh to review it with its globals.',

@@ -419,7 +419,7 @@ function NoteChanges({
     );
   }, [entry, before, after]);
   return notes.map((note) => (
-    <div key={note.name}>
+    <div key={note.name} className={styles.noteChange}>
       <h4>Note {note.name}</h4>
       <TextChange
         before={note.before}
@@ -638,7 +638,9 @@ export const ReviewDetail = memo(function ReviewDetail({
           {entry.inactiveAliases.join(', ')}.
         </p>
       ) : null}
-      <div className={styles.evidence}>{evidence}</div>
+      <div className={styles.evidence} data-apart={unedited || undefined}>
+        {evidence}
+      </div>
       {raw && compared && rawLanguages.length > 0 && (
         <div className={styles.rawBlock} aria-label="Raw markup">
           {rawLanguages.map((lang) => (
