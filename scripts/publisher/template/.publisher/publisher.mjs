@@ -25161,6 +25161,7 @@ var getExports = (description) => {
 };
 var loadExports = (descriptionData) => {
   const { descriptionString, editorType, language, hash: hash2, database } = descriptionData;
+  const importLanguage = database[hash2]?.editor[language]?.englishFallback ? "en" : language;
   let description = descriptionString;
   const getImports = (descriptionString2) => {
     if (!descriptionString2.includes("import")) return null;
@@ -25197,7 +25198,7 @@ var loadExports = (descriptionData) => {
         return;
       }
       if (name2 === "main" || name2 === "secondary") {
-        const imported2 = database[from]?.editor[language]?.[name2];
+        const imported2 = database[from]?.editor[importLanguage]?.[name2];
         if (imported2 === void 0) throw new Error(`Missing import ${name2} from ${from} for ${hash2}/${language}`);
         description = description.replace(line, () => imported2);
         return;
@@ -25212,7 +25213,7 @@ var loadExports = (descriptionData) => {
         description = description.replace(line, () => imported2);
         return;
       }
-      const imported = getExports(database[from]?.editor[language]?.[editorToImportFrom] || "").get(name2);
+      const imported = getExports(database[from]?.editor[importLanguage]?.[editorToImportFrom] || "").get(name2);
       if (imported === void 0) throw new Error(`Missing export ${name2} from ${from} for ${hash2}/${language}`);
       description = description.replace(line, () => imported);
     });
@@ -25697,6 +25698,7 @@ function parseWith(text, globals, lower2, numbered2 = false, indexed = false) {
 var numberLanguage = ({ database, hash: hash2, language }) => database[hash2].editor[language]?.englishFallback ? "en" : language;
 var nativeDescription = (descriptionData, description) => {
   const { database, hash: hash2, language } = descriptionData;
+  const importLanguage = numberLanguage(descriptionData);
   const library = (id) => {
     const text = database[id]?.editor[language];
     return [text?.main, text?.secondary].filter(Boolean).join("\n");
@@ -25706,7 +25708,7 @@ var nativeDescription = (descriptionData, description) => {
   let native = [description, variables, titles].some((source2) => source2.includes("{{"));
   const imports = new Proxy(/* @__PURE__ */ Object.create(null), {
     get(_target, key) {
-      const source2 = typeof key === "string" ? database[key]?.editor[language]?.main : void 0;
+      const source2 = typeof key === "string" ? database[key]?.editor[importLanguage]?.main : void 0;
       if (source2?.includes("{")) native = true;
       return source2;
     }
@@ -31925,7 +31927,19 @@ function provesInPlace(before, after, hashes = /* @__PURE__ */ new Set([
 }
 
 // scripts/publisher/globalsInPlace.ts
+init_zod();
 import { createHash as createHash2 } from "node:crypto";
+
+// scripts/publisher/consumerOutput.ts
+function unloweredEntry(entries) {
+  const strings = (value2) => typeof value2 === "string" ? [value2] : value2 && typeof value2 === "object" ? Object.values(value2).flatMap(strings) : [];
+  const unlowered = (text) => /[\uE000\uE001]/.test(text) || findElementTags(text).length > 0 || text.includes("#{") || text.includes(enhancedArrowMarkup);
+  for (const [hash2, entry] of Object.entries(entries))
+    if (strings(entry).some(unlowered)) return hash2;
+  return void 0;
+}
+
+// scripts/publisher/globalsInPlace.ts
 function globalsFence(pub, tree) {
   if (!tree[globalsInPlacePath]) return void 0;
   const fence = globalsInPlaceFenceSchema.parse(pub.read(tree, globalsInPlacePath));
@@ -31948,6 +31962,23 @@ function liveGlobalsInput(pub, live) {
   const input2 = pub.read(pub.git.tree(live), "liveDescriptions.json");
   if (!input2?.perks || !input2.databaseSettings) throw new Error("Invalid LIVE descriptions");
   return input2;
+}
+function independentSecondary(cell) {
+  return cell.secondary !== cell.main && cell.secondary.trim() !== "import self";
+}
+function historicalSecondaryUses(input2, definitions) {
+  return Object.values(input2.perks).flatMap((row) => {
+    if (!("editor" in row) || globalsInPlaceLibraryText(row.hash) !== void 0) return [];
+    return languages2.flatMap((lang) => {
+      const cell = row.editor[lang];
+      if (!cell || !cell.secondary || !independentSecondary(cell)) return [];
+      return ["variables", "titles", "exports"].flatMap(
+        (kind) => globalReferenceSpans(cell.secondary, kind).flatMap(
+          ({ name: name2 }) => !(kind === "variables" && name2 === "e") && Object.hasOwn(definitions[kind] ?? {}, name2) ? [{ hash: row.hash, lang, kind, name: name2 }] : []
+        )
+      );
+    });
+  });
 }
 function assertInPlaceLibraries(input2) {
   for (const hash2 of [1, 2, 3]) {
@@ -32160,6 +32191,7 @@ function assertInPlaceDocuments(documents, options) {
         throw new Error(`Tooltip ${tooltip.custom?.name || tooltip.hash} (${lang}): ${issue2}`);
     }
 }
+var refusalMessage = (error62) => error62 instanceof ZodError ? error62.issues[0]?.message ?? "Invalid shared definition." : error62 instanceof Error ? error62.message : String(error62);
 var sha2562 = (input2) => createHash2("sha256").update(input2).digest("hex");
 var definitionDigest = (entry) => sha2562(stableStringify(entry));
 function stores(pub, tree) {
@@ -32313,17 +32345,48 @@ function pendingEntries(published, saved) {
     return stableStringify(sourceIdentity2(normalized.find(({ id }) => id === entry.id))) !== stableStringify(sourceIdentity2(entry));
   });
 }
-function publishedDocuments(pub, tree, live) {
+function publishedDocuments(pub, tree, live, requireSnapshots = true) {
   const docs = new GlobalsPublisher(pub).documents(tree, "live/tooltips");
   return Object.entries(live.perks).flatMap(([hash2, perk]) => {
     if (globalsInPlaceLibraryText(Number(hash2)) !== void 0 || !("editor" in perk)) return [];
     const doc = docs[hash2];
-    if (!doc) throw new Error(`Missing the published source for tooltip ${hash2}.`);
+    if (!doc) {
+      if (requireSnapshots) throw new Error(`Missing the published source for tooltip ${hash2}.`);
+      return [];
+    }
     return isTextlessDescription(doc) ? [] : [doc];
   });
 }
 function withdrawsEnglish(entry, previous) {
   return !!entry.tombstone || !!previous?.definitions.en && !entry.definitions.en;
+}
+function assertHistoricalSecondaries(pub, tree, live, selected) {
+  if (!Object.values(live.perks).some(
+    (row) => "editor" in row && Object.values(row.editor).some((cell) => cell.secondary && independentSecondary(cell))
+  ))
+    return;
+  const fence = globalsFence(pub, tree);
+  if (!fence) return;
+  const legacy = liveGlobalsInput(pub, fence.legacyLive);
+  const definitions = legacyGlobalsInPlaceDefinitions(
+    legacy.perks
+  );
+  for (const { hash: hash2, lang, kind, name: name2 } of historicalSecondaryUses(legacy, definitions)) {
+    const row = live.perks[hash2];
+    const active = row && "editor" in row ? row.editor[lang] : void 0;
+    if (!active?.secondary || !independentSecondary(active)) continue;
+    const entry = selected.find(
+      (item) => item.kind === kind && (item.name === name2 || item.nameHistory.some((former) => former.name === name2))
+    );
+    if (entry)
+      throw new Error(
+        `Publish ${row.name || hash2} first: its older text still uses ${entry.name}.`
+      );
+  }
+}
+function refillLanguage(current, approved) {
+  if (!current || !approved || current.secondary === current.main) return approved;
+  return { ...approved, secondary: current.secondary };
 }
 function assertWithdrawal(selected, previous, saved, published, documents) {
   if (!previous || previous.tombstone) return;
@@ -32355,6 +32418,7 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
       throw new Error(`Only a maintainer can publish the removal of ${entry.name}.`);
     return entry;
   });
+  assertHistoricalSecondaries(pub, tree, live, selected);
   const liveDocs = publishedDocuments(pub, tree, live);
   const globals = new GlobalsPublisher(pub);
   const withdrawals = selected.filter((entry) => withdrawsEnglish(entry, previous.get(entry.id)));
@@ -32399,10 +32463,15 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
     source2
   );
   const publishedOptions = withImportedFallback({ definitions: options.definitions }, source2);
+  const refills = refillPublishedDocuments(live, live, updatedDocs, oldOptions, publishedOptions);
+  return { options, published: { ...published, store: next }, refills, rewritten };
+}
+function refillPublishedDocuments(live, withAuthoredRows, documents, oldOptions, publishedOptions) {
   const affected = [];
   const changedLanguages = /* @__PURE__ */ new Map();
   const refills = {};
-  for (const doc of updatedDocs) {
+  const expectedBefore = { ...live, perks: { ...live.perks } };
+  for (const doc of documents) {
     const old = exportLegacy([doc], 0, void 0, {}, { globalsInPlace: oldOptions })[doc.hash];
     const filled = exportLegacy([doc], 0, void 0, {}, { globalsInPlace: publishedOptions })[doc.hash];
     if (isLegacyAliasStub(old) || isLegacyAliasStub(filled) || stableStringify(old.editor) === stableStringify(filled.editor))
@@ -32414,20 +32483,35 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
     );
     changedLanguages.set(doc.hash, changed);
     const editor = { ...perk.editor };
-    for (const lang of changed) editor[lang] = filled.editor[lang];
+    const beforeEditor = { ...perk.editor };
+    for (const lang of changed) {
+      editor[lang] = refillLanguage(perk.editor[lang], filled.editor[lang]);
+      beforeEditor[lang] = refillLanguage(perk.editor[lang], old.editor[lang]);
+    }
+    expectedBefore.perks[doc.hash] = {
+      ...live.perks[doc.hash],
+      editor: beforeEditor
+    };
     refills[doc.hash] = { ...perk, editor };
   }
   if (affected.length) {
+    const unlowered = unloweredEntry(refills);
+    if (unlowered !== void 0)
+      throw new Error(`The export of tooltip ${unlowered} still holds unlowered markup.`);
+    const hashes = affected.map(({ hash: hash2 }) => hash2);
+    const [drift] = provesInPlace(live, expectedBefore, affectedRows(live, expectedBefore, hashes));
+    if (drift) throw new Error(drift.message);
     assertInPlaceDocuments(affected, publishedOptions);
     const { raw, fallbacks } = exportGlobalsProof(affected, 0, void 0, {}, {}, publishedOptions);
-    const rawPerks = { ...live.perks };
+    const rawPerks = { ...withAuthoredRows.perks };
     for (const { hash: hash2 } of affected) {
-      const existing2 = rawPerks[hash2], source3 = raw[hash2];
-      if (!("editor" in existing2) || isLegacyAliasStub(source3))
+      const existing2 = rawPerks[hash2], source2 = raw[hash2];
+      if (!("editor" in existing2) || isLegacyAliasStub(source2))
         throw new Error(`Missing shared text proof input for ${hash2}.`);
       const changed = changedLanguages.get(hash2);
       const editor = { ...existing2.editor };
-      for (const lang of changed) editor[lang] = source3.editor[lang];
+      for (const lang of changed)
+        editor[lang] = refillLanguage(existing2.editor[lang], source2.editor[lang]);
       const fallback = fallbacks.get(hash2);
       if (fallback) {
         for (const lang of fallback) if (!changed.includes(lang)) fallback.delete(lang);
@@ -32436,15 +32520,63 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
       rawPerks[hash2] = { ...existing2, editor };
     }
     proveInPlaceInputs(
-      live,
-      { ...live, perks: rawPerks },
-      { ...live, perks: { ...live.perks, ...refills } },
+      withAuthoredRows,
+      { ...withAuthoredRows, perks: rawPerks },
+      {
+        ...withAuthoredRows,
+        perks: { ...withAuthoredRows.perks, ...refills }
+      },
       publishedOptions,
-      affected.map(({ hash: hash2 }) => hash2),
+      hashes,
       fallbacks
     );
   }
-  return { options, published: { ...published, store: next }, refills, rewritten };
+  return refills;
+}
+function refillImportedTooltips(pub, tree, plan, documents, aliases, exported) {
+  const roots = documents.flatMap(({ hash: hash2 }) => {
+    const previous = plan.live.perks[hash2];
+    const next = exported[hash2];
+    return previous && "editor" in previous && next && !isLegacyAliasStub(next) && languages2.some(
+      (lang) => previous.editor[lang]?.englishFallback !== next.editor[lang]?.englishFallback
+    ) ? [hash2] : [];
+  });
+  if (!roots.length) return;
+  const withAuthoredRows = {
+    ...plan.live,
+    perks: { ...plan.live.perks, ...exported }
+  };
+  const importers = affectedRows(plan.live, withAuthoredRows, roots);
+  for (const document of publishedDocuments(pub, tree, plan.live, false)) {
+    const row = plan.live.perks[document.hash];
+    if ("editor" in row && languages2.some(
+      (lang) => row.editor[lang]?.englishFallback && document.text[lang]?.text.includes("import ")
+    ))
+      importers.add(String(document.hash));
+  }
+  const selected = new Set(documents.map(({ hash: hash2 }) => hash2));
+  const snapshots = [...importers].flatMap((key) => {
+    const hash2 = Number(key);
+    const row = plan.live.perks[hash2];
+    if (selected.has(hash2) || !row || !("editor" in row)) return [];
+    const snapshot = plan.rewritten.get(hash2) ?? pub.read(tree, `live/tooltips/${hash2}.json`);
+    if (!snapshot) throw new Error(`Missing the published source for tooltip ${hash2}.`);
+    return isTextlessDescription(snapshot) ? [] : [snapshot];
+  });
+  if (!snapshots.length) return;
+  const options = { definitions: plan.options.definitions };
+  const before = authoredInPlaceOptions(pub, tree, plan.live, { ...plan, options }, [], {});
+  const after = authoredInPlaceOptions(
+    pub,
+    tree,
+    plan.live,
+    { ...plan, options },
+    documents,
+    aliases
+  );
+  const refills = refillPublishedDocuments(plan.live, withAuthoredRows, snapshots, before, after);
+  Object.assign(plan.refills, refills);
+  plan.live = { ...plan.live, perks: { ...plan.live.perks, ...refills } };
 }
 function planInPlaceRelease(pub, tree, live, selection2, maintainer, hasTooltipSelection = false) {
   const plan = (items) => selectedRelease(pub, tree, live, items, maintainer);
@@ -32462,7 +32594,7 @@ function planInPlaceRelease(pub, tree, live, selection2, maintainer, hasTooltipS
       } catch (refusal2) {
         refusals.push({
           id: item.id,
-          error: refusal2 instanceof Error ? refusal2.message : String(refusal2)
+          error: refusalMessage(refusal2)
         });
       }
     }
@@ -32482,6 +32614,20 @@ function rewritePushed(pub, tree, pushed, rewritten) {
     }
   }
 }
+function neutralRenameHashes(pub, tree, entries, rewritten) {
+  if (!rewritten.size) return /* @__PURE__ */ new Set();
+  const pushed = pushedSchema.parse(pub.read(tree, "live/pushed.json"));
+  rewritePushed(pub, tree, pushed, rewritten);
+  const text = ({ text: text2 }) => Object.fromEntries(Object.entries(text2).map(([lang, cell]) => [lang, cell.text]));
+  return new Set(
+    entries.filter(({ hash: hash2, digest: digest6 }) => {
+      const published = rewritten.get(hash2);
+      if (!published || pushed[hash2] !== digest6) return false;
+      const saved = pub.read(tree, `tooltips/${hash2}.json`);
+      return saved && stableStringify(text(saved)) === stableStringify(text(published));
+    }).map(({ hash: hash2 }) => hash2)
+  );
+}
 function bundleInPlaceReview(pub, tree, fence) {
   const live = pub.head(pub.options.liveBranch);
   if (!pub.git.ancestor(fence.migratedLive, live))
@@ -32499,7 +32645,7 @@ function bundleInPlaceReview(pub, tree, fence) {
       const plan = planInPlaceRelease(pub, tree, input2, [{ id: entry.id, expected: digest6 }], true);
       affected = [.../* @__PURE__ */ new Set([...Object.keys(plan.refills).map(Number), ...plan.rewritten.keys()])];
     } catch (error62) {
-      refusal2 = error62 instanceof Error ? error62.message : String(error62);
+      refusal2 = refusalMessage(error62);
     }
     const cell = (value2, lang) => value2?.tombstone ? null : value2?.definitions[lang]?.body ?? null;
     return {
@@ -32533,7 +32679,7 @@ function bundleInPlaceReview(pub, tree, fence) {
   const renames = renamesOf(published.store, pending);
   const rewritten = /* @__PURE__ */ new Map();
   if (renames.length) {
-    for (const document of publishedDocuments(pub, tree, input2)) {
+    for (const document of publishedDocuments(pub, tree, input2, false)) {
       const updated = rewriteTooltip(document, renames);
       if (updated !== document) rewritten.set(document.hash, updated);
     }
@@ -32692,6 +32838,8 @@ function bundleGlobals(tree, read) {
   return { entries, sync: publicGlobalSync(syncSchema.parse(read(tree, paths.sync))) };
 }
 var GlobalReleaseRejected = class extends Error {
+};
+var MissingPublishedSnapshot = class extends Error {
 };
 function globalTreeEntries(tree, prefix, modes = {}) {
   const entries = Object.entries(tree).filter(([path]) => path.startsWith(`${prefix}/`));
@@ -32878,7 +33026,8 @@ var GlobalsPublisher = class _GlobalsPublisher {
     for (const [hash2, value2] of Object.entries(perks)) {
       if (typeof value2.type === "string") liveTypes[hash2] = value2.type;
       if (value2.aliasOf === void 0) {
-        if (!documents[hash2]) throw new Error("Missing last-published consumer snapshot");
+        if (!documents[hash2])
+          throw new MissingPublishedSnapshot("Missing last-published consumer snapshot");
         tooltips[hash2] = documents[hash2];
       } else {
         const { aliasOf, aliasKind } = value2;
@@ -33422,7 +33571,11 @@ var GlobalsPublisher = class _GlobalsPublisher {
   async recordInPlaceProofs(tree, head, live) {
     if (syncSchema.parse(this.read(tree, globalsReleasePaths.sync)).status !== "current") return;
     const sources = await this.sources(tree, live, head);
-    await this.proofs(tree, head, sources, live, []);
+    try {
+      await this.proofs(tree, head, sources, live, []);
+    } catch (error62) {
+      if (!(error62 instanceof MissingPublishedSnapshot)) throw error62;
+    }
   }
   async drain(expectedHead) {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -33474,6 +33627,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
         return commit2;
       } catch (error62) {
         if (error62 instanceof RefRace) continue;
+        if (fence && error62 instanceof MissingPublishedSnapshot) return head;
         const sync = syncSchema.safeParse(this.read(original, globalsReleasePaths.sync));
         if (sync.success && sync.data.causeIds.length) {
           let failed = { ...original };
@@ -35354,13 +35508,6 @@ async function drainCurrentSaves(pub) {
 // scripts/publisher/publisher.ts
 var publishBackoff = () => setTimeout2(3e4);
 var json5 = (v) => JSON.stringify(v, null, 2) + "\n";
-function unloweredEntry(entries) {
-  const strings = (value2) => typeof value2 === "string" ? [value2] : value2 && typeof value2 === "object" ? Object.values(value2).flatMap(strings) : [];
-  const unlowered = (text) => /[\uE000\uE001]/.test(text) || findElementTags(text).length > 0 || text.includes("#{") || text.includes(enhancedArrowMarkup);
-  for (const [hash2, entry] of Object.entries(entries))
-    if (strings(entry).some(unlowered)) return hash2;
-  return void 0;
-}
 var dataRef = (branch) => `refs/heads/${branch}`;
 var paths2 = (id) => {
   publishOpIdSchema.parse(id);
@@ -35925,13 +36072,11 @@ var Publisher = class _Publisher {
         }
         documents.push(document);
       }
-      const selected = selectedInactiveMoves(
-        moves,
-        documents.map(({ hash: hash2 }) => hash2),
-        aliases
-      );
       const inPlace = this.inPlaceOptions(frozen, signed, receipt.liveParent);
-      const active = inPlace ? documents.filter(({ hash: hash2 }) => !isMovedInactive(hash2, selected)) : documents;
+      const neutral = inPlace && neutralRenameHashes(this, frozen, receipt.entries, inPlace.rewritten);
+      const publishable = neutral?.size ? documents.filter(({ hash: hash2 }) => !neutral.has(hash2)) : documents;
+      const selected = selectedInactiveMoves(moves, publishable.map(({ hash: hash2 }) => hash2), aliases);
+      const active = inPlace ? publishable.filter(({ hash: hash2 }) => !isMovedInactive(hash2, selected)) : publishable;
       const globalsInPlace = inPlace && authoredInPlaceOptions(
         this,
         frozen,
@@ -35943,27 +36088,29 @@ var Publisher = class _Publisher {
       if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
       if (inPlace && signed.kind === "batch") assertScheduledGlobalNames(active, inPlace);
       const exported = exportWithInactiveMoves(
-        documents,
+        publishable,
         receipt.now,
         options.facts,
         aliases,
         selected,
         globalsInPlace && { globalsInPlace }
       );
-      if (inPlace && globalsInPlace && documents.length)
+      if (inPlace && globalsInPlace && publishable.length) {
+        refillImportedTooltips(this, frozen, inPlace, active, activeAliases(aliases, selected), exported);
         provePublication(
           this,
           frozen,
           inPlace.live,
-          documents,
+          publishable,
           aliases,
           selected,
           receipt.now,
           exported,
           globalsInPlace
         );
+      }
       if (stableStringify({ ...inPlace?.refills, ...exported }) !== stableStringify(receipt.exported) || stableStringify(inPlace ? this.inPlaceReceipt(inPlace, exported) : null) !== stableStringify(receipt.inPlace ?? null) || stableStringify(
-        receipt.entries.filter(({ hash: hash2, digest: digest6 }) => pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2)
+        receipt.entries.filter(({ hash: hash2, digest: digest6 }) => !neutral?.has(hash2) && pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2)
       ) !== stableStringify(receipt.changed))
         throw new Error("Publication receipt export or upload markers differ from its snapshots");
       return inPlace;
@@ -36114,6 +36261,7 @@ var Publisher = class _Publisher {
       const batchTimes = batchPayload ? this.recordBatch(tree, opId, batchPayload, receipt, candidate, result, landing) : void 0;
       if (receipt) {
         const pushed = pushedSchema.parse(this.read(tree, "live/pushed.json"));
+        const neutral = inPlace && neutralRenameHashes(this, tree, receipt.entries, inPlace.rewritten);
         if (inPlace && receipt.inPlace?.globals.length) {
           rewritePushed(this, tree, pushed, inPlace.rewritten);
           for (const [hash2, tooltip] of inPlace.rewritten)
@@ -36123,14 +36271,13 @@ var Publisher = class _Publisher {
           );
         }
         for (const e of receipt.entries) {
+          if (neutral?.has(e.hash)) continue;
           pushed[e.hash] = e.digest;
           tree[`live/tooltips/${e.hash}.json`] = e.tooltipBlob;
         }
         tree["live/pushed.json"] = this.git.writeBlob(json5(pushed));
         if (receipt.globals) {
           await new GlobalsPublisher(this).record(tree, receipt.globals, h, candidate);
-        } else if (inPlace) {
-          await new GlobalsPublisher(this).recordInPlaceProofs(tree, h, candidate);
         }
       }
       if (tree[p.request] && tree[p.request] !== blob) {
@@ -36169,6 +36316,8 @@ var Publisher = class _Publisher {
         batchTimes.landedAt = landedAt;
         batchTimes.landedAtSource = "cas";
       }
+      if (receipt && inPlace)
+        await new GlobalsPublisher(this).recordInPlaceProofs(tree, h, candidate);
       tree[p.log] = this.git.writeBlob(
         json5({
           request,
@@ -36508,7 +36657,9 @@ var Publisher = class _Publisher {
           aliases
         );
         const inPlace = this.inPlaceOptions(tree, payload, live);
-        const checked = this.checkAndExport(tree, tooltips, aliases, inPlace);
+        const neutral = inPlace && neutralRenameHashes(this, tree, entries, inPlace.rewritten);
+        const publishable = neutral?.size ? tooltips.filter(({ hash: hash2 }) => !neutral.has(hash2)) : tooltips;
+        const checked = this.checkAndExport(tree, publishable, aliases, inPlace);
         if ("error" in checked) {
           await this.record(
             opId,
@@ -36532,7 +36683,7 @@ var Publisher = class _Publisher {
           outcome: "published",
           entries,
           exported: { ...inPlace?.refills, ...checked.exported },
-          changed: entries.filter(({ hash: hash2, digest: digest6 }) => pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2),
+          changed: entries.filter(({ hash: hash2, digest: digest6 }) => !neutral?.has(hash2) && pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2),
           requester: payload.requester,
           intentDigest: payload.intentDigest,
           ...globals ? { globals } : {},
@@ -36695,7 +36846,8 @@ var Publisher = class _Publisher {
         moves,
         globalsInPlace && { globalsInPlace }
       );
-      if (inPlace && globalsInPlace && tooltips.length)
+      if (inPlace && globalsInPlace && tooltips.length) {
+        refillImportedTooltips(this, tree, inPlace, active, activeAliases(aliases, moves), exported);
         provePublication(
           this,
           tree,
@@ -36707,6 +36859,7 @@ var Publisher = class _Publisher {
           exported,
           globalsInPlace
         );
+      }
     } catch (error62) {
       if (inPlace) return { error: String(error62), proposalRejected: true };
       throw new ConsumerOutputRejected(String(error62));
@@ -37889,6 +38042,7 @@ async function dryRunGlobalsMigration(pub, inputs, checkpoint) {
     }
   const next = migrateInPlace(before);
   const files = proveMigrationFiles(before, next, inputs);
+  const olderSecondaries = historicalSecondaryUses(before, liveDefinitions);
   if (!journal) {
     assertDrained(pub, git, source2);
     const migratedLive2 = git.commit(
@@ -37941,7 +38095,7 @@ async function dryRunGlobalsMigration(pub, inputs, checkpoint) {
     git.cas(dataRef2, hold, record3);
     checkpoint?.("record");
   }
-  return { record: record3, live: migratedLive, files };
+  return { record: record3, live: migratedLive, files, olderSecondaries };
 }
 function restoreGlobalsMigration(pub) {
   const git = assertDisposable(pub);
