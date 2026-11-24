@@ -295,7 +295,7 @@ try {
           { scale, theme },
         );
         await page
-          .getByRole('button', { name: /^Edit override/ })
+          .getByRole('button', { name: /^Edit enhanced/ })
           .first()
           .click();
         const editor = page.locator('.cm-content[contenteditable=true]:visible').first();

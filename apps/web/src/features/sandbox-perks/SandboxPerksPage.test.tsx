@@ -76,10 +76,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function render() {
+async function render(path = '/sandbox-perks') {
   await act(async () =>
     root.render(
-      <MemoryRouter initialEntries={['/sandbox-perks']}>
+      <MemoryRouter initialEntries={[path]}>
         <SandboxPerksPage />
       </MemoryRouter>,
     ),
@@ -176,6 +176,13 @@ describe('Sandbox perks worklist', () => {
     expect(container.textContent).toContain('Staged 1 after the compiled check');
     expect(row('90').dataset.state).toBe('staged');
     expect(container.textContent).not.toContain('Unresolved import');
+  });
+  it('opens on the row a link names', async () => {
+    const hash = Object.keys(fixture().conflicts)[0]!;
+    await render(`/sandbox-perks?perk=${hash}`);
+    expect(status().value).toBe('all');
+    expect(container.querySelector<HTMLInputElement>('input[type="search"]')!.value).toBe(hash);
+    expect(row(hash)).not.toBeNull();
   });
   it('is maintainer-only and reads nothing for other roles', async () => {
     useAuthStore.setState({ user: { id: 2, login: 'bob', role: 'editor' }, loading: false });

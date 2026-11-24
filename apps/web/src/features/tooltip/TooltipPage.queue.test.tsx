@@ -90,7 +90,7 @@ it('queue navigation overrides a local variant pick on the same base', async () 
       expect(button).toBeDefined();
       await act(async () => button.click());
     };
-    await clickText('Edit override');
+    await clickText('Edit separately: B enhanced');
     expect(host.querySelector('[data-editor="11"]')).not.toBeNull();
     await clickText('Back to base');
     expect(host.querySelector('[data-editor="11"]')).toBeNull();

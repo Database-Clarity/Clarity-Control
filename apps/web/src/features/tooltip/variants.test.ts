@@ -5,6 +5,7 @@ import type { Drafts } from '../../services/draftStorage';
 import {
   categoriesWithEnhanced,
   editableOverrides,
+  editLabel,
   enhancedPairs,
   enhancedRender,
   enhancedVariants,
@@ -232,9 +233,33 @@ describe('enhanced pairs, override candidates and blank copies', () => {
     expect(isBlankCopy(10, 13, empty)).toBe(false);
   });
 
-  it('offers Edit override only for variants with text of their own, never for blank copies', () => {
+  it('offers Edit enhanced only for variants with text of their own, never for blank copies', () => {
     expect(variantForm(10, 13, data)).toBe('override');
     expect(editableOverrides(10, data)).toEqual([12, 15]);
+  });
+
+  it('opens a removed enhanced version for maintainers while it still reads like its base', () => {
+    const removed = { 11: { canonical: 12, by: { id: '1', login: 'a' }, at: '' } };
+    const after = {
+      ...data,
+      bundle: { ...data.bundle, aliasGroups: { removed } },
+    } as unknown as EditorData;
+    expect(variantForm(10, 11, data)).toBe('derived');
+    // Its text is its own from then on: the preview shows it, not the base text.
+    expect(variantForm(10, 11, after)).toBe('override');
+    expect(editableOverrides(10, after, true)).toEqual([11, 12, 15]);
+    expect(editableOverrides(10, after)).toEqual([12, 15]);
+    expect(previewedVariants(10, after)).toEqual([11, 12, 15]);
+    // Once its text differs it opens like any other.
+    after.bundle.tooltips[11] = tip(11, { en: 'Different' });
+    expect(editableOverrides(10, { ...after })).toEqual([11, 12, 15]);
+  });
+
+  it('says what the button opens', () => {
+    const target = { hash: 11, name: 'Rampage', enhanced: true };
+    expect(editLabel(target, false)).toBe('Edit enhanced');
+    expect(editLabel(target, true)).toBe('Edit enhanced: Rampage');
+    expect(editLabel({ ...target, enhanced: false }, false)).toBe('Edit separately: Rampage');
   });
 
   it('previews the enhanced pairs and editable overrides, not blank or identical copies', () => {

@@ -1,0 +1,86 @@
+// Maintainers' "Grouped N" popover: a block per version, one dense line per item or perk effect.
+// Fixed kind and hash columns stay aligned across rows and blocks.
+.grouped {
+  container-type: inline-size;
+  font-weight: 400;
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0.5rem 0 0.125rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+  }
+  li {
+    display: grid;
+    grid-template:
+      'kind hash text actions' minmax(1.5rem, auto) / 4.75rem 5.75rem minmax(0, 1fr)
+      auto;
+    align-items: center;
+    gap: 0 0.75rem;
+    padding: 0.125rem 0;
+    border-top: 1px solid var(--line);
+  }
+}
+.summary {
+  margin: 0 0 0.25rem;
+  color: var(--text2);
+}
+.enhanced {
+  color: var(--enhanced);
+}
+.kind {
+  grid-area: kind;
+  color: var(--text2);
+}
+.hash {
+  grid-area: hash;
+  font-family: var(--editor-font, Consolas, monospace);
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+.text {
+  grid-area: text;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  strong {
+    color: var(--accent-ink);
+    font-size: 0.75rem;
+  }
+  small {
+    color: var(--text2);
+    font-size: 0.75rem;
+  }
+}
+.actions {
+  grid-area: actions;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text2);
+  font-size: 0.75rem;
+}
+// Too narrow for one line: the name and its notes first, then kind, hash, and actions.
+@container (max-width: 28rem) {
+  .grouped li {
+    grid-template:
+      'text text text' auto
+      'kind hash actions' minmax(1.25rem, auto) / auto auto minmax(0, 1fr);
+    padding: 0.1875rem 0;
+  }
+}
+// What is not attached stays visible but quiet.
+li[data-unattached] .hash,
+li[data-unattached] [data-name] {
+  color: var(--text2);
+}

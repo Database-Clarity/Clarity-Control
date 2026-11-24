@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EditorData } from '../../stores/data';
-import { groupedPerks } from './grouping';
+import { entryView, groupedPerks } from './grouping';
 
 const item = (hash: number, name: string, categoryId: string, extra = {}) => ({
   hash,
@@ -60,17 +60,17 @@ function build(): EditorData {
 }
 
 const summary = (hash: number, data: EditorData) =>
-  groupedPerks(hash, data).map(({ hash, enhanced, reason, via }) => [hash, enhanced, reason, via]);
+  groupedPerks(hash, data).map(({ hash, enhanced, reason }) => [hash, enhanced, reason]);
 
 describe('groupedPerks', () => {
   const data = build();
 
-  it('lists the canonical, its enhanced pair, and alias group members with what they join through', () => {
+  it('lists the canonical, its enhanced pair, and alias group members', () => {
     expect(summary(10, data)).toEqual([
-      [10, false, 'canonical', undefined],
-      [11, true, 'enhanced', undefined],
-      [20, false, 'alias', undefined],
-      [21, true, 'alias', 11],
+      [10, false, 'canonical'],
+      [11, true, 'enhanced'],
+      [20, false, 'alias'],
+      [21, true, 'alias'],
     ]);
   });
 
@@ -80,16 +80,16 @@ describe('groupedPerks', () => {
 
   it('lists a legendary frame group', () => {
     expect(summary(31, data)).toEqual([
-      [30, false, 'canonical', undefined],
-      [31, false, 'frame', undefined],
-      [32, false, 'frame', undefined],
+      [30, false, 'canonical'],
+      [31, false, 'frame'],
+      [32, false, 'frame'],
     ]);
   });
 
   it('marks a numbered exotic intrinsic and names the owners of a shared perk', () => {
     expect(summary(41, data)).toEqual([
-      [40, false, 'canonical', undefined],
-      [41, false, 'numbered', undefined],
+      [40, false, 'canonical'],
+      [41, false, 'numbered'],
     ]);
     expect(groupedPerks(40, data)[0]).toMatchObject({
       name: 'Fan Fire',
@@ -97,7 +97,7 @@ describe('groupedPerks', () => {
     });
   });
 
-  it('marks a sandbox alias of the enhanced version as enhanced, and says so', () => {
+  it('marks a sandbox alias of the enhanced version as enhanced', () => {
     // Collective Pugilism: each version has its own sandbox perk; neither is a catalog item.
     const pugilism = build();
     pugilism.items[60] = item(60, 'Collective Pugilism', 'weapon-trait');
@@ -107,22 +107,166 @@ describe('groupedPerks', () => {
     pugilism.aliases[600] = { to: 60, kind: 'sandbox' };
     pugilism.aliases[610] = { to: 61, kind: 'sandbox' };
     expect(summary(60, pugilism)).toEqual([
-      [60, false, 'canonical', undefined],
-      [61, true, 'enhanced', undefined],
-      [600, false, 'sandbox', undefined],
-      [610, true, 'sandbox', 61],
-    ]);
-    expect(groupedPerks(60, pugilism).map((perk) => perk.how)).toEqual([
-      'Canonical',
-      'Enhanced pair',
-      'Sandbox alias',
-      'Sandbox alias of the enhanced version 61',
+      [60, false, 'canonical'],
+      [61, true, 'enhanced'],
+      [600, false, 'sandbox'],
+      [610, true, 'sandbox'],
     ]);
   });
 
   it('lists a lone perk as just its canonical', () => {
     const lone = build();
     lone.items[50] = item(50, 'Solo', 'weapon-trait');
-    expect(summary(50, lone)).toEqual([[50, false, 'canonical', undefined]]);
+    expect(summary(50, lone)).toEqual([[50, false, 'canonical']]);
+  });
+});
+
+describe('entryView', () => {
+  const view = (hash: number, data: EditorData) => {
+    const { blocks, summary } = entryView(groupedPerks(hash, data), data);
+    return {
+      summary,
+      blocks: blocks.map(({ title, rows }) => [
+        title,
+        rows.map((row) => [row.kind, row.hash, row.mark ?? row.joined ?? row.unattached?.why]),
+      ]),
+    };
+  };
+  /** Ancillary Ordinance: the base's only perk effect (600) is one its enhanced version lists too. */
+  const ancillary = () => {
+    const data = build();
+    data.items[60] = item(60, 'Ancillary', 'weapon-trait', { sandboxPerkHashes: [600] });
+    data.items[61] = item(61, 'Ancillary', 'weapon-trait-enhanced', {
+      baseHash: 60,
+      sandboxPerkHashes: [610, 600],
+    });
+    data.bundle.tooltips[60] = data.bundle.tooltips[61] = {
+      text: { en: { text: 'Same' } },
+    } as never;
+    data.aliases[610] = { to: 61, kind: 'sandbox' };
+    data.sandboxConflicts = { 600: [60, 61] };
+    return data;
+  };
+
+  it('splits items and perk effects by version, with the unattached effect under both', () => {
+    const missing = 'Not attached: used by base and enhanced';
+    expect(view(60, ancillary())).toEqual({
+      summary: '2 items, 2 perk effects (1 not attached)',
+      blocks: [
+        [
+          'Base',
+          [
+            ['Item', 60, 'Text is here'],
+            ['Perk effect', 600, missing],
+          ],
+        ],
+        [
+          'Enhanced',
+          [
+            ['Item', 61, undefined],
+            ['Perk effect', 610, undefined],
+            ['Perk effect', 600, missing],
+          ],
+        ],
+      ],
+    });
+  });
+
+  it('shows the effect once, under the base, when it is attached to the base', () => {
+    const data = ancillary();
+    data.aliases = { ...data.aliases, 600: { to: 60, kind: 'sandbox' } };
+    data.sandboxConflicts = {};
+    expect(view(60, data)).toEqual({
+      summary: '2 items, 2 perk effects',
+      blocks: [
+        [
+          'Base',
+          [
+            ['Item', 60, 'Text is here'],
+            ['Perk effect', 600, 'Also used by enhanced'],
+          ],
+        ],
+        [
+          'Enhanced',
+          [
+            ['Item', 61, undefined],
+            ['Perk effect', 610, undefined],
+          ],
+        ],
+      ],
+    });
+  });
+
+  it('says why else an effect is not attached, and whether it can be reviewed', () => {
+    const why = (change: (data: EditorData) => void) => {
+      const data = ancillary();
+      change(data);
+      const rows = entryView(groupedPerks(60, data), data).blocks[0]!.rows;
+      return rows.find((row) => row.hash === 600)!.unattached;
+    };
+    expect(why((data) => (data.sandboxConflicts = { 600: [60, 61, 20, 30] }))).toEqual({
+      why: 'Not attached: also used by 2 other entries',
+      others: 'Rampage and Adaptive Frame',
+      review: true,
+    });
+    // Grouped hashes are one other entry.
+    expect(why((data) => (data.sandboxConflicts = { 600: [60, 20, 11] }))).toEqual({
+      why: 'Not attached: also used by Rampage',
+      review: true,
+    });
+    expect(
+      why((data) => {
+        data.items[70] = item(70, 'Ancillary', 'weapon-trait');
+        data.sandboxConflicts = { 600: [60, 70] };
+      }),
+    ).toEqual({ why: 'Not attached: also used by Ancillary 70', review: true });
+    expect(
+      why((data) => {
+        data.bundle.sandboxPointers = {
+          version: 1,
+          pointers: { 600: { none: true, candidates: [60, 61], by: 1, at: '' } },
+        };
+      }),
+    ).toEqual({ why: 'Not attached: set to no tooltip', review: true });
+    expect(why((data) => (data.aliases[600] = { to: 10, kind: 'sandbox' }))).toEqual({
+      why: 'Attached to Rampage instead',
+      review: true,
+    });
+    expect(why((data) => delete data.sandboxConflicts)).toEqual({
+      why: 'Not attached: used by base and enhanced',
+      review: false,
+    });
+  });
+
+  it('marks an enhanced version that does not share the text', () => {
+    const mark = (text: string) => {
+      const data = ancillary();
+      data.bundle.tooltips[61] = { text: { en: { text } } } as never;
+      return view(60, data).blocks[1]![1]![0];
+    };
+    expect(mark('Other')).toEqual(['Item', 61, 'Has its own text']);
+    expect(mark('')).toEqual(['Item', 61, 'Has no text']);
+  });
+
+  it('names copies, frames, and the items of an entry with one version plainly', () => {
+    const data = build();
+    expect(view(40, data).blocks).toEqual([
+      [
+        '',
+        [
+          ['Item', 40, 'Text is here'],
+          ['Item', 41, 'Numbered copy'],
+        ],
+      ],
+    ]);
+    expect(view(30, data).blocks[0]![0]).toBe('Base frames');
+    expect(view(10, data).blocks[0]![1]).toContainEqual(['Item', 20, 'Same-name copy']);
+    data.items[20] = item(20, 'Rampage', 'weapon-trait', { sandboxPerkHashes: [700] });
+    data.sandboxConflicts = { 700: [10, 20] };
+    expect(view(10, data).blocks[0]![1]).toContainEqual([
+      'Perk effect',
+      700,
+      'Not attached: used by 2 items here',
+    ]);
   });
 });
