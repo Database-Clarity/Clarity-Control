@@ -23996,6 +23996,7 @@ var init_publishRequest = __esm({
 
 // scripts/publisher/cli.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
+import { createHash as createHash7 } from "node:crypto";
 import { mkdtempSync as mkdtempSync3, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, rmSync as rmSync3, realpathSync as realpathSync2 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { dirname, join as join4, resolve as resolve3 } from "node:path";
@@ -34026,29 +34027,10 @@ var Publisher = class _Publisher {
       const request = nameProofRequestSchema.safeParse(this.read(snapshot, path));
       return request.success && request.data.id === id;
     };
-    const siblingQueueChange = (path) => {
-      const id = /^publish\/requests\/([^/]+)\.json$/.exec(path)?.[1];
-      if (!id || id === opId || !publishOpIdSchema.safeParse(id).success) return false;
-      try {
-        const envelope2 = this.read(reviewed, path);
-        const request = batchPublishPayloadSchema.safeParse(JSON.parse(envelope2?.payload ?? ""));
-        if (!request.success || request.data.opId !== id) return false;
-        const batchPath = schedulePaths.batch(request.data.batchId);
-        const before = batchSchema.safeParse(this.read(reviewed, batchPath)).data;
-        const after = batchSchema.safeParse(this.read(tree, batchPath)).data;
-        if (before?.status !== "scheduled" || before.opId !== id || !after) return false;
-        if (tree[path])
-          return after.opId === id && after.status === "scheduled" && after.preparedRequestId !== before.preparedRequestId;
-        return after.opId !== id || after.preparation?.returnStatus === "scheduled";
-      } catch {
-        return false;
-      }
-    };
     let rebuild = false;
     const acceptChange = (path) => {
       if (Object.hasOwn(reviewed, path) && !regular(reviewedModes, path) || Object.hasOwn(tree, path) && !regular(currentModes, path))
         return false;
-      if (batch && siblingQueueChange(path)) return true;
       if (batch && !tree[path]) {
         const staged = /^publish\/kicks\/current-save-([^/]+)\.json$/.exec(path)?.[1];
         if (staged && publishOpIdSchema.safeParse(staged).success && reviewed[currentSaveStagePaths.record(staged)])
@@ -34065,7 +34047,8 @@ var Publisher = class _Publisher {
         rebuild = true;
         return true;
       }
-      return false;
+      if (batch) rebuild = true;
+      return batch;
     };
     for (const [path, oid4] of Object.entries(reviewed)) {
       if (!Object.hasOwn(tree, path)) {
@@ -34208,6 +34191,7 @@ var Publisher = class _Publisher {
           throw new ConsumerOutputRejected("Atomic globals publication is unavailable");
         const source2 = receipt.sourceCommit;
         if (receipt.batchId) {
+          this.assertBatchRuntime(tree, atomicLive.runtime);
           const path = schedulePaths.batch(receipt.batchId);
           if (tree[p.request] !== receipt.requestBlob) return;
           if (tree[path] !== this.git.tree(source2)[path]) {
@@ -34217,7 +34201,10 @@ var Publisher = class _Publisher {
           }
         }
         const signed = await this.verifyRequest(receipt.requestBlob, opId, tree).catch((error62) => {
-          if (receipt.batchId) throw new ConsumerOutputRejected(String(error62));
+          if (receipt.batchId)
+            throw new ConsumerOutputRejected(
+              error62 instanceof Error ? error62.message : String(error62)
+            );
           throw error62;
         });
         const liveMoved = signed.kind === "batch" && i > 0 && this.head(this.options.liveBranch) !== atomicLive.parent;
@@ -34441,7 +34428,7 @@ var Publisher = class _Publisher {
     }
     throw new Error("Duplicate closure raced");
   }
-  async operation(opId) {
+  async operation(opId, runtime = this.git.tree(this.head(this.options.dataBranch))) {
     const p = paths2(opId);
     let rebuilding;
     for (let attempt = 0; ; attempt++) {
@@ -34468,7 +34455,7 @@ var Publisher = class _Publisher {
           if (s !== checked && !tree[p.log] && this.sourceAdvance(checked, s, tree, opId, rebuilding.batch) !== "bookkeeping")
             throw new RefRace("Manual publish source moved after sync");
         }
-        return await this.publishOperation(opId, s, tree, rebuilding);
+        return await this.publishOperation(opId, s, tree, runtime, rebuilding);
       } catch (error62) {
         if (error62 instanceof SourceAdvanced && attempt < 2) {
           rebuilding = error62;
@@ -34510,6 +34497,20 @@ var Publisher = class _Publisher {
       }
     }
   }
+  assertBatchRuntime(tree, runtime) {
+    const paths3 = ["PIN", "config.json", "publisher.mjs", "verify-publication.mjs"].map(
+      (name2) => `.publisher/${name2}`
+    );
+    if (runtime && paths3.some((path) => tree[path] !== runtime[path]))
+      throw new RefRace("Publisher installation changed during this run");
+    if (this.options.publisherConfigDigest && (!tree[paths3[1]] || createHash5("sha256").update(this.git.blob(tree[paths3[1]])).digest("hex") !== this.options.publisherConfigDigest))
+      throw new RefRace("Wait for the installed publisher configuration to run");
+    if (tree[paths3[0]] || this.options.publisherConfigDigest) {
+      const pin = this.read(tree, paths3[0]);
+      if (pin?.sourceSha !== this.options.publisherSha || this.options.publisherDigest && pin.sha256 !== this.options.publisherDigest)
+        throw new RefRace("Wait for the installed publisher to run");
+    }
+  }
   partNames(previous, hashes, current = []) {
     return [
       ...new Set(
@@ -34519,7 +34520,7 @@ var Publisher = class _Publisher {
       )
     ].join(", ");
   }
-  async publishOperation(opId, s, tree, rebuilding) {
+  async publishOperation(opId, s, tree, runtime, rebuilding) {
     const p = paths2(opId);
     if (tree[p.log]) {
       await this.duplicate(opId);
@@ -34538,6 +34539,19 @@ var Publisher = class _Publisher {
     const blob = tree[p.request];
     let candidate = this.candidate(opId, blob);
     if (rebuilding && !candidate) throw new RefRace("Publish candidate moved");
+    if (candidate?.r.batchId) {
+      this.assertBatchRuntime(tree, runtime);
+      const { c, r } = candidate;
+      if (c !== rebuilding?.candidate && (r.publisherSha !== this.options.publisherSha || r.generatorSha !== this.options.generatorSha || r.verifierSha256 !== this.options.verifierDigest))
+        throw new SourceAdvanced(
+          c,
+          blob,
+          r.sourceCommit,
+          s,
+          r.globals?.roots ?? r.entries.map(({ hash: hash2 }) => hash2),
+          true
+        );
+    }
     if (!candidate || candidate.c === rebuilding?.candidate) {
       let payload;
       try {
@@ -34569,6 +34583,7 @@ var Publisher = class _Publisher {
         return;
       }
       if (payload.kind === "batch") {
+        this.assertBatchRuntime(tree, runtime);
         const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
         if (!r) {
           if (candidate && this.git.tree(this.head(this.options.dataBranch))[p.log]) {
@@ -34662,7 +34677,9 @@ var Publisher = class _Publisher {
         }
         this.assertRequestedDigests(
           entries,
-          payload.hashes.filter((hash2) => !entryOnlyAggregates.includes(resolveAlias(hash2, aliases))),
+          payload.hashes.filter(
+            (hash2) => !entryOnlyAggregates.includes(resolveAlias(hash2, aliases))
+          ),
           (hash2) => payload.expected[hash2],
           aliases
         );
@@ -34736,7 +34753,7 @@ var Publisher = class _Publisher {
               void 0,
               void 0,
               { at: this.options.now(), source: "cas" },
-              { parent: l, candidate: c }
+              { parent: l, candidate: c, ...r.batchId ? { runtime } : {} }
             );
           } catch (error62) {
             if (r.batchId || error62 instanceof RefRace || error62 instanceof SourceAdvanced || error62 instanceof ConsumerOutputRejected)
@@ -35119,10 +35136,11 @@ var Publisher = class _Publisher {
     }
     const claim2 = claimed ? this.claimCommit(payload.batchId, opId, s) : s;
     if (claim2 !== s) {
-      if (this.sourceAdvance(claim2, s, tree, opId, true) === "blocked")
-        throw new RefRace("Claimed batch source no longer matches its publication fence");
       const frozen = this.git.tree(claim2);
       const prefix = `schedule/batches/${batch.id}/tooltips/`;
+      const modes = this.git.treeModes?.(s);
+      if (Object.keys(modes ?? {}).some((name2) => !Object.hasOwn(tree, name2)))
+        throw new RefRace("Cannot preserve an empty Git tree during publication");
       if (tree[path] !== frozen[path] || blob !== frozen[paths2(opId).request] || Object.keys(frozen).some(
         (name2) => name2.startsWith(prefix) && tree[name2] !== frozen[name2]
       ) || Object.keys(tree).some((name2) => name2.startsWith(prefix) && !frozen[name2]))
@@ -35433,6 +35451,7 @@ var Publisher = class _Publisher {
   }
   async run(syncGlobals = true) {
     const start = this.options.now();
+    const runtime = this.git.tree(this.head(this.options.dataBranch));
     try {
       if (syncGlobals) {
         await drainCurrentSaves(this);
@@ -35444,7 +35463,7 @@ var Publisher = class _Publisher {
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 6e4; n++) {
         const [id] = this.queue(this.head(this.options.dataBranch));
         if (!id) break;
-        await this.operation(id);
+        await this.operation(id, runtime);
       }
     } finally {
       this.bundle();
@@ -35841,12 +35860,18 @@ async function main() {
   const [flag, source2, config2, output2] = process.argv.slice(2);
   if (["--pipeline-dry-run", "--pipeline-publish"].includes(flag) && source2 && config2 && output2) {
     const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
-    const options = JSON.parse(readFileSync2(config2, "utf8"));
+    const bytes = readFileSync2(config2);
+    const options = JSON.parse(bytes.toString("utf8"));
     if (options.publisherSha !== pin.sourceSha || !/^[0-9a-f]{40}$/.test(options.generatorSha))
       throw new Error("Config requires the publisher source PIN and full generator commit");
     await runPipeline(
       source2,
-      { ...options, publisherDigest: pin.sha256, verifierDigest: pin.verifierSha256 },
+      {
+        ...options,
+        publisherDigest: pin.sha256,
+        verifierDigest: pin.verifierSha256,
+        publisherConfigDigest: flag === "--pipeline-publish" ? createHash7("sha256").update(bytes).digest("hex") : void 0
+      },
       output2,
       flag === "--pipeline-publish"
     );
