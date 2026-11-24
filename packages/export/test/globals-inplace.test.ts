@@ -1,7 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
-import { exportLegacy, type Tooltip } from '@clarity/core';
+import { exportLegacy, ordinaryImportsInBlocks, type Tooltip } from '@clarity/core';
 import {
   buildLegacy,
   bungieIdentical,
@@ -39,6 +39,15 @@ test('checked-in editor data keeps held legacy bytes and format v2 bytes', () =>
   config.data.categories = catalog.categories.map(({ id }) => id);
   const render = (data: LegacyInput) => sha256(compile(data, config, { catalog, identical }).bytes);
   expect(render(resolved)).toBe(render(input));
+  const control = structuredClone(readFixtureGlobals(input));
+  const note = control.titles?.G_refill?.en;
+  if (!note) throw new Error('Expected the refill note in the pinned fixture');
+  note.body += ' Changed.';
+  const changed = inlineFixtureGlobals(input, control);
+  expect(sha256(buildLegacy(changed, 'clarity', { identical }))).not.toBe(
+    expected.editorData.files.clarity,
+  );
+  expect(render(changed)).not.toBe(render(resolved));
 }, 60_000);
 
 test('named global exports, title maths, German numbers, and aliases render with the existing readers', () => {
@@ -136,4 +145,66 @@ test('a global note and its caller keep native base and enhanced pairs', () => {
   expect(outputs).toEqual(render(input));
   expect(outputs[0].toString()).toContain('6');
   expect(outputs[1].toString()).toContain('Scorch');
+});
+
+test('appended notes preserve arrows, comments, and spacing through ordinary imports', () => {
+  const row = (hash: number, text: string) => ({
+    hash,
+    name: `Trait ${hash}`,
+    type: 'Weapon Trait' as const,
+    editor: { en: { main: text, secondary: text } },
+    uploadedBy: 'fixture',
+    lastUpload: 1,
+    updateTracker: { descriptions: {} },
+    inLiveDatabase: true,
+    uploadToLive: true,
+  });
+  const insideBlock = 'Before\nenhanced (\nimport main from 200\nEnhancedOnly\n)\nAfter';
+  const input: LegacyInput = {
+    perks: {
+      1: row(1, ''),
+      2: row(2, 'var e = 🡅'),
+      3: row(
+        3,
+        'title Help (\n/* note comment */\n#e Boost\n)\ntitle More (\nRest /* comment */\n)',
+      ),
+      100: row(100, 'Before\nimport main from 200\nAfter'),
+      200: row(
+        200,
+        '/* caller comment */\nText <title Read [Help]/> <title [More]  />\nenhanced (\nMore\n)',
+      ),
+    },
+  };
+  const catalog = {
+    items: {
+      100: { categoryId: 'perks' },
+      200: { categoryId: 'perks' },
+      300: { categoryId: 'perks' },
+    },
+    categories: [{ id: 'perks' }],
+  };
+  const render = (data: LegacyInput) => [
+    Buffer.from(buildLegacy(data, 'clarity')),
+    Buffer.from(compile(data, file('en'), { catalog }).bytes),
+  ];
+  const resolved = inlineFixtureGlobals(input);
+  expect(render(resolved)).toEqual(render(input));
+  expect(inlineFixtureGlobals(resolved, readFixtureGlobals(input))).toEqual(resolved);
+  expect(render(resolved).map((bytes) => bytes.toString().includes('🡅'))).toEqual([true, true]);
+
+  // Slice 2 must use this site and trace imports to detect the generated note's closing line.
+  // The importer remains authored verbatim here, so these bytes demonstrate the boundary.
+  const plainTarget = row(200, 'Text <title Read [Help] />');
+  const hazard = {
+    ...input,
+    perks: { ...input.perks, 200: plainTarget, 300: row(300, insideBlock) },
+  };
+  expect(ordinaryImportsInBlocks(insideBlock)).toEqual([{ part: 'main', target: '200' }]);
+  expect(render(hazard).map((bytes) => bytes.toString().includes('EnhancedOnly'))).toEqual([
+    false,
+    false,
+  ]);
+  expect(
+    render(inlineFixtureGlobals(hazard)).map((bytes) => bytes.toString().includes('EnhancedOnly')),
+  ).toEqual([true, true]);
 });

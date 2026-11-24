@@ -233,9 +233,17 @@ export function exportLegacy(
           ? resolveNumberTokens(exported.text, numberValues(english, language))
           : exported.text;
       if (libraryText === undefined) {
-        const text = lowerConsumerMarkup(
-          globals ? resolveGlobalsInPlace(resolved, language, globals) : resolved,
-        );
+        let source = resolved;
+        if (globals) {
+          try {
+            source = resolveGlobalsInPlace(resolved, language, globals);
+            if (source.includes('{{')) throw new Error(baseEnhancedPublishMessage);
+          } catch (cause) {
+            const message = cause instanceof Error ? cause.message : String(cause);
+            throw new Error(`Tooltip ${tooltip.hash} (${language}): ${message}`, { cause });
+          }
+        }
+        const text = lowerConsumerMarkup(source);
         editor[language] = {
           main: text,
           secondary: text,

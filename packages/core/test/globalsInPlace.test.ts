@@ -2,7 +2,9 @@ import { expect, test } from 'vitest';
 import {
   exportLegacy,
   exportWithInactiveMoves,
+  globalNoteImportInBlockMessage,
   globalsInPlaceMessages,
+  ordinaryImportsInBlocks,
   publishableHash,
   resolveGlobalsInPlace,
   validateGlobalsInPlaceDefinition,
@@ -47,7 +49,6 @@ test('inlines exact variables, notes and nested named imports per cell', () => {
       '// Keep this comment #Name',
       'Result ${1+4.5}. <title Read [Help] />',
       'import main from 100',
-      '',
       'title Help (',
       'Base/enhanced {{4.5}{5.5}}. <solar Scorch />',
       ')',
@@ -56,7 +57,10 @@ test('inlines exact variables, notes and nested named imports per cell', () => {
   expect(inline(result)).toBe(result);
   const untouched = 'var Nlocal = 6\r\n#Nlocal\r\nimport main from 100\r\n// #N  ';
   expect(inline(untouched)).toBe(untouched);
-  expect(inline('A\r\nimport Second from global\r\nB')).toContain(' />\r\nB\n\ntitle Help');
+  expect(inline('A\r\nimport Second from global\r\nB')).toContain(' />\r\nB\ntitle Help');
+  expect(inline('#N before #Name')).toBe('4.5 before Energy');
+  expect(inline('var d = 2\n#{d}#{N}')).toBe('var d = 2\n#{d}4.5');
+  expect(inline('#N // {{comment')).toBe('4.5 // {{comment');
 });
 
 test('uses the destination language and applies the configured missing/stale global policy', () => {
@@ -87,7 +91,19 @@ test('lists unsupported source and definition forms with actionable messages', (
     ['import Absent from global', m.missingExport],
     ['{{#Empty}{2}}', m.nativePair],
     ['##{Empty}N', m.generatedReference],
+    ['#e#N', m.generatedReference],
+    ['var d = 2\n#d#{N}', m.generatedReference],
+    ['#e#{Empty}x', m.generatedReference],
+    ['var x = Help\n<title Read [#{x}] />', m.noteReference],
+    ['var x = [Help] />\n<title Read #x', m.noteReference],
+    ['var x = <title Read [Help] />\n#x', m.noteReference],
+    ['<#{N} Scorch />', m.elementTag],
+    ['#{Empty}import main from 100', m.generatedStructure],
+    ['<title Read [Help] />\nenhanced (\nUnclosed', m.unclosedBlock],
+    ['<title Read [Help] />\ntitle Local (\nUnclosed', m.unclosedBlock],
+    ['<title Read [Help] />\nexport hidden Part (\nUnclosed', m.unclosedBlock],
     ['<title Read [Help] />\ntitle Help (\nA local title\n)', m.localNote],
+    ['import main from 100\ntitle Help (\nA local title\n)', m.localNote],
   ] as const;
   for (const [source, message] of sourceCases)
     expect(validateGlobalsInPlaceSource(source, 'en', options)).toEqual(
@@ -109,12 +125,75 @@ test('lists unsupported source and definition forms with actionable messages', (
   ] as const;
   for (const [kind, body, message] of definitionCases)
     expect(validateGlobalsInPlaceDefinition(kind, body, definitions)).toContain(message);
+  const variable = (body: string) => ({
+    definitions: { variables: { N: { en: { body } } } },
+  });
+  expect(() => resolveGlobalsInPlace('<solar #N />', 'en', variable('<arrow/>'))).toThrow(
+    m.elementTag,
+  );
+  expect(() => resolveGlobalsInPlace('#N (\nText\n)', 'en', variable('enhanced'))).toThrow(
+    m.generatedStructure,
+  );
+  expect(() => resolveGlobalsInPlace('import main from #N', 'en', variable('100'))).toThrow(
+    m.generatedStructure,
+  );
 });
 
 const doc = (hash: number, text: string): Tooltip => {
   const base = tooltip();
   return { ...base, hash, text: { en: { ...base.text.en!, text } } };
 };
+
+test('legacy export retains the native markup guard for resolved global values and notes', () => {
+  for (const text of ['<title Read [Help] />', '#Pair', '{#Open']) {
+    const globalsInPlace = {
+      definitions: {
+        ...definitions,
+        variables: {
+          ...definitions.variables,
+          Pair: { en: { body: '{{4}{6}}' } },
+          Open: { en: { body: '{4}{6}}' } },
+        },
+      },
+    };
+    expect(() => exportLegacy([doc(100, text)], 0, undefined, {}, { globalsInPlace })).toThrow(
+      'Tooltip 100 (en): Base/enhanced markup needs the new converter',
+    );
+  }
+  expect(() =>
+    exportLegacy(
+      [doc(100, 'import Absent from global')],
+      0,
+      undefined,
+      {},
+      { globalsInPlace: options },
+    ),
+  ).toThrow('Tooltip 100 (en): Choose an existing named global export.');
+});
+
+test('lists block imports for the publisher without rejecting legitimate source', () => {
+  const source = [
+    'import main from 100',
+    'enhanced (',
+    'import  main  from 200',
+    'import Name from 300',
+    'import self',
+    ')',
+    'title Local (',
+    'import secondary from 0400',
+    ')',
+    '/*\nexport hidden Part (\nimport main from 500\n)\n*/',
+  ].join('\r\n');
+  expect(ordinaryImportsInBlocks(source)).toEqual([
+    { part: 'main', target: '200' },
+    { part: 'self' },
+    { part: 'secondary', target: '0400' },
+  ]);
+  expect(inline(source)).toBe(source);
+  expect(globalNoteImportInBlockMessage('Alternate')).toBe(
+    'Move the import of Alternate out of the block: it uses a shared note.',
+  );
+});
 
 test('opt-in preserves metadata, aliases and authored hashes and runs after number selection', async () => {
   const reader = doc(100, 'Duration 6.5 seconds. Value #N.');
@@ -152,7 +231,11 @@ test('inactive move checks include ordinary imports introduced by named globals'
   const source = [keep, moved];
   const moves = { 100: { by: 1, at: '2026-11-24T00:00:00Z' } };
   expect(exportWithInactiveMoves(source, 0, undefined, {}, moves)).toEqual(exportLegacy([keep], 0));
-  const opts = { globalsInPlace: options };
+  const opts = {
+    globalsInPlace: {
+      definitions: { ...definitions, titles: { Help: { en: { body: 'Help' } } } },
+    },
+  };
   expect(() => exportWithInactiveMoves(source, 0, undefined, {}, moves, opts)).toThrow(
     'Tooltip 200 imports inactive tooltip 100',
   );
