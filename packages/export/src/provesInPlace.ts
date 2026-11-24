@@ -146,6 +146,7 @@ export function provesInPlace(
     ...Object.keys(before.perks),
     ...Object.keys(after.perks),
   ]),
+  includesLanguage?: (hash: string, language: ExportLanguage) => boolean,
 ): InPlaceRefusal[] {
   const original = readerInputs(before);
   const transformed = readerInputs(after);
@@ -161,6 +162,7 @@ export function provesInPlace(
       continue;
     }
     for (const language of exportLanguages) {
+      if (includesLanguage && !includesLanguage(hash, language)) continue;
       if (!source?.editor[language] && !target?.editor[language]) continue;
       let equalV2 = false;
       try {

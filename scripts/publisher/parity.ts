@@ -24,7 +24,11 @@ import {
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { maxBuffer } from './childProcess.mjs';
 import { Publisher, type Options } from './publisher.js';
-import { assertInPlaceDocuments, proveInPlaceInputs } from './globalsInPlace.js';
+import {
+  assertInPlaceDocuments,
+  exportGlobalsProof,
+  proveInPlaceInputs,
+} from './globalsInPlace.js';
 import type { LegacyInput } from '../../packages/export/src/index.js';
 const [repo, commit, receiptPath, configPath, adapterPath, outArg] = process.argv.slice(2);
 if (!outArg)
@@ -100,7 +104,6 @@ const globalsInPlace =
       });
     return {
       definitions: globalsInPlaceDefinitions(entries),
-      missingTranslation: fence.missingTranslation,
     };
   })();
 if (globalsInPlace) assertInPlaceDocuments(tooltips, globalsInPlace);
@@ -138,14 +141,17 @@ const merge = (entries: typeof exported): LegacyInput => ({
   ),
 });
 const merged = merge(exported);
-if (globalsInPlace)
-  proveInPlaceInputs(
-    base,
-    merge(exportWithInactiveMoves(tooltips, receipt.now, config.facts, aliases, selectedMoves)),
-    merged,
+if (globalsInPlace) {
+  const { raw, fallbacks } = exportGlobalsProof(
+    tooltips,
+    receipt.now,
+    config.facts,
+    aliases,
+    selectedMoves,
     globalsInPlace,
-    hashes,
   );
+  proveInPlaceInputs(base, merge(raw), merged, globalsInPlace, hashes, fallbacks);
+}
 const expected = JSON.stringify(merged, null, 2) + '\n';
 const out = resolve(outArg);
 mkdirSync(out, { recursive: true });

@@ -307,8 +307,8 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
   return { git, pub, globals, saved, published, options, current, read, change, approve, request };
 }
 
-async function inPlaceFixture() {
-  const f = await fixture('', false, true, 100);
+async function inPlaceFixture(titleSource = '', exports = false) {
+  const f = await fixture(titleSource, exports, true, 100);
   const legacyData = f.pub.head(f.options.dataBranch);
   const legacyLive = f.pub.head(f.options.liveBranch);
   const tree = f.git.tree(legacyLive);
@@ -328,7 +328,6 @@ async function inPlaceFixture() {
     [globalsInPlacePath]: {
       state: 'active',
       clearance: 'review',
-      missingTranslation: 'english',
       destination: f.options.liveBranch,
       legacyData,
       legacyLive,
@@ -342,8 +341,15 @@ async function inPlaceFixture() {
 describe('in-place shared text publication', () => {
   it('pins a stale translation stand-in, publishes only the selected row, and leaves the newer definition pending', async () => {
     const f = await inPlaceFixture();
+    const authored = f.read('tooltips/141.json') as Tooltip;
+    authored.text.en!.text = 'English #Beta with 6.5';
+    authored.text.de!.text = 'Deutsch #Beta mit 6,5';
+    const localized = f.read('tooltips/142.json') as Tooltip;
+    localized.text.en!.text = 'English #Alpha';
+    localized.text.de = cell('Deutsch #Alpha');
+    f.change({ 'tooltips/141.json': authored, 'tooltips/142.json': localized });
     const revision = f.pub.head(f.options.dataBranch);
-    await f.request([141], A, revision);
+    await f.request([141, 142], A, revision);
     const current = structuredClone(f.entry);
     current.revision = 'Beta3';
     current.definitions.en!.revision = current.revision;
@@ -354,27 +360,149 @@ describe('in-place shared text publication', () => {
     const live = f.pub.head(f.options.liveBranch);
     const input = f.pub.read<LegacyInput>(f.git.tree(live), 'liveDescriptions.json')!;
     expect(input.perks[141]).toMatchObject({
-      editor: { en: { main: '200' }, de: { main: '200' } },
+      editor: {
+        en: { main: 'English 200 with 6.5' },
+        de: { main: 'English 200 with 6.5', englishFallback: true },
+      },
       uploadedBy: 'alice',
     });
+    const descriptions = expandAliases(input.perks);
+    const german = descriptionConverter({
+      database: descriptions,
+      hash: 141,
+      language: 'de',
+      editorType: 'main',
+      descriptionString: descriptions[141].editor.de!.main,
+    });
+    expect(JSON.stringify(german)).toContain('6.5');
     expect(input.perks[140]).toMatchObject({ editor: { en: { main: '10' } } });
+    const localizedRow = input.perks[142];
+    expect('editor' in localizedRow && localizedRow.editor.de).toEqual({
+      main: 'Deutsch 10',
+      secondary: 'Deutsch 10',
+    });
     expect(input.perks[2]).toMatchObject({ editor: { en: { main: 'var e = 🡅' } } });
     expect(input.perks[1]).toMatchObject({ editor: {} });
     expect(input.perks[3]).toMatchObject({ editor: {} });
-    expect(f.pub.receipt(live, A)).toMatchObject({ globalsRevision: revision, changed: [141] });
+    expect(f.pub.receipt(live, A)).toMatchObject({ globalsRevision: revision, changed: [141, 142] });
     const bundle = f.pub.read(f.git.tree(f.pub.head('editor-data-bundle')), 'bundle.json');
     expect(bundle).toMatchObject({
       globalsInPlace: {
         rows: {
           141: {
             differs: true,
+            causes: [{ id: f.entry.id, name: 'Beta', fallbacks: { de: 'stale' } }],
+            diff: {
+              de: {
+                before: { main: 'English 200 with 6.5', englishFallback: true },
+                after: { main: 'English 300 with 6.5', englishFallback: true },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(f.read('tooltips/141.json').text.de.text).toBe('Deutsch #Beta mit 6,5');
+    current.revision = 'Beta4';
+    current.definitions.de = {
+      body: '81',
+      revision: current.revision,
+      updatedAt: '2026-06-01T00:00:00Z',
+      updatedBy: 'alice',
+      sourceUpdatedAt: current.definitions.en!.updatedAt,
+    };
+    f.change({ [f.entryPath]: current });
+    f.pub.bundle();
+    expect(f.pub.read(f.git.tree(f.pub.head('editor-data-bundle')), 'bundle.json')).toMatchObject({
+      globalsInPlace: {
+        rows: {
+          141: {
+            differs: true,
             causes: [{ id: f.entry.id, name: 'Beta' }],
-            diff: { de: { before: { main: '200' }, after: { main: '300' } } },
+            diff: { de: { after: { main: 'Deutsch 81 mit 6,5' } } },
+          },
+        },
+      },
+    });
+    const restored = A.replace(/1$/, '2');
+    await f.request([141], restored, f.pub.head(f.options.dataBranch));
+    await f.pub.run(false);
+    const restoredRow = f.pub.read<LegacyInput>(
+      f.git.tree(f.pub.head(f.options.liveBranch)),
+      'liveDescriptions.json',
+    )!.perks[141];
+    expect('editor' in restoredRow && restoredRow.editor.de).toEqual({
+      main: 'Deutsch 81 mit 6,5',
+      secondary: 'Deutsch 81 mit 6,5',
+    });
+    delete current.definitions.de;
+    f.change({ [f.entryPath]: current });
+    f.pub.bundle();
+    expect(f.pub.read(f.git.tree(f.pub.head('editor-data-bundle')), 'bundle.json')).toMatchObject({
+      globalsInPlace: {
+        rows: {
+          141: {
+            differs: true,
+            causes: [{ name: 'Beta', fallbacks: { de: 'missing' } }],
+            diff: { de: { after: { englishFallback: true } } },
           },
         },
       },
     });
   });
+
+  it.each([
+    ['shared note body', 'title Help (\nValue #Beta\n)', false, '<title See [Help] />', 'Beta'],
+    ['named global import', '', true, 'import Barrier from global', 'Barrier'],
+  ] as const)(
+    'falls back to the whole English tooltip via a %s',
+    async (_case, title, exports, reference, name) => {
+      const f = await inPlaceFixture(title, exports);
+      const before = f.read('tooltips/141.json') as Tooltip;
+      // Keep the German note itself available. Its nested variable has a stale translation.
+      if (title) {
+        const note = f.saved.entries.find(({ name }) => name === 'Help')!;
+        note.definitions.de = {
+          body: 'Wert #Beta',
+          revision: note.revision,
+          updatedAt: '2026-01-01T00:00:00Z',
+          updatedBy: 'alice',
+        };
+        f.change({ [`globals/entries/${note.id}.json`]: note });
+      }
+      before.text.en!.text = `English source 6.5\n${reference}`;
+      before.text.de!.text = `German source 6,5\n${reference}`;
+      f.change({ 'tooltips/141.json': before });
+      await f.request([141], A, f.pub.head(f.options.dataBranch));
+      await f.pub.run(false);
+      const result = f.read(paths(A).log).result;
+      expect(result).toMatchObject({ status: 'done' });
+      const row = f.pub.read<LegacyInput>(
+        f.git.tree(f.pub.head(f.options.liveBranch)),
+        'liveDescriptions.json',
+      )!.perks[141];
+      expect('editor' in row && row.editor.de?.englishFallback).toBe(true);
+      expect('editor' in row && row.editor.de?.main).toContain('English source 6.5');
+      expect('editor' in row && row.editor.de?.main).not.toContain('German source');
+      expect(f.pub.read(f.git.tree(f.pub.head('editor-data-bundle')), 'bundle.json')).toMatchObject(
+        {
+          globalsInPlace: {
+            rows: {
+              141: {
+                differs: false,
+                causes: [
+                  expect.objectContaining({
+                    name,
+                    fallbacks: { de: exports ? 'missing' : 'stale' },
+                  }),
+                ],
+              },
+            },
+          },
+        },
+      );
+    },
+  );
 
   it('refuses raw shared rows and old-mode requests in the new mode', async () => {
     const f = await inPlaceFixture();

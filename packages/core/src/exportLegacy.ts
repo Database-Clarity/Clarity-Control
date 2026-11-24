@@ -10,6 +10,7 @@ import { numberTokens, numberValues, resolveNumberTokens } from './numbers/map.j
 import { validateNumberTooltip } from './validation/numbers.js';
 import {
   globalsInPlaceLibraryText,
+  MissingGlobalTranslation,
   resolveGlobalsInPlace,
   type GlobalsInPlaceOptions,
 } from './globals/inPlace.js';
@@ -180,6 +181,9 @@ export function mergeLivePerks(
 
 export interface LegacyExportOptions {
   globalsInPlace?: GlobalsInPlaceOptions;
+  /** The proof uses the same selected source and fallback flag, with shared references intact. */
+  preserveGlobalReferencesForProof?: boolean;
+  onGlobalsFallback?: (hash: number, fallback: MissingGlobalTranslation) => void;
 }
 
 export function exportLegacy(
@@ -223,12 +227,12 @@ export function exportLegacy(
     for (const language of languages) {
       const translation = tooltip.text[language];
       if (!translation) continue;
-      const englishFallback = usesEnglishFallback(tooltip, language);
-      const exported = englishFallback && english ? english : translation;
+      let englishFallback = usesEnglishFallback(tooltip, language);
+      let exported = englishFallback && english ? english : translation;
       // Element-tagged text (`<solar Scorch />`), delimited variables (`#{d}`), and the arrow
       // symbol (`<enhanced/>`) leave the editor in today's format (`<solar/>Scorch`, `#d`, `#e`):
       // every consumer reads exactly what authors wrote before those forms existed.
-      const resolved =
+      let resolved =
         exported.text.includes('#{=') && english
           ? resolveNumberTokens(exported.text, numberValues(english, language))
           : exported.text;
@@ -236,8 +240,25 @@ export function exportLegacy(
         let source = resolved;
         if (globals) {
           try {
-            source = resolveGlobalsInPlace(resolved, language, globals);
+            try {
+              source = resolveGlobalsInPlace(resolved, language, globals);
+            } catch (cause) {
+              if (
+                !(cause instanceof MissingGlobalTranslation) ||
+                language === 'en' ||
+                !english?.text.trim()
+              )
+                throw cause;
+              englishFallback = true;
+              exported = english;
+              resolved = english.text.includes('#{=')
+                ? resolveNumberTokens(english.text, numberValues(english, 'en'))
+                : english.text;
+              source = resolveGlobalsInPlace(resolved, 'en', globals);
+              options?.onGlobalsFallback?.(tooltip.hash, cause);
+            }
             if (source.includes('{{')) throw new Error(baseEnhancedPublishMessage);
+            if (options?.preserveGlobalReferencesForProof) source = resolved;
           } catch (cause) {
             const message = cause instanceof Error ? cause.message : String(cause);
             throw new Error(`Tooltip ${tooltip.hash} (${language}): ${message}`, { cause });

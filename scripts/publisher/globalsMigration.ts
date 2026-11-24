@@ -34,7 +34,6 @@ export interface MigrationInputs {
   inventoryItems: InventoryItems;
   sandboxPerks: SandboxPerks;
   clearance: 'review';
-  missingTranslation?: 'english' | 'reject';
 }
 
 export function proveMigrationFiles(
@@ -162,7 +161,6 @@ export async function dryRunGlobalsMigration(
     journal = globalsInPlaceFenceSchema.parse({
       state: 'hold',
       clearance: inputs.clearance,
-      missingTranslation: inputs.missingTranslation,
       destination: pub.options.liveBranch,
       legacyData: source,
       legacyLive,
@@ -190,7 +188,6 @@ export async function dryRunGlobalsMigration(
     Object.keys(originalTree).some(
       (path) => path !== 'liveDescriptions.json' && originalTree[path] !== migratedTree[path],
     ) ||
-    journal.missingTranslation !== (inputs.missingTranslation ?? 'english') ||
     !git.ancestor(journal.legacyData, hold)
   )
     throw new Error('Migration journal differs from its proven inputs.');
@@ -220,6 +217,7 @@ export async function dryRunGlobalsMigration(
   const aliases = pub.aliasesAt(recordTree);
   const moves = pub.movesAt(recordTree);
   for (const [hash, row] of Object.entries(review.rows)) {
+    if (!row.differs && !row.refusal) continue;
     const tooltip = tooltips[hash];
     if (
       inputWasPublished(before, hash) &&

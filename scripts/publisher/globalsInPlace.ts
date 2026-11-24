@@ -26,6 +26,9 @@ import {
   type GlobalsInPlaceReview,
   type InactiveMoves,
   type LegacyEntry,
+  type LegacyCatalog,
+  type Lang,
+  type MissingGlobalTranslation,
   type Tooltip,
 } from '../../packages/core/src/index.js';
 import { provesInPlace, type LegacyInput } from '../../packages/export/src/index.js';
@@ -116,7 +119,6 @@ export function migrateInPlace(input: LegacyInput): LegacyInput {
           try {
             cell[part] = resolveGlobalsInPlace(cell[part], lang, {
               definitions,
-              missingTranslation: 'reject',
             });
           } catch (error) {
             throw new Error(`Tooltip ${row.name || row.hash} (${lang}): ${String(error)}`);
@@ -130,8 +132,7 @@ export function migrateInPlace(input: LegacyInput): LegacyInput {
   return migrated;
 }
 
-/** Library inputs for the old readers, including the intended stand-in in the target language. */
-function proofLibraries(live: LegacyInput, options: GlobalsInPlaceOptions) {
+function proofLibraries(live: LegacyInput, options: GlobalsInPlaceOptions, english?: Set<Lang>) {
   const rows = {} as LegacyInput['perks'];
   for (const [hash, kind] of [
     [1, 'exports'],
@@ -144,7 +145,7 @@ function proofLibraries(live: LegacyInput, options: GlobalsInPlaceOptions) {
     for (const lang of languages) {
       const lines = Object.entries(options.definitions[kind] ?? {}).flatMap(([name, entry]) => {
         if (kind === 'variables' && name === 'e') return [];
-        const selected = globalsInPlaceDefinition(entry, lang, options.missingTranslation);
+        const selected = globalsInPlaceDefinition(entry, english?.has(lang) ? 'en' : lang);
         if (!selected) return [];
         const { body } = selected;
         if (kind === 'variables') return [`var ${name} = ${body.trim() || 'empty'}`];
@@ -158,7 +159,12 @@ function proofLibraries(live: LegacyInput, options: GlobalsInPlaceOptions) {
   return rows;
 }
 
-function affectedRows(before: LegacyInput, after: LegacyInput, roots: readonly number[]) {
+function affectedRows(
+  before: LegacyInput,
+  after: LegacyInput,
+  roots: readonly number[],
+  lang?: Lang,
+) {
   const affected = new Set(roots.map(String));
   const parents = new Map<string, Set<string>>();
   const link = (from: string, to: string) => {
@@ -169,7 +175,9 @@ function affectedRows(before: LegacyInput, after: LegacyInput, roots: readonly n
     for (const [hash, row] of Object.entries(perks)) {
       if ('aliasOf' in row) link(hash, String(row.aliasOf));
       else
-        for (const { main, secondary } of Object.values(row.editor))
+        for (const { main, secondary } of lang
+          ? [row.editor[lang]].filter((cell) => cell !== undefined)
+          : Object.values(row.editor))
           for (const cell of [main, secondary]) {
             if (!cell.includes('import ')) continue;
             for (const match of cell.matchAll(/^import [A-z0-9 ]+? from (\d+) *\r?$/gm))
@@ -198,12 +206,22 @@ export function provePublication(
     if (isLegacyAliasStub(entry)) continue;
     for (const [lang, cell] of Object.entries(entry.editor))
       for (const value of new Set([cell.main, cell.secondary]))
-        if (resolveGlobalsInPlace(value, lang as (typeof languages)[number], options) !== value)
+        if (
+          resolveGlobalsInPlace(value, cell.englishFallback ? 'en' : (lang as Lang), options) !==
+          value
+        )
           throw new Error(
             `Tooltip ${entry.name || entry.hash} (${lang}) still reads shared text after export.`,
           );
   }
-  const raw = exportWithInactiveMoves(documents, now, pub.options.facts, aliases, moves);
+  const { raw, fallbacks } = exportGlobalsProof(
+    documents,
+    now,
+    pub.options.facts,
+    aliases,
+    moves,
+    options,
+  );
   const merge = (entries: Receipt['exported']) =>
     pub.mergePublicationPerks(tree, live.perks, entries, hashes) as LegacyInput['perks'];
   proveInPlaceInputs(
@@ -212,7 +230,29 @@ export function provePublication(
     { ...live, perks: merge(exported) },
     options,
     hashes,
+    fallbacks,
   );
+}
+
+export function exportGlobalsProof(
+  documents: readonly Tooltip[],
+  now: number,
+  facts: LegacyCatalog,
+  aliases: Aliases,
+  moves: InactiveMoves,
+  globalsInPlace: GlobalsInPlaceOptions,
+) {
+  const fallbacks = new Map<number, Set<Lang>>();
+  const raw = exportWithInactiveMoves(documents, now, facts, aliases, moves, {
+    globalsInPlace,
+    preserveGlobalReferencesForProof: true,
+    onGlobalsFallback(hash, { language }) {
+      let langs = fallbacks.get(hash);
+      if (!langs) fallbacks.set(hash, (langs = new Set()));
+      langs.add(language);
+    },
+  });
+  return { raw, fallbacks };
 }
 
 export function proveInPlaceInputs(
@@ -221,11 +261,59 @@ export function proveInPlaceInputs(
   after: LegacyInput,
   options: GlobalsInPlaceOptions,
   hashes: readonly number[],
+  fallbacks: ReadonlyMap<number, ReadonlySet<Lang>>,
 ) {
   const before = { ...raw, perks: { ...raw.perks, ...proofLibraries(live, options) } };
   assertInPlaceLibraries(after);
-  const [failure] = provesInPlace(before, after, affectedRows(before, after, hashes));
-  if (failure) throw new Error(failure.message);
+  const affected = affectedRows(before, after, hashes);
+  const english = new Set<Lang>();
+  const fallbackBefore = { ...after, perks: { ...after.perks } };
+  // The two baselines isolate raw localized cells and raw English fallback cells.
+  // Other rows stay inlined, including import targets whose own language did not fall back.
+  for (const [hash, langs] of fallbacks) {
+    const localized = before.perks[hash];
+    const filled = after.perks[hash];
+    if (!localized || !filled || !('editor' in localized) || !('editor' in filled))
+      throw new Error(`Missing English fallback proof input for tooltip ${hash}.`);
+    const localizedEditor = { ...localized.editor };
+    const fallbackEditor = { ...filled.editor };
+    for (const lang of langs) {
+      english.add(lang);
+      localizedEditor[lang] = filled.editor[lang];
+      fallbackEditor[lang] = localized.editor[lang];
+    }
+    before.perks[hash] = { ...localized, editor: localizedEditor };
+    fallbackBefore.perks[hash] = { ...filled, editor: fallbackEditor };
+  }
+  const prove = (baseline: LegacyInput, includes?: (hash: string, lang: Lang) => boolean) => {
+    const [failure] = provesInPlace(baseline, after, affected, includes);
+    if (failure) throw new Error(failure.message);
+  };
+  if (!english.size) return prove(before);
+  const aliasSource = (hash: string) => {
+    const visited = new Set<string>();
+    let row = after.perks[hash];
+    while (row && 'aliasOf' in row && !visited.has(hash)) {
+      visited.add(hash);
+      hash = String(row.aliasOf);
+      row = after.perks[hash];
+    }
+    return Number(hash);
+  };
+  prove(before, (hash, lang) => !fallbacks.get(aliasSource(hash))?.has(lang));
+  const fallbackScope = new Map(
+    [...english].map((lang) => [
+      lang,
+      affectedRows(
+        raw,
+        after,
+        [...fallbacks].flatMap(([hash, langs]) => (langs.has(lang) ? [hash] : [])),
+        lang,
+      ),
+    ]),
+  );
+  Object.assign(fallbackBefore.perks, proofLibraries(live, options, english));
+  prove(fallbackBefore, (hash, lang) => fallbackScope.get(lang)?.has(hash) ?? false);
 }
 
 export function inPlaceSource(pub: Publisher, revision: string, fence: GlobalsInPlaceFence) {
@@ -238,7 +326,6 @@ export function inPlaceSource(pub: Publisher, revision: string, fence: GlobalsIn
     entries,
     options: {
       definitions: globalsInPlaceDefinitions(entries),
-      missingTranslation: fence.missingTranslation,
     } satisfies GlobalsInPlaceOptions,
   };
 }
@@ -342,11 +429,14 @@ export function inPlaceDiff(
   );
 }
 
+type Cause = GlobalsInPlaceReview['rows'][string]['causes'][number];
+
 function rowCauses(
   tooltip: Tooltip,
   now: number,
   before: ReturnType<typeof inPlaceSource>,
   after: ReturnType<typeof inPlaceSource>,
+  fallbacks: readonly MissingGlobalTranslation[],
 ) {
   const reads = (source: ReturnType<typeof inPlaceSource>) => {
     const values = new Map<string, [GlobalRecord['kind'], string, string | undefined]>();
@@ -372,7 +462,7 @@ function rowCauses(
   };
   const oldReads = reads(before);
   const newReads = reads(after);
-  const causes = new Map<string, { id: string; name: string }>();
+  const causes = new Map<string, Cause>();
   for (const [key, [kind, name]] of new Map([...oldReads, ...newReads])) {
     if (oldReads.get(key)?.[2] === newReads.get(key)?.[2]) continue;
     const previous = before.entries.find((entry) => entry.kind === kind && entry.name === name);
@@ -384,6 +474,14 @@ function rowCauses(
         name: after.entries.find(({ id }) => id === entry.id)?.name ?? entry.name,
       });
     }
+  }
+  for (const { kind, globalName, language, reason } of fallbacks) {
+    const entry = after.entries.find(
+      (item) => item.kind === kind && item.name === globalName && !item.tombstone,
+    );
+    if (!entry) continue;
+    const cause = causes.get(entry.id) ?? { id: entry.id, name: entry.name };
+    causes.set(entry.id, { ...cause, fallbacks: { ...cause.fallbacks, [language]: reason } });
   }
   return [...causes.values()];
 }
@@ -410,7 +508,6 @@ export function bundleInPlaceReview(
           typeof legacyGlobalsInPlaceDefinitions
         >[0],
       ),
-      missingTranslation: 'reject' as const,
     },
   };
   const sources = new Map([[revision, saved]]);
@@ -427,25 +524,33 @@ export function bundleInPlaceReview(
     if (!removed && isTextlessDescription(tooltip)) continue;
     let after;
     let refusal: string | undefined;
+    const fallbacks: MissingGlobalTranslation[] = [];
     try {
       if (!removed) {
         assertInPlaceDocuments([tooltip], saved.options);
-        after = exportLegacy([tooltip], now, undefined, {}, { globalsInPlace: saved.options })[
-          hash
-        ];
+        after = exportLegacy(
+          [tooltip],
+          now,
+          undefined,
+          {},
+          {
+            globalsInPlace: saved.options,
+            onGlobalsFallback: (_hash, fallback) => fallbacks.push(fallback),
+          },
+        )[hash];
       }
     } catch (error) {
       refusal = String(error);
     }
     const differs = !refusal && resolvedPrimaryDiffers(before, after);
-    if (!differs && !refusal) continue;
+    if (!differs && !refusal && !fallbacks.length) continue;
     const prior = released.get(hash);
     if (prior && !sources.has(prior)) sources.set(prior, inPlaceSource(pub, prior, fence));
     rows[hash] = {
       differs,
       causes:
-        !removed && before && 'editor' in before
-          ? rowCauses(tooltip, now, prior ? sources.get(prior)! : baseline, saved)
+        !removed && ((before && 'editor' in before) || fallbacks.length)
+          ? rowCauses(tooltip, now, prior ? sources.get(prior)! : baseline, saved, fallbacks)
           : [],
       diff: differs ? inPlaceDiff(before, after) : {},
       ...(refusal ? { refusal } : {}),

@@ -17,8 +17,19 @@ export type GlobalsInPlaceDefinitions = Readonly<
 >;
 export interface GlobalsInPlaceOptions {
   definitions: GlobalsInPlaceDefinitions;
-  missingTranslation?: 'english' | 'reject';
   onRead?: (kind: Kind, name: string, language: Lang, body: string | undefined) => void;
+}
+
+export class MissingGlobalTranslation extends Error {
+  constructor(
+    readonly kind: Kind,
+    readonly globalName: string,
+    readonly language: Lang,
+    readonly reason: 'missing' | 'stale',
+  ) {
+    super(`Add or update the translation for shared ${globalName}.`);
+    this.name = 'MissingGlobalTranslation';
+  }
 }
 
 /** Shared authored-content guard, independent of the selected translation or render preset. */
@@ -94,17 +105,17 @@ export function legacyGlobalsInPlaceDefinitions(
 export function globalsInPlaceDefinition(
   entry: LocalizedDefinition,
   language: Lang,
-  missingTranslation: GlobalsInPlaceOptions['missingTranslation'] = 'english',
 ): Definition | undefined {
   const english = entry.en;
   let selected = entry[language];
   if (
+    language !== 'en' &&
     selected?.sourceUpdatedAt &&
     english?.updatedAt &&
     Date.parse(english.updatedAt) - Date.parse(selected.sourceUpdatedAt) > translationMaxAge
   )
     selected = undefined;
-  return selected ?? (missingTranslation === 'english' ? english : undefined);
+  return selected;
 }
 
 /** Observe which shared note names the real markup resolver reads from a cell. */
@@ -138,7 +149,7 @@ export function effectiveSharedNotes(
 export function resolveGlobalsInPlace(
   source: string,
   language: Lang,
-  { definitions, missingTranslation = 'english', onRead }: GlobalsInPlaceOptions,
+  { definitions, onRead }: GlobalsInPlaceOptions,
 ): string {
   const lookup = (kind: Kind, name: string, needed = true): string | undefined => {
     const entries = definitions[kind];
@@ -146,9 +157,16 @@ export function resolveGlobalsInPlace(
       if (needed) onRead?.(kind, name, language, undefined);
       return;
     }
-    const selected = globalsInPlaceDefinition(entries[name], language, missingTranslation);
+    const entry = entries[name];
+    const selected = globalsInPlaceDefinition(entry, language);
     if (needed) onRead?.(kind, name, language, selected?.body);
-    if (!selected && needed) throw new Error(`Add or update the translation for shared ${name}.`);
+    if (!selected && needed)
+      throw new MissingGlobalTranslation(
+        kind,
+        name,
+        language,
+        entry[language] ? 'stale' : 'missing',
+      );
     return selected?.body;
   };
 

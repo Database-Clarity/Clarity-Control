@@ -12,7 +12,6 @@ export const globalsInPlaceFenceSchema = z
   .object({
     state: z.enum(['hold', 'active']),
     clearance: z.literal('review'),
-    missingTranslation: z.enum(['english', 'reject']).default('english'),
     destination: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
     legacyData: globalsRevisionSchema,
     legacyLive: globalsRevisionSchema,
@@ -31,14 +30,20 @@ const cell = z.object({
   englishFallback: z.literal(true).optional(),
 });
 
-/** Sparse effective changes against LIVE. Authored pending rows still use the usual markers. */
+/** Effective changes and shared fallback notices. Authored pending still uses the usual markers. */
 export const globalsInPlaceReviewSchema = z.object({
   revision: globalsRevisionSchema,
   rows: z.record(
     z.string().regex(/^(0|[1-9]\d*)$/),
     z.object({
       differs: z.boolean(),
-      causes: z.array(z.object({ id: globalIdSchema, name: z.string() })),
+      causes: z.array(
+        z.object({
+          id: globalIdSchema,
+          name: z.string(),
+          fallbacks: z.partialRecord(langSchema, z.enum(['missing', 'stale'])).optional(),
+        }),
+      ),
       diff: z.partialRecord(
         langSchema,
         z.object({ before: cell.nullable(), after: cell.nullable() }),
