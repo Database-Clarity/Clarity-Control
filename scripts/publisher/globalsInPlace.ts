@@ -14,7 +14,6 @@ import {
   globalsInPlaceSaveIssue,
   globalsReleasePaths,
   isLegacyAliasStub,
-  isMovedInactive,
   isTextlessDescription,
   languages,
   legacyGlobalsInPlaceDefinitions,
