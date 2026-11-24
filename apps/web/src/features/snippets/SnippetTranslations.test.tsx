@@ -2,10 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import {
-  localizableBuiltIns,
-  validateSnippetTranslation,
-} from '../../../../../packages/core/src/localizedSnippets';
+import * as localizedSnippets from '../../../../../packages/core/src/localizedSnippets';
 import * as api from '../../services/snippets';
 import { SnippetTranslations } from './SnippetTranslations';
 
@@ -20,6 +17,7 @@ vi.mock('../editor/suggest/custom', () => ({ invalidateSnippetCatalogue: vi.fn()
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let host: HTMLDivElement;
 let root: Root;
+const { localizableBuiltIns, validateSnippetTranslation } = localizedSnippets;
 const source = localizableBuiltIns[0]!;
 const base = {
   label: 'Notiz',
@@ -49,6 +47,7 @@ beforeEach(() => {
   root = createRoot(host);
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await act(async () => root.unmount());
   host.remove();
 });
@@ -127,19 +126,21 @@ it.each([
   expect(api.saveSnippetTranslation).not.toHaveBeenCalled();
 });
 it('keeps a conflicting draft, reloads the latest base, and restores keyboard focus', async () => {
+  // Resolve the real digest ahead of time so act can flush each save and its UI updates.
+  const enHash = await localizedSnippets.snippetEnglishHash(source.template);
+  vi.spyOn(localizedSnippets, 'snippetEnglishHash').mockResolvedValue(enHash);
   vi.mocked(api.saveSnippetTranslation).mockRejectedValueOnce(new api.SnippetConflictError(null));
   await mount();
   await click('Edit');
   await text('// {{1:Kommentar}}');
   await click('Save translation');
-  // Web Crypto hashing completes outside React's act() work queue.
-  await act(async () => {
-    await vi.waitFor(() =>
-      expect(api.saveSnippetTranslation).toHaveBeenCalledWith('de', expect.objectContaining({ base })),
-    );
-  });
+  expect(api.saveSnippetTranslation).toHaveBeenCalledWith(
+    'de',
+    expect.objectContaining({ base, next: expect.objectContaining({ enHash }) }),
+  );
   expect(host.querySelector('textarea')?.value).toBe('// {{1:Kommentar}}');
   expect(document.activeElement).toBe(host.querySelector('[data-save]'));
+  expect(host.querySelector('[role=alert]')?.textContent).toContain('Reload');
   const latest = { ...base, label: 'Aktuell' };
   vi.mocked(api.getSnippetTranslations).mockResolvedValue({
     translations: { [source.id]: latest },
@@ -153,9 +154,6 @@ it('keeps a conflicting draft, reloads the latest base, and restores keyboard fo
     translations: { [source.id]: latest },
   });
   await click('Save translation');
-  await act(async () => {
-    await vi.waitFor(() => expect(host.querySelector('[role=status]')?.textContent).toContain('Saved'));
-  });
   expect(api.saveSnippetTranslation).toHaveBeenLastCalledWith(
     'de',
     expect.objectContaining({ base: latest }),
