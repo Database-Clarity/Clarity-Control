@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 import {
   exportLegacy,
   exportWithInactiveMoves,
+  MissingGlobalTranslation,
   publishableHash,
   resolveGlobalsInPlace,
   type GlobalsInPlaceOptions,
@@ -58,20 +59,18 @@ test('inlines exact variables, notes and nested named imports per cell', () => {
   expect(inline('#N // {{comment')).toBe('4.5 // {{comment');
 });
 
-test('uses the destination language and applies the configured missing/stale global policy', () => {
+test('reports missing and stale shared definitions to the tooltip exporter', () => {
   const globals = structuredClone(options) as GlobalsInPlaceOptions;
   const translation = globals.definitions.variables!.N!.de!;
-  const read = (policy?: GlobalsInPlaceOptions['missingTranslation']) =>
-    resolveGlobalsInPlace('#N', 'de', { ...globals, missingTranslation: policy });
+  const read = () => resolveGlobalsInPlace('#N', 'de', globals);
   translation.sourceUpdatedAt = '2026-08-26T00:00:00Z'; // exactly 90 days before English
-  expect(read('reject')).toBe('2.5');
+  expect(read()).toBe('2.5');
   translation.sourceUpdatedAt = '2026-08-25T23:59:59Z';
-  expect(read()).toBe('4.5');
-  expect(() => read('reject')).toThrow('Add or update the translation for shared N.');
-  expect(resolveGlobalsInPlace('#Name', 'de', globals)).toBe('Energy');
-  expect(() =>
-    resolveGlobalsInPlace('#Name', 'de', { ...globals, missingTranslation: 'reject' }),
-  ).toThrow('Add or update the translation for shared Name.');
+  expect(read).toThrow(MissingGlobalTranslation);
+  expect(read).toThrow('Add or update the translation for shared N.');
+  expect(() => resolveGlobalsInPlace('#Name', 'de', globals)).toThrow(
+    'Add or update the translation for shared Name.',
+  );
 });
 
 const doc = (hash: number, text: string): Tooltip => {

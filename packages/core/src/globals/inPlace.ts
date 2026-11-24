@@ -4,7 +4,8 @@ import { lowerConsumerMarkup, variableReferences } from '../markup/braces.js';
 import { removeMarkupComments } from '../markup/comments.js';
 import { parseLines } from '../markup/lines.js';
 import { markupConditions, prepareMarkup } from '../markup/prepare.js';
-import { extractBlocks } from '../markup/syntax.js';
+import { extractBlocks, extractVariables } from '../markup/syntax.js';
+import { globalReferenceSpans } from './references.js';
 import type { MarkupGlobals } from '../markup/types.js';
 import type { GlobalRecord } from './model.js';
 
@@ -16,7 +17,105 @@ export type GlobalsInPlaceDefinitions = Readonly<
 >;
 export interface GlobalsInPlaceOptions {
   definitions: GlobalsInPlaceDefinitions;
-  missingTranslation?: 'english' | 'reject';
+  onRead?: (kind: Kind, name: string, language: Lang, body: string | undefined) => void;
+}
+
+export class MissingGlobalTranslation extends Error {
+  constructor(
+    readonly kind: Kind,
+    readonly globalName: string,
+    readonly language: Lang,
+    readonly reason: 'missing' | 'stale',
+  ) {
+    super(`Add or update the translation for shared ${globalName}.`);
+    this.name = 'MissingGlobalTranslation';
+  }
+}
+
+/** Shared authored-content guard, independent of the selected translation or render preset. */
+export function globalsInPlaceSaveIssue(
+  source: string,
+  titleNames?: ReadonlySet<string>,
+): string | undefined {
+  if (!source.includes('import ') && (!titleNames?.size || !source.includes('export ')))
+    return undefined;
+  const text = removeMarkupComments(source.replace(/\r/g, ''));
+  if (
+    /^import [A-z0-9 ]+? from 0*[123] *$/m.test(text) ||
+    /^import (main|secondary) from global *$/m.test(text)
+  )
+    return 'Use a shared export by name or reference the shared variable or note directly.';
+  if (
+    titleNames?.size &&
+    Object.values(extractBlocks(text, 'export')).some((body) =>
+      globalReferenceSpans(body, 'titles').some(({ name }) => titleNames.has(name)),
+    )
+  )
+    return 'Move the shared note outside the named export.';
+}
+
+/** Build resolver inputs from the saved catalogue, excluding withdrawn entries. */
+export function globalsInPlaceDefinitions(
+  entries: readonly GlobalRecord[],
+): GlobalsInPlaceDefinitions {
+  const result: Record<Kind, Record<string, LocalizedDefinition>> = {
+    exports: Object.create(null),
+    variables: Object.create(null),
+    titles: Object.create(null),
+  };
+  for (const entry of entries)
+    if (!entry.tombstone) result[entry.kind][entry.name] = entry.definitions;
+  return result;
+}
+
+/** The migration uses each LIVE library's two stored parts, in reader precedence order. */
+export function legacyGlobalsInPlaceDefinitions(
+  perks: Readonly<
+    Record<string, { editor?: Partial<Record<Lang, { main: string; secondary: string }>> }>
+  >,
+): GlobalsInPlaceDefinitions {
+  const result: Record<Kind, Record<string, Partial<Record<Lang, Definition>>>> = {
+    exports: Object.create(null),
+    variables: Object.create(null),
+    titles: Object.create(null),
+  };
+  for (const [hash, kind] of [
+    [1, 'exports'],
+    [2, 'variables'],
+    [3, 'titles'],
+  ] as const) {
+    const editor = perks[hash]?.editor;
+    if (!editor && hash !== 1) throw new Error(`Missing LIVE library ${hash}`);
+    for (const [language, cell] of Object.entries(editor ?? {}))
+      for (const source of [cell.main, cell.secondary]) {
+        const text = source.replace(/\r/g, '');
+        const bodies =
+          kind === 'variables'
+            ? extractVariables(text)
+            : extractBlocks(text, kind === 'exports' ? 'export' : 'title');
+        for (const [name, body] of Object.entries(bodies)) {
+          const definitions = (result[kind][name] ??= {});
+          definitions[language as Lang] = { body };
+        }
+      }
+  }
+  return result;
+}
+
+export function globalsInPlaceDefinition(
+  entry: LocalizedDefinition,
+  language: Lang,
+): Definition | undefined {
+  const english = entry.en;
+  let selected = entry[language];
+  if (
+    language !== 'en' &&
+    selected?.sourceUpdatedAt &&
+    english?.updatedAt &&
+    Date.parse(english.updatedAt) - Date.parse(selected.sourceUpdatedAt) > translationMaxAge
+  )
+    selected = undefined;
+  return selected;
 }
 
 /** Observe which shared note names the real markup resolver reads from a cell. */
@@ -50,22 +149,24 @@ export function effectiveSharedNotes(
 export function resolveGlobalsInPlace(
   source: string,
   language: Lang,
-  { definitions, missingTranslation = 'english' }: GlobalsInPlaceOptions,
+  { definitions, onRead }: GlobalsInPlaceOptions,
 ): string {
   const lookup = (kind: Kind, name: string, needed = true): string | undefined => {
     const entries = definitions[kind];
-    if (!entries || !Object.hasOwn(entries, name)) return;
+    if (!entries || !Object.hasOwn(entries, name)) {
+      if (needed) onRead?.(kind, name, language, undefined);
+      return;
+    }
     const entry = entries[name];
-    const english = entry.en;
-    let selected = entry[language];
-    if (
-      selected?.sourceUpdatedAt &&
-      english?.updatedAt &&
-      Date.parse(english.updatedAt) - Date.parse(selected.sourceUpdatedAt) > translationMaxAge
-    )
-      selected = undefined;
-    if (!selected && missingTranslation === 'english') selected = english;
-    if (!selected && needed) throw new Error(`Add or update the translation for shared ${name}.`);
+    const selected = globalsInPlaceDefinition(entry, language);
+    if (needed) onRead?.(kind, name, language, selected?.body);
+    if (!selected && needed)
+      throw new MissingGlobalTranslation(
+        kind,
+        name,
+        language,
+        entry[language] ? 'stale' : 'missing',
+      );
     return selected?.body;
   };
 

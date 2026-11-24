@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { hashSchema, langSchema, publishMonth, validatePublishTime } from '@clarity/core';
+import {
+  globalsInPlacePath,
+  hashSchema,
+  langSchema,
+  publishMonth,
+  validatePublishTime,
+} from '@clarity/core';
 import {
   checkNotBefore,
   draftBatchStagingCapability,
@@ -23,6 +29,7 @@ import { body, HttpError, json } from '../http.js';
 import { signingKey } from '../publish.js';
 import { batchKickPath, cancelledLog, createKick, endSchedule } from './lifecycle.js';
 import type { Identity } from '../types.js';
+import { inPlaceAdmission, refuseInPlaceSave } from '../globals/inPlace.js';
 import {
   by,
   checkedBatch,
@@ -404,7 +411,7 @@ export async function admitBatchRequest(
   for (let attempt = 0; attempt < 3; attempt++) {
     const state = await readState(github, user, kind === 'save' ? readRoles : scheduleRoles, {
       batchId,
-      extra: [scheduleIntentPaths.request(id), ...operationPaths],
+      extra: [scheduleIntentPaths.request(id), ...operationPaths, globalsInPlacePath],
       oidOnly: operationPaths,
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
@@ -434,6 +441,10 @@ export async function admitBatchRequest(
     if (batch.status !== 'draft' && batch.status !== 'scheduled')
       throw new HttpError(409, 'This batch cannot be changed');
     const hashes = new Set(memberHashes(child(state.trees[0], 'tooltips')));
+    const fence = state.extra.at(-1);
+    if (kind === 'schedule' || batch.status === 'scheduled')
+      inPlaceAdmission(fence?.value, state.pin, hashes, github.env.LIVE_BRANCH);
+    if (fence && 'changes' in input) for (const { next } of input.changes) refuseInPlaceSave(next);
     const staging = 'changes' in input ? input.draftStaging : undefined;
     const activeStage = activeDraftStaging(batch, Date.now());
     if (activeStage && (staging?.id !== activeStage.id || user.id !== activeStage.ownerId))
@@ -647,7 +658,7 @@ export async function retryBatchRequest(
   for (let attempt = 0; attempt < 3; attempt++) {
     const state = await readState(github, user, readRoles, {
       batchId,
-      extra: [scheduleIntentPaths.request(input.requestId)],
+      extra: [scheduleIntentPaths.request(input.requestId), globalsInPlacePath],
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
@@ -657,6 +668,8 @@ export async function retryBatchRequest(
     if (!record || batch.preparation?.requestId !== input.requestId)
       throw new HttpError(409, 'This request is no longer outstanding');
     checkedRequest(record, batchId, input.requestId);
+    if (batch.preparation.returnStatus === 'scheduled')
+      inPlaceAdmission(state.extra.at(-1)?.value, state.pin, [], github.env.LIVE_BRANCH);
     if (
       state.access.role === 'translator' &&
       (record.requesterId !== user.id || batch.preparation.kind !== 'save')

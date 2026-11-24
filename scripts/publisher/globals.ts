@@ -31,6 +31,7 @@ import {
 import { projectGlobals } from '../../packages/core/src/globals/projection.js';
 import { assertGlobalTransition } from '../../packages/core/src/globals/transition.js';
 import { globalSourceText } from '../../packages/core/src/globals/source.js';
+import { globalsFence } from './globalsInPlace.js';
 import { rewriteGlobalReferences } from '../../packages/core/src/globals/references.js';
 import { markupDefinitions } from '../../packages/core/src/markup/clashes.js';
 import { extractBlocks } from '../../packages/core/src/markup/syntax.js';
@@ -297,7 +298,9 @@ export class GlobalsPublisher {
           throw new Error('Global identity mismatch');
         return entry;
       });
-    return reconcileGlobalStore(layout.aggregates, entries, { preserveNewLanguageSourceStamp: true });
+    return reconcileGlobalStore(layout.aggregates, entries, {
+      preserveNewLanguageSourceStamp: true,
+    });
   }
   documents(tree: Tree, prefix: string): Record<string, Tooltip> {
     return Object.fromEntries(
@@ -373,7 +376,14 @@ export class GlobalsPublisher {
       }
     }
     if (!tooltips[2] || !tooltips[3]) throw new Error('Missing last-published global library');
-    return { repository: this.options.repo, revision, aliases, types: liveTypes, tooltips, mode: 'live' };
+    return {
+      repository: this.options.repo,
+      revision,
+      aliases,
+      types: liveTypes,
+      tooltips,
+      mode: 'live',
+    };
   }
   private publicationSnapshot(
     tree: Tree,
@@ -510,13 +520,18 @@ export class GlobalsPublisher {
     const livePerks = z
       .object({ perks: livePerksSchema })
       .parse(this.publisher.read(this.git.tree(liveCommit), 'liveDescriptions.json')).perks;
-    const live = this.liveSnapshot(
-      revision,
-      livePerks,
-      { ...this.documents(tree, 'live/tooltips'), ...projectGlobals(published.store) },
-      types,
-    );
-    const exported = exportLegacy(Object.values(live.tooltips), 0, this.options.facts, live.aliases);
+    const inPlace = globalsFence(this.publisher, tree)?.state === 'active';
+    const live: GlobalImpactSnapshot = inPlace
+      ? { repository: this.options.repo, revision, aliases: {}, types, tooltips: {}, mode: 'live' }
+      : this.liveSnapshot(
+          revision,
+          livePerks,
+          { ...this.documents(tree, 'live/tooltips'), ...projectGlobals(published.store) },
+          types,
+        );
+    const exported = inPlace
+      ? {}
+      : exportLegacy(Object.values(live.tooltips), 0, this.options.facts, live.aliases);
     for (const [hash, value] of Object.entries(exported)) {
       if ('aliasOf' in value) continue;
       // V2 authors main only; secondary is derived by exportLegacy. Historical secondary
@@ -537,7 +552,7 @@ export class GlobalsPublisher {
     }
     return {
       saved,
-      published: published.store,
+      published: inPlace ? { ...published.store, entries: [] } : published.store,
       authored: {
         repository: this.options.repo,
         revision,
@@ -974,7 +989,7 @@ export class GlobalsPublisher {
   private async materialize(tree: Tree, head: string, live: string) {
     const store = this.store(tree);
     const sources = await this.sources(tree, live, head);
-    const components = await this.plan(tree, head, live);
+    const components = globalsFence(this.publisher, tree) ? [] : await this.plan(tree, head, live);
     const oldRows = new Map(
       Object.keys(tree)
         .filter((path) => path.startsWith('globals/reviews/'))
@@ -1080,6 +1095,8 @@ export class GlobalsPublisher {
       if (expectedHead !== undefined && head !== expectedHead)
         throw new RefRace('Global sync source moved');
       if (!hasGlobals(original)) return head;
+      const fence = globalsFence(this.publisher, original);
+      if (fence?.state === 'hold') return head;
       const tree = { ...original };
       try {
         const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
@@ -1098,6 +1115,9 @@ export class GlobalsPublisher {
           delete tree[path];
         const live = this.publisher.head(this.options.liveBranch);
         await this.materialize(tree, head, live);
+        if (fence)
+          for (const path of Object.keys(tree).filter((path) => path.startsWith('globals/causes/')))
+            delete tree[path];
         // All request removals and pending completion land with ALL authoritative outputs.
         for (const path of Object.keys(tree).filter((path) => path.startsWith('globals/retries/')))
           delete tree[path];
@@ -1362,6 +1382,7 @@ export class GlobalsPublisher {
   ) {
     const captured = this.capture(tree, head, live),
       requested = new Map<string, { kind: GlobalRecord['kind']; name: string }>();
+    const inPlace = Boolean(globalsFence(this.publisher, tree));
     for (const entry of captured.saved.entries)
       if (!entry.tombstone) requested.set(`${entry.kind}:${entry.name}`, entry);
     for (const path of Object.keys(tree).filter((path) => path.startsWith('globals/retries/'))) {
@@ -1372,7 +1393,7 @@ export class GlobalsPublisher {
     }
     const snapshots = [
       captured.authored,
-      captured.live,
+      ...(inPlace ? [] : [captured.live]),
       ...this.upcoming(tree).flatMap((documents) =>
         (['authored', 'live'] as const).map((mode) => ({
           ...captured.authored,
@@ -1387,7 +1408,7 @@ export class GlobalsPublisher {
     const localNames = this.localNames(tree, captured);
     const scans = new GlobalSnapshotScans();
     // Establish resolver coverage even when there are no changed globals.
-    for (const snapshot of snapshots) {
+    for (const snapshot of inPlace ? [] : snapshots) {
       const validation = calculateGlobalImpact(
         snapshot,
         snapshot,
@@ -1411,7 +1432,7 @@ export class GlobalsPublisher {
       if (isMovedInactive(hash, moves) && resolveAlias(hash, captured.authored.aliases) === hash)
         hashes.add(hash);
     }
-    for (const hash of hashes)
+    for (const hash of inPlace ? [] : hashes)
       for (const lang of [
         ...new Set([
           ...Object.keys(captured.authored.tooltips[hash]?.text ?? {}),
@@ -1454,12 +1475,14 @@ export class GlobalsPublisher {
         );
       }
     // A missing per-consumer proof is only a wait when this materialization is stale.
-    this.write(
-      tree,
-      publicationSourcesPath(this.options.liveBranch),
-      sources,
-      limits.metadataBytes,
-    );
+    if (!inPlace)
+      this.write(
+        tree,
+        publicationSourcesPath(this.options.liveBranch),
+        sources,
+        limits.metadataBytes,
+      );
+    else delete tree[publicationSourcesPath(this.options.liveBranch)];
     for (const request of requested.values()) {
       const owners = [...captured.saved.entries, ...captured.published.entries].filter(
         (entry) => !entry.tombstone && entry.kind === request.kind && entry.name === request.name,

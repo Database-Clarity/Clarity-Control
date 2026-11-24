@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { hashSchema } from './legacy.js';
 import { stableStringify } from './contentHash.js';
 import type { BatchPublishPayload } from './schedule/index.js';
-import { globalsRevisionSchema } from './globals/inPlaceReview.js';
+import { globalPublishSelectionSchema } from './globals/inPlaceReview.js';
 
 export const publishOpIdSchema = z.string().regex(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
@@ -15,14 +15,17 @@ export const publishBodySchema = z
     opId: publishOpIdSchema,
     hashes: z
       .array(hashSchema)
-      .min(1)
       .max(3000)
       .refine((a) => new Set(a).size === a.length),
     expected: z.record(hashKey, digest),
-    globalsRevision: globalsRevisionSchema.optional(),
+    globals: z.array(globalPublishSelectionSchema).min(1).max(3000)
+      .refine((items) => new Set(items.map(({ id }) => id)).size === items.length)
+      .optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
+    if (!v.hashes.length && !v.globals?.length)
+      ctx.addIssue({ code: 'custom', message: 'Select a tooltip or a shared definition' });
     if (Object.keys(v.expected).length !== v.hashes.length || v.hashes.some((h) => !v.expected[h]))
       ctx.addIssue({ code: 'custom', message: 'Exactly one expected digest per hash is required' });
   });
@@ -45,7 +48,7 @@ export const publishPayloadSchema = z
   .strict()
   .superRefine((v, ctx) => {
     if (
-      !publishBodySchema.safeParse({ opId: v.opId, hashes: v.hashes, expected: v.expected }).success
+      !publishBodySchema.safeParse({ opId: v.opId, hashes: v.hashes, expected: v.expected, globals: v.globals }).success
     )
       ctx.addIssue({ code: 'custom', message: 'Invalid publish intent' });
   });
@@ -74,7 +77,9 @@ export async function publishIntentDigest(value: PublishIntent): Promise<string>
       requester: { id: value.requester.id },
       hashes: [...value.hashes].sort((a, b) => a - b),
       expected: value.expected,
-      ...(value.globalsRevision === undefined ? {} : { globalsRevision: value.globalsRevision }),
+      ...(value.globals === undefined ? {} : {
+        globals: [...value.globals].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      }),
     }),
   );
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (b) =>

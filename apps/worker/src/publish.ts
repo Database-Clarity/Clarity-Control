@@ -12,6 +12,7 @@ import { pinAppliesInactiveMoves, storedInactiveMoves } from './inactiveMoves.js
 import { z } from 'zod';
 import {
   classifyPublishIntent,
+  globalsInPlacePath,
   aliasGroupsPath,
   isTextlessDescription,
   permissionsSchema,
@@ -43,6 +44,7 @@ import { switches } from './schedule/store.js';
 import type { Env, Identity } from './types.js';
 import { assertGlobalsPublication } from './globals/guards.js';
 import { publicationSchema, sameSources, sourcesSchema, syncSchema } from './globals/model.js';
+import { inPlaceAdmission } from './globals/inPlace.js';
 
 const envelopeSchema = z.object({ payload: z.string(), sig: z.string() }).strict();
 const logSchema = z.object({ intentDigest: z.string().nullable(), result: z.unknown() });
@@ -171,6 +173,7 @@ export async function publish(
         aliasGroupsPath,
         'globals/sync.json',
         'globals/layout.json',
+        globalsInPlacePath,
       ],
       ['globals/sync.json', 'globals/layout.json'],
       [
@@ -199,6 +202,24 @@ export async function publish(
       validatePublishTime(value.opId, Date.now());
     } catch {
       throw new HttpError(400, 'Publish opId outside creation window');
+    }
+    if (checkedHead !== snapshot.head) {
+      const pin = snapshot.files[1 + paths.length]?.value;
+      const fence = inPlaceAdmission(
+        snapshot.files.at(-1)?.value,
+        pin,
+        value.hashes,
+        github.env.LIVE_BRANCH,
+      );
+      if (Boolean(fence) !== Boolean(value.globalsRevision))
+        throw new HttpError(409, 'The publication mode changed. Review the tooltip again.');
+      if (value.globalsRevision) {
+        if (!(await github.sameGlobalDefinitions(snapshot.head, value.globalsRevision)))
+          throw new HttpError(409, 'Shared text changed since review. Refresh saved changes.');
+        // Actions verifies the authored expectations before creating a candidate. Admission
+        // of shared text uses immutable definition identity without loading tooltip bodies.
+        checkedHead = snapshot.head;
+      }
     }
     if (checkedHead !== snapshot.head) {
       // Sandbox picks join the aliases only for a publisher build that merges them itself, so the

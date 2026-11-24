@@ -47,8 +47,33 @@ Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the ma
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.
 No installation, activation, or external data write is authorized by generating this template.
 
-Template source PIN: `6aff42fbc8e8848b5b1f79258973d7f0b0d0c182`.
-Expected publisher.mjs SHA-256: `5d70f005c6d26890b566f83e3be3026ae5819c4bd92dc9724a800628296fab7a`.
+Template source PIN: `2917843910b3757b172837a139f3a4e61951910e`.
+Expected publisher.mjs SHA-256: `6afd3ab6b30b1460ea161b1c36b403f252c7e844c9ba19188d48a56c2834e9b9`.
+
+### In-place shared text dry run
+
+The installed runtime, Worker, and Review can be updated while
+`config/globals-in-place.json` is absent. Existing operations then use their
+original release and acknowledgement paths. Drain requests and candidates, and
+finish or unschedule any batches that can still publish before planning a switch.
+
+Run `publisher.mjs --globals-migration-dry-run <local repository> <config.json>
+<artifact directory> <migration-inputs.json>` with the proposed runtime
+installed in a local source checkout. The fourth file carries the pinned
+`catalog`, `inventoryItems`, `sandboxPerks`, and `clearance: "review"`. The command mirrors into a
+local-only object store, checks manifest selection and 34 consumer files,
+exercises restore, then generates a simulated commit bundle. It preserves every
+authored marker and the upload stamps of existing LIVE rows.
+
+When a used shared definition has no usable translation, the affected
+language publishes the English tooltip and keeps the existing fallback flag.
+
+Ordinary Review is the active clearance seam. Activation requires the owner's
+clearance approval and a separate authorization for the LIVE/DATA migration.
+During the journal hold, admissions are paused. Restore the paired inputs and
+the pre-switch bundle and runtime before the first switched publication. The
+dry-run restore refuses intervening saves or publications. Later rollback
+requires a forward repair that preserves those writes.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires
