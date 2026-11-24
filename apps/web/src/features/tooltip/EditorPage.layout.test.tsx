@@ -401,13 +401,7 @@ describe('editor page composition', () => {
     expect(editors()[0]).toBe(base);
     expect(base.closest('[hidden]')).not.toBeNull();
     expect(editors()[1].closest('[hidden]')).toBeNull();
-    expect(host.textContent).toContain('Enhanced version');
-    // A narrow header shows "Enhanced" instead; screen readers hear the full name only once.
-    const tag = host.querySelector('[title="Enhanced version"]')!;
-    expect(tag).not.toBeNull();
-    expect(
-      [...tag.querySelectorAll('[aria-hidden="true"]')].map((node) => node.textContent?.trim()),
-    ).toContain('Enhanced');
+    expect(host.querySelector('[title="Enhanced version"]')?.textContent).toBe('Enhanced');
     expect(button('Edit enhanced')).toBeUndefined();
     await act(async () => button('Back to base')!.click());
     expect(editors().map((node) => node.dataset.editor)).toEqual(['10']);

@@ -172,7 +172,8 @@
   flex: 0 1 auto;
   align-items: center;
   gap: 0.25rem;
-  min-width: 0;
+  // The arrow and "Enhanced": the row fit sends tools to More before the label is cut.
+  min-width: 5.25rem;
   color: var(--enhanced);
   font-weight: 700;
   // Not an enhanced version: no arrow, no enhanced colour.
@@ -182,9 +183,6 @@
   svg {
     flex: none;
   }
-}
-.overrideShort {
-  display: none;
 }
 .paneRight {
   display: inline-flex;
@@ -323,21 +321,20 @@
     }
   }
 }
-// An open override adds "↑ Enhanced version" to the line, which ran the right-hand buttons out of
+// An open override adds "↑ Enhanced" to the line, which ran the right-hand buttons out of
 // the header or under the Compendium/Reports toggles. The line now gives way one step at a time, each
 // only once the line no longer fits: the shortcut hint goes, "Grouped N" becomes its icon and N, the
-// language field shortens, the tag says "↑ Enhanced", the field shortens again, and "Markup tools"
-// says "Markup". The buttons never shrink; below the last step only the tag's label ellipsises.
+// language field shortens, it shortens again, and "Markup tools" says "Markup". The buttons never
+// shrink.
 // A container query cannot see what the line holds, so each step's width is set per content: the
 // natural widths at UI 100 (they scale with the rem) of the full line with a draft's dot and
 // Discard, Grouped N (maintainers), and the toggles, plus a little slack for text rendering.
-$override-full: 49.5rem; // language 9, tag 8.3, draft 5.1, Markup 8.6, Marks 3.6, Grouped + inactive 7.3, Back 5.5, gaps
+$override-full: 46.1rem; // language 9, tag 4.9, draft 5.1, Markup 8.6, Marks 3.6, Grouped + inactive 7.3, Back 5.5, gaps
 $override-draft: 5.1rem; // the dot, Discard, and their gaps
 $override-grouped: 5.8rem; // "Grouped N", inactive icon, and their gaps, less the More they leave behind
 $override-toggles: 10.2rem; // Compendium, Reports, and their gaps
 // Each step and the width it saves; "grouped" saves nothing without the control.
-$override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 3.4rem) (lang-narrow 2rem)
-  (markup 1.875rem);
+$override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 2rem) (markup 1.875rem);
 
 @mixin override-step($step) {
   @if $step == key {
@@ -360,17 +357,6 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (short 3.4rem) (lan
     .langSelect {
       max-width: 7rem;
       text-overflow: ellipsis;
-    }
-  } @else if $step == short {
-    .overrideLong {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-    }
-    .overrideShort {
-      display: inline;
     }
   } @else if $step == lang-narrow {
     .langSelect {

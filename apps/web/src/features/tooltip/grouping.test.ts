@@ -151,7 +151,7 @@ describe('entryView', () => {
   it('splits items and perk effects by version, with the unattached effect under both', () => {
     const missing = 'Not attached: used by base and enhanced';
     expect(view(60, ancillary())).toEqual({
-      summary: '2 items, 2 perk effects (1 not attached)',
+      summary: '3 share this text: 2 items, 1 perk effect. 1 more perk effect is not attached.',
       blocks: [
         [
           'Base',
@@ -177,7 +177,7 @@ describe('entryView', () => {
     data.aliases = { ...data.aliases, 600: { to: 60, kind: 'sandbox' } };
     data.sandboxConflicts = {};
     expect(view(60, data)).toEqual({
-      summary: '2 items, 2 perk effects',
+      summary: '4 share this text: 2 items, 2 perk effects.',
       blocks: [
         [
           'Base',
@@ -242,6 +242,9 @@ describe('entryView', () => {
     const mark = (text: string) => {
       const data = ancillary();
       data.bundle.tooltips[61] = { text: { en: { text } } } as never;
+      expect(view(60, data).summary).toMatch(
+        text ? /^3 are grouped here: / : /^3 share this text: /,
+      );
       return view(60, data).blocks[1]![1]![0];
     };
     expect(mark('Other')).toEqual(['Item', 61, 'Has its own text']);
@@ -259,7 +262,10 @@ describe('entryView', () => {
         ],
       ],
     ]);
+    expect(view(40, data).summary).toBe('2 share this text: 2 items.');
     expect(view(30, data).blocks[0]![0]).toBe('Base frames');
+    data.items[50] = item(50, 'Solo', 'weapon-trait');
+    expect(view(50, data).summary).toBe('Only 1 item uses this text.');
     expect(view(10, data).blocks[0]![1]).toContainEqual(['Item', 20, 'Same-name copy']);
     data.items[20] = item(20, 'Rampage', 'weapon-trait', { sandboxPerkHashes: [700] });
     data.sandboxConflicts = { 700: [10, 20] };

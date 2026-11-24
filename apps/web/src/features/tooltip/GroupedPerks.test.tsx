@@ -124,7 +124,9 @@ describe('GroupedPerks', () => {
       expect(row.querySelector('a')?.getAttribute('href')).toBe('/sandbox-perks?perk=600');
       expect(row.querySelector('button')).toBeNull();
     }
-    expect(host.textContent).toContain('3 items, 2 perk effects (1 not attached)');
+    expect(host.textContent).toContain(
+      '4 share this text: 3 items, 1 perk effect. 1 more perk effect is not attached.',
+    );
     expect(host.textContent).not.toMatch(/canonical|alias|pointer|\bvia\b|sandbox|manifest/i);
   });
 });

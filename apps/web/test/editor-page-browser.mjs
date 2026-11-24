@@ -293,7 +293,7 @@ try {
       assert.equal(await page.locator('.cm-editor').count(), 2, `${label}: base stays mounted`);
       assert.match(
         await page.locator('[role="group"][aria-label="Editor tools"]').innerText(),
-        /Enhanced version/,
+        /Enhanced/,
       );
       assert.match(await page.locator('.cm-content').nth(1).innerText(), /Enhanced override text/);
       await page.screenshot({ path: out('override-open-1280') });

@@ -158,7 +158,7 @@ export interface EntryBlock {
 }
 export interface EntryView {
   blocks: EntryBlock[];
-  /** "2 items, 2 perk effects (1 not attached)". */
+  /** "3 share this text: 2 items, 1 perk effect. 1 more perk effect is not attached." */
   summary: string;
 }
 
@@ -166,6 +166,8 @@ const joinedLabel: Partial<Record<JoinReason, string>> = {
   alias: 'Same-name copy',
   numbered: 'Numbered copy',
 };
+
+const textHere = 'Text is here';
 
 function kindOf(perk: GroupedPerk, data: EditorData | null): EntryRow['kind'] {
   const item = data?.items[perk.hash];
@@ -180,7 +182,7 @@ function markOf(
   canonical: number,
   data: EditorData | null,
 ): Pick<EntryRow, 'mark' | 'joined'> {
-  if (perk.reason === 'canonical') return { mark: 'Text is here' };
+  if (perk.reason === 'canonical') return { mark: textHere };
   if (!data || (perk.reason !== 'enhanced' && perk.reason !== 'variant'))
     return { joined: joinedLabel[perk.reason] };
   if (variantForm(canonical, perk.hash, data) === 'derived') return {};
@@ -259,6 +261,7 @@ export function entryView(perks: readonly GroupedPerk[], data: EditorData | null
         : markOf(perk, canonical, data)),
     });
   }
+  const grouped = [...rows.base, ...rows.enhanced, ...rows.other];
   const members = new Set(perks.map((perk) => perk.hash));
   const unattached = [...listedBy].filter(([hash]) => !members.has(hash));
   for (const [hash, sides] of unattached.sort(([left], [right]) => left - right))
@@ -281,16 +284,25 @@ export function entryView(perks: readonly GroupedPerk[], data: EditorData | null
       enhanced: side === 'enhanced',
       rows: rows[side],
     })),
-    summary: summarise(perks, unattached.length, data),
+    summary: summarise(grouped, unattached.length),
   };
 }
 
-function summarise(perks: readonly GroupedPerk[], unattached: number, data: EditorData | null) {
-  const kinds = perks.map((perk) => kindOf(perk, data));
-  const counts = (['Item', 'Keyword', 'Custom tooltip', 'Perk effect'] as const).flatMap((kind) => {
-    const count =
-      kinds.filter((value) => value === kind).length + (kind === 'Perk effect' ? unattached : 0);
+/** Adds up to the button's count; unattached perk effects come on top. */
+function summarise(rows: readonly EntryRow[], unattached: number) {
+  const kinds = ['Item', 'Keyword', 'Custom tooltip', 'Perk effect'] as const;
+  const counts = kinds.flatMap((kind) => {
+    const count = rows.filter((row) => row.kind === kind).length;
     return count ? `${count} ${kind.toLowerCase()}${count === 1 ? '' : 's'}` : [];
   });
-  return `${counts.join(', ')}${unattached ? ` (${unattached} not attached)` : ''}`;
+  const together = rows.some((row) => row.mark && row.mark !== textHere)
+    ? 'are grouped here'
+    : 'share this text';
+  const grouped =
+    rows.length === 1
+      ? `Only ${counts[0]} uses this text.`
+      : `${rows.length} ${together}: ${counts.join(', ')}.`;
+  return unattached
+    ? `${grouped} ${unattached} more perk effect${unattached === 1 ? ' is' : 's are'} not attached.`
+    : grouped;
 }

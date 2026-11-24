@@ -305,8 +305,10 @@ function DesktopToolRow({
   inactiveMenuControl,
   inactiveHash,
   markHash,
-  reserveDraft = false,
+  reserveDraft: reserve = false,
 }: Parameters<typeof EditorPaneHeader>[0]) {
+  // With a version open the line is at its fullest: the first edit must not move the text.
+  const reserveDraft = reserve || !!activeOverride;
   const right = useRef<HTMLSpanElement>(null);
   const present: Record<SpillTool, boolean> = {
     grouped: !!grouped,
@@ -374,10 +376,7 @@ function DesktopToolRow({
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
       {destination}
-      {activeOverride && (
-        // A narrow line says "↑ Enhanced", then ellipsises.
-        <OverrideTag target={activeOverride} several={overrides.length > 1} />
-      )}
+      {activeOverride && <OverrideTag target={activeOverride} several={overrides.length > 1} />}
       {!draft && !reserveDraft && (
         // Holds the place of the draft dot and Discard on a phone, where this row wraps, so the
         // first edit does not push the text down. It takes no space elsewhere.
@@ -502,13 +501,7 @@ function OverrideTag({ target, several }: { target: OverrideTarget; several: boo
   return (
     <span className={styles.overrideTag} title={`Enhanced version${name}`}>
       <EnhancedArrow />
-      <span className={styles.ell}>
-        <span className={styles.overrideLong}>Enhanced version</span>
-        <span className={styles.overrideShort} aria-hidden="true">
-          Enhanced
-        </span>
-        {name}
-      </span>
+      <span className={styles.ell}>Enhanced{name}</span>
     </span>
   );
 }

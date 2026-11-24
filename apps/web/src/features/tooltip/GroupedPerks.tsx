@@ -75,6 +75,16 @@ export function GroupedPerks({
                     />
                   )}
                 </span>
+                {row.unattached?.review && (
+                  <span className={styles.actions}>
+                    <Link
+                      to={`/sandbox-perks?perk=${row.hash}`}
+                      aria-label={`Review ${row.hash} on the Sandbox perks page`}
+                    >
+                      Review
+                    </Link>
+                  </span>
+                )}
                 {row.perk && currentHash !== undefined && row.hash !== currentHash && (
                   <span className={styles.actions}>
                     <InactiveMoveControl
@@ -100,29 +110,14 @@ export function GroupedPerks({
   );
 }
 
-function Notes({ row: { hash, perk, mark, joined, unattached } }: { row: EntryRow }) {
+function Notes({ row: { perk, mark, joined, unattached } }: { row: EntryRow }) {
   const shared = perk?.sharedBy && new Intl.ListFormat('en').format(perk.sharedBy);
   return (
     <>
       {mark && <strong>{mark}</strong>}
       {joined && <span>{joined}</span>}
       {shared && <span>Shared by {shared}</span>}
-      {unattached && (
-        <span title={unattached.others}>
-          {unattached.why}
-          {unattached.review && (
-            <>
-              {' '}
-              <Link
-                to={`/sandbox-perks?perk=${hash}`}
-                aria-label={`Review ${hash} on the Sandbox perks page`}
-              >
-                Review
-              </Link>
-            </>
-          )}
-        </span>
-      )}
+      {unattached && <span title={unattached.others}>{unattached.why}</span>}
     </>
   );
 }
