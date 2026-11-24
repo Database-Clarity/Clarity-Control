@@ -7,6 +7,8 @@ export interface PublishAnswer {
   status: RemoteStatus;
   refusal?: string;
   regroupable?: false;
+  /** A finished request with globals: the ids that went live, and why the others did not. */
+  globals?: { live: string[]; refused: { id: string; error: string }[] };
 }
 export const terminalStatuses = ['done', 'unchanged', 'stale', 'rejected', 'failed'] as const;
 
@@ -74,6 +76,16 @@ async function send(path: string, init?: RequestInit): Promise<{ status: number;
   return { status: response.status, value };
 }
 
+const globalResult = (result: unknown): NonNullable<PublishAnswer['globals']> => {
+  const parsed = z
+    .object({
+      globals: z.array(z.string()).optional(),
+      globalRefusals: z.array(z.object({ id: z.string(), error: z.string() })).optional(),
+    })
+    .safeParse(result).data;
+  return { live: parsed?.globals ?? [], refused: parsed?.globalRefusals ?? [] };
+};
+
 /**
  * Submits (or re-submits, byte-identical) one operation. 202 = queued; 200 = already finished, with the
  * terminal status recovered from the Worker's log. Anything else is a PublishHttpError.
@@ -107,7 +119,10 @@ export async function postPublish(body: PublishBody): Promise<PublishAnswer> {
   const prefix = 'ConsumerOutputRejected: ';
   return resolved === 'rejected' && typeof error === 'string' && error.startsWith(prefix)
     ? { status: resolved, refusal: error.slice(prefix.length) }
-    : { status: resolved };
+    : {
+        status: resolved,
+        ...(body.globals ? { globals: globalResult(complete.data.result) } : {}),
+      };
 }
 
 /** `unknown` = the Worker has neither a request nor a log for this opId (a lost 202, or a typo). */

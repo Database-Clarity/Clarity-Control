@@ -27,6 +27,8 @@ export interface PublishOp {
   expected: Record<string, string>;
   /** Globals published by this request, with the reviewed definition; the name is for display. */
   globals?: { id: string; expected: string; name: string }[];
+  /** Globals a finished request left out; the rest of it went live. */
+  refusedGlobals?: { id: string; name: string; error: string }[];
   /** The pushed marker each hash had when confirmed (null = none), for the acknowledgment overlay. */
   previous: Record<string, string | null>;
   status: OpStatus;
@@ -221,6 +223,7 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
     merged.status = current.status;
     merged.error = current.error;
     merged.refusal = current.refusal;
+    merged.refusedGlobals = current.refusedGlobals;
     merged.regroupable = current.regroupable;
     merged.receiptChecked = current.receiptChecked;
   }

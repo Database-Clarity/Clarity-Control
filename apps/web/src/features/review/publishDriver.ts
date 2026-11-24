@@ -659,6 +659,26 @@ export class PublishDriver {
   private async adopt(opId: string, remote: RemoteStatus, answer?: PublishAnswer) {
     const op = this.current(opId);
     if (!op) return;
+    const finished = remote === 'done' || remote === 'unchanged';
+    // The status says that the request finished, not which of several changes it left out.
+    if (finished && op.globals && op.globals.length + op.hashes.length > 1 && !answer?.globals) {
+      const generation = this.generation;
+      try {
+        answer = await this.deps.api.post(publishBody(op));
+      } catch (reason) {
+        if (generation !== this.generation) return;
+        const status = reason instanceof PublishHttpError ? reason.status : 0;
+        if (status === 401) {
+          this.paused.add(opId);
+          this.note(opId, 'Sign in again to continue; nothing is lost.');
+          return;
+        }
+        if (status !== 403 && status !== 409)
+          return this.note(opId, 'Checking which globals went live.');
+      }
+      if (generation !== this.generation) return;
+    }
+    const refusedGlobals = finished && answer?.globals ? leftOut(op, answer.globals) : [];
     if (remote === 'rejected' && !answer) {
       const generation = this.generation;
       if (op.status !== 'rejected') {
@@ -700,6 +720,7 @@ export class PublishDriver {
       status: remote,
       acceptedAt: op.acceptedAt ?? this.deps.now(),
       ...(remote === 'rejected' && answer ? { receiptChecked: true } : {}),
+      ...(refusedGlobals.length ? { refusedGlobals } : {}),
       ...(refusal !== undefined
         ? {
             refusal,
@@ -1036,6 +1057,14 @@ export class PublishDriver {
         );
     }
   }
+}
+
+function leftOut(op: PublishOp, { live, refused }: NonNullable<PublishAnswer['globals']>) {
+  return (op.globals ?? []).flatMap(({ id, name }) =>
+    live.includes(id)
+      ? []
+      : [{ id, name, error: refused.find((entry) => entry.id === id)?.error ?? '' }],
+  );
 }
 
 /** Names up to ten tooltips, then "and N more", so the reason after the list is never lost. */

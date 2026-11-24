@@ -8,6 +8,7 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
+import type { GlobalPart } from './globalRows';
 import type { PendingTooltip } from './model';
 import { exportedText } from './published';
 
@@ -97,51 +98,45 @@ export function neededGlobals(
   pending: readonly PendingTooltip[],
   data: EditorData,
 ): { global: PendingTooltip; by: PendingTooltip }[] {
-  const fresh = new Map<string, PendingTooltip>(
-    pending.flatMap((entry) =>
-      entry.part?.pending?.change === 'new'
-        ? [[`${entry.part.kind}:${entry.name}`, entry] as const]
-        : [],
-    ),
-  );
-  if (!fresh.size) return [];
-  const everywhere = (body: (lang: Lang) => string) =>
-    Object.fromEntries(languages.map((lang) => [lang, { body: body(lang) }]));
-  // Only what a text itself names counts: a published global's own pending text is not read.
-  const saved = globalsInPlaceDefinitions(data.bundle.globals?.entries ?? []);
-  const definitions = Object.fromEntries(
-    Object.entries(saved).map(([kind, entries]) => [
-      kind,
-      Object.fromEntries(
-        Object.entries(entries).map(([name, entry]) => [
-          name,
-          everywhere((lang) =>
-            fresh.has(`${kind}:${name}`) ? ((entry[lang] ?? entry.en)?.body ?? '') : '',
-          ),
-        ]),
-      ),
-    ]),
-  );
-  const included = new Set(chosen);
-  const needed: { global: PendingTooltip; by: PendingTooltip }[] = [];
-  for (const by of included)
-    for (const lang of languages) {
-      const text = exportedText(by.tooltip, lang);
-      if (![...fresh.values()].some(({ name }) => text.includes(name))) continue;
+  const fresh = pending.filter(({ part }) => part?.pending?.change === 'new');
+  if (!fresh.length) return [];
+  // Only what a text itself names counts, so the other definitions are empty.
+  const names = globalsInPlaceDefinitions(data.bundle.globals?.entries ?? []);
+  const empty = Object.fromEntries(languages.map((lang) => [lang, { body: '' }]));
+  const uses = (tooltip: Tooltip, { kind, name }: GlobalPart) => {
+    const definitions = Object.fromEntries(
+      Object.entries(names).map(([other, entries]) => [
+        other,
+        Object.fromEntries(
+          Object.keys(entries)
+            .filter((entry) => other !== kind || entry !== name)
+            .map((entry) => [entry, empty]),
+        ),
+      ]),
+    );
+    return languages.some((lang) => {
+      const text = exportedText(tooltip, lang);
+      if (!text.includes(name)) return false;
       try {
         resolveGlobalsInPlace(text, lang, {
           definitions,
-          onRead(kind, name) {
-            const global = fresh.get(`${kind}:${name}`);
-            if (!global || included.has(global)) return;
-            included.add(global);
-            needed.push({ global, by });
-          },
+          unavailable: { [kind]: new Set([name]) },
         });
-      } catch {
-        // A text that cannot be resolved is refused when it publishes.
+        return false;
+      } catch (reason) {
+        // The publisher's own reason; a text that fails otherwise is refused when it publishes.
+        return String(reason).includes(`Publish the shared change for ${name} first.`);
       }
-    }
+    });
+  };
+  const included = new Set(chosen);
+  const needed: { global: PendingTooltip; by: PendingTooltip }[] = [];
+  for (const by of included)
+    for (const global of fresh)
+      if (!included.has(global) && uses(by.tooltip, global.part!)) {
+        included.add(global);
+        needed.push({ global, by });
+      }
   return needed;
 }
 

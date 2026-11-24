@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GlobalEntryWorkspace } from '../src/features/globals/GlobalEntryWorkspace';
 import type { GlobalHistoryReader } from '../src/features/globals/GlobalHistory';
-import type { GlobalSnapshot, GlobalsService } from '../src/services/globals';
+import type { GlobalActor, GlobalSnapshot, GlobalsService } from '../src/services/globals';
 import { fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
 import { useGlobalDraftStorage } from '../src/features/globals/globalDrafts';
 import { useDataStore, type EditorData } from '../src/stores/data';
@@ -73,7 +73,12 @@ function service(snapshot: GlobalSnapshot = globalFixtureSnapshot) {
   };
 }
 
-async function mount(at: string, globals: GlobalsService, history?: GlobalHistoryReader) {
+async function mount(
+  at: string,
+  globals: GlobalsService,
+  history?: GlobalHistoryReader,
+  actor: GlobalActor = { role: 'maintainer', languages: [] },
+) {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   host = document.createElement('div');
   document.body.append(host);
@@ -81,12 +86,7 @@ async function mount(at: string, globals: GlobalsService, history?: GlobalHistor
   const element = () => (
     <>
       <Where />
-      <GlobalEntryWorkspace
-        service={globals}
-        actor={{ role: 'maintainer', languages: [] }}
-        history={history}
-        entryId=""
-      />
+      <GlobalEntryWorkspace service={globals} actor={actor} history={history} entryId="" />
     </>
   );
   function Routed() {
@@ -94,12 +94,7 @@ async function mount(at: string, globals: GlobalsService, history?: GlobalHistor
     return (
       <>
         <Where />
-        <GlobalEntryWorkspace
-          service={globals}
-          actor={{ role: 'maintainer', languages: [] }}
-          history={history}
-          entryId={id}
-        />
+        <GlobalEntryWorkspace service={globals} actor={actor} history={history} entryId={id} />
       </>
     );
   }
@@ -222,6 +217,38 @@ it('reviews no tooltip impact and waits for no sync once globals fill in tooltip
   expect([...host.querySelectorAll('select')].some((n) => n.textContent?.includes('acknow'))).toBe(
     false,
   );
+});
+
+it('lets a translator withdraw their own translation once globals fill in tooltips', async () => {
+  const snapshot = structuredClone(globalFixtureSnapshot);
+  const entry = snapshot.entries[0]!;
+  entry.definitions.de = { ...entry.definitions.en! };
+  useDataStore.setState({
+    data: {
+      items: {},
+      categories: [],
+      aliases: {},
+      bundle: { tooltips: {}, pushed: {}, globalsPending: [] },
+    } as unknown as EditorData,
+    status: 'ready',
+  });
+  const open = async (lang: string) => {
+    await mount(`/globals/${entry.id}?lang=${lang}`, service(snapshot), undefined, {
+      role: 'translator',
+      languages: ['de'],
+    });
+    const found = [...document.querySelectorAll('button')].find((n) => n.textContent === 'Actions');
+    await act(async () => found?.click());
+    const labels = [...document.querySelectorAll('[role="dialog"] button')].map(
+      (n) => n.textContent,
+    );
+    await act(async () => root!.unmount());
+    host.remove();
+    return labels;
+  };
+  expect(await open('de')).toContain('Remove language');
+  expect(await open('de')).not.toContain('Create global');
+  expect(await open('en')).toEqual([]);
 });
 
 it('recovers reviews from a newer Worker head without replacing the draft or reloading the catalogue', async () => {

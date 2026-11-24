@@ -64,6 +64,17 @@ export function describeOp(
         ? tooltipCount
         : `${tooltipCount} · ${when(startedAt)}`;
   const base = { opId: op.opId, lead, waiting: false, finished: isTerminal(op.status) };
+  // What a finished request left out waits in Review; the rest is live.
+  const refused = op.refusedGlobals ?? [];
+  if (refused.length && (op.status === 'done' || op.status === 'unchanged'))
+    return {
+      ...base,
+      tone: 'warn',
+      chip: 'Partly live',
+      detail: `Not published: ${refused
+        .map(({ name, error }) => `${name}${error && ` (${error.replace(/[.]$/, '')})`}`)
+        .join('; ')}.`,
+    };
   switch (op.status) {
     case 'created':
       return {
@@ -173,6 +184,7 @@ export function groupPublishes(
     const tooltips = members.reduce((total, op) => total + op.hashes.length, 0);
     const count = members.reduce((total, op) => total + changeCount(op), 0);
     const globals = members.flatMap((op) => op.globals ?? []);
+    const refusedGlobals = members.flatMap((op) => op.refusedGlobals ?? []);
     const missing =
       first.groupHashCount === undefined
         ? members.length < (first.groupSize ?? members.length)
@@ -207,6 +219,7 @@ export function groupPublishes(
         syncPendingSince: unfinished?.syncPendingSince,
         hashes: members.flatMap((op) => op.hashes),
         ...(globals.length ? { globals } : {}),
+        ...(refusedGlobals.length ? { refusedGlobals } : {}),
         status: missing
           ? 'failed'
           : unfinished

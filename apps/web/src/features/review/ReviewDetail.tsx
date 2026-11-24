@@ -65,6 +65,7 @@ function Sentence({
   const late = useDelayed(
     compares && (waiting || (published?.status === 'ready' && !classification)),
   );
+  const pending = entry.part?.pending;
   const noun = entry.part ? entry.part.kind.slice(0, -1) : 'tooltip';
   if (entry.unpublishable)
     return (
@@ -116,6 +117,12 @@ function Sentence({
         </p>
       );
     case 'Definition changed':
+      if (pending && !changesText(entry))
+        return (
+          <p className={styles.sentence}>
+            <b>Definition changed.</b> Its text is the same.
+          </p>
+        );
       return (
         <p className={styles.sentence}>
           <b>Definition changed.</b> It uses other entries or tooltips, so its output may change
@@ -140,7 +147,10 @@ function Sentence({
     case 'Renamed':
       return (
         <p className={styles.sentence}>
-          <b>Renamed {noun}.</b> Tooltips that use it keep showing its text.
+          <b>Renamed {noun}.</b>{' '}
+          {changesText(entry)
+            ? 'Its text changed too.'
+            : 'Tooltips that use it keep showing its text.'}
         </p>
       );
     case 'Removed':
@@ -197,6 +207,17 @@ function Sentence({
       )}
     </div>
   );
+}
+
+/** A pending global's text differs in some language. */
+const changesText = ({ part }: PendingTooltip) =>
+  languages.some((lang) => part?.source.before[lang] !== part?.source.after[lang]);
+
+/** Languages a global lists with equal text: a translation became, or stopped being, up to date. */
+function sameTextLanguages({ change, languages: cells }: PendingGlobal) {
+  return change === 'renamed'
+    ? []
+    : languages.filter((lang) => cells[lang] && cells[lang].before === cells[lang].after);
 }
 
 /** A pending global: the published tooltips that get its new text when it publishes. */
@@ -629,7 +650,15 @@ export const ReviewDetail = memo(function ReviewDetail({
         onRetry={onRetry}
       />
       {pending ? (
-        <UpdatedTooltips pending={pending} />
+        <>
+          {sameTextLanguages(pending).length > 0 && (
+            <p className={styles.note}>
+              {list(sameTextLanguages(pending).map((lang) => languageLabel(lang)))} keeps its text,
+              but tooltips may switch between it and English.
+            </p>
+          )}
+          <UpdatedTooltips pending={pending} />
+        </>
       ) : (
         part && <GlobalNote entry={entry} part={part} />
       )}

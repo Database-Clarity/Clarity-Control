@@ -52,6 +52,11 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
   if (entry.markerOnly) return { kind: 'Leftover' };
   if (entry.part?.change === 'removed') return { kind: 'Removed' };
   if (entry.part?.change === 'renamed') return { kind: 'Renamed' };
+  if (
+    entry.part?.pending?.change === 'changed' &&
+    languages.every((lang) => entry.part!.source.before[lang] === entry.part!.source.after[lang])
+  )
+    return { kind: 'Definition changed' };
   if (entry.part?.change === 'same-text')
     return { kind: usesOthers(entry.tooltip) ? 'Definition changed' : 'Output unchanged' };
   if (entry.isNew) return { kind: 'New' };

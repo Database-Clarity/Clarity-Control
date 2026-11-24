@@ -148,6 +148,13 @@ it('lists one ordinary row per pending global, and no tooltip it changes', async
   expect(localKind(by.Moved!)).toEqual({ kind: 'On hold' });
   expect(editorPath(by.G_refill!)).toBe(`/globals/${ids.refill}`);
   expect(editorPath(by.gone!)).toBe('/globals');
+  // Only whether a translation counts as up to date changed: no claim that nothing changes.
+  const availability = pending();
+  availability[0]!.languages = { de: { before: 'Notiz', after: 'Notiz' } };
+  const [first] = (await pendingTooltips(await state(availability))).filter(
+    ({ name }) => name === 'G_refill',
+  );
+  expect(localKind(first!)).toEqual({ kind: 'Definition changed' });
   // No history request is made for a global.
   expect(publishedRows(entries).map(({ hash }) => hash)).toEqual([12, 13]);
   const groups = queueView(entries, '', '', new Set(), 'hidden').items.filter(

@@ -28,7 +28,11 @@ export const publishDriver = new PublishDriver({
         ? {
             globals: {
               ...state.globals,
-              ...Object.fromEntries(op.globals.map(({ id, expected }) => [id, expected])),
+              ...Object.fromEntries(
+                op.globals
+                  .filter(({ id }) => !op.refusedGlobals?.some((refused) => refused.id === id))
+                  .map(({ id, expected }) => [id, expected]),
+              ),
             },
           }
         : {}),

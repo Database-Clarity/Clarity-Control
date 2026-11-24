@@ -584,7 +584,9 @@ function Workspace({
     [paneViews.map(([, label]) => label).join('|'), shownTab, disabled, params],
   );
 
-  const actions = actor && actor.role !== 'translator' && (
+  // A translation can be withdrawn by whoever edits it: tooltips then show English as a whole.
+  const withdrawable = filled && editable && lang !== 'en' && !!entry?.definitions[lang];
+  const actions = actor && (actor.role !== 'translator' || withdrawable) && (
     <GlobalActions
       className={page.ghost}
       open={actionsOpen}
@@ -594,6 +596,8 @@ function Workspace({
       blocked={dirty || reviewOpen}
       reviewsMissing={reviewsMissing}
       filled={filled}
+      withdrawable={withdrawable}
+      translator={actor.role === 'translator'}
       referenced={savedImpacts.length > 0 || allRows.some((row) => row.direct || row.via.length)}
       structural={structural}
       maintainer={actor.role === 'maintainer'}
@@ -1364,6 +1368,8 @@ function GlobalActions({
   blocked,
   reviewsMissing,
   filled,
+  withdrawable,
+  translator,
   entry,
   lang,
   onSubmit,
@@ -1379,6 +1385,8 @@ function GlobalActions({
   blocked: boolean;
   reviewsMissing: boolean;
   filled: boolean;
+  withdrawable: boolean;
+  translator: boolean;
   entry?: GlobalEntry;
   lang: Lang;
   onSubmit(mutation: GlobalMutation): Promise<boolean>;
@@ -1392,7 +1400,8 @@ function GlobalActions({
   const [kind, setKind] = useState<GlobalEntry['kind']>('variables');
   const [body, setBody] = useState('');
   const removing = action === 'remove' || action === 'remove-language';
-  const submitDisabled = pending || blocked || reviewsMissing || (removing && referenced);
+  const inUse = removing && referenced && !(withdrawable && action === 'remove-language');
+  const submitDisabled = pending || blocked || reviewsMissing || inUse;
   const label = !action
     ? 'Global actions'
     : action === 'create'
@@ -1421,10 +1430,14 @@ function GlobalActions({
           <div className={styles.actionMenu}>
             {(
               [
-                ['create', 'Create global', true],
+                ['create', 'Create global', !translator],
                 ['rename', 'Rename', entry && structural],
                 ['remove', 'Remove', entry && maintainer],
-                ['remove-language', 'Remove language', entry?.definitions[lang] && maintainer],
+                [
+                  'remove-language',
+                  'Remove language',
+                  withdrawable || (entry?.definitions[lang] && maintainer),
+                ],
               ] as const
             ).map(
               ([value, title, allowed]) =>
@@ -1509,7 +1522,9 @@ function GlobalActions({
             )}
             <p>
               {removing
-                ? `Remove ${action === 'remove-language' ? `the ${languageLabel(lang)} definition` : 'this unused global in every language'}? The server checks saved, live, and upcoming references.`
+                ? withdrawable && action === 'remove-language'
+                  ? `Remove the ${languageLabel(lang)} definition? Tooltips that use it then show English in ${languageLabel(lang)}.`
+                  : `Remove ${action === 'remove-language' ? `the ${languageLabel(lang)} definition` : 'this unused global in every language'}? The server checks saved, live, and upcoming references.`
                 : action === 'rename'
                   ? 'Rename the stable entry and rewrite exact reference tokens in one transaction.'
                   : `Create a definition in ${languageLabel(lang)}.`}
@@ -1526,7 +1541,7 @@ function GlobalActions({
               </button>
               <button disabled={submitDisabled}>{pending ? 'Working…' : label}</button>
             </div>
-            {(blocked || (removing && referenced)) && (
+            {(blocked || inUse) && (
               <p>Finish or discard your draft first. Removal also requires zero references.</p>
             )}
           </form>

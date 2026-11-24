@@ -19,6 +19,10 @@ names. "Output unchanged" is an entry whose text is the same and only its declar
 export that was hidden), and whose text uses nothing else; one that uses an import, a variable, or a
 title reads "Definition changed", because what it uses is not compared here. Until the published file is known, every saved entry is listed without a word.
 
+With `globalsPending` in the bundle (even empty) the files are gone: each pending global is one
+ordinary row (`globalsPending.ts`) with its own tick, published by id and digest. A negative number
+stands in for its tooltip hash within the tab. A new global that a chosen text uses publishes along.
+
 Row words (`kinds.ts`): New, Removed, Restored, On hold, and Leftover are known locally. Text
 changed, No visible change, and Links changed come from the published text (`published.ts`): it is
 loaded once in the background for every published change (a few `GET /history/:hash?live=1` at a

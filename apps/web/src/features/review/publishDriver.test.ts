@@ -204,7 +204,11 @@ it.each([false, true])(
     );
     vi.setSystemTime(Date.now() + 10_000);
     await resumed.start('1');
-    const retried = h.api.post.mock.calls.slice(3).map(([body]) => body);
+    // The first part's globals are read from its receipt; that is not a retry.
+    const retried = h.api.post.mock.calls
+      .slice(3)
+      .map(([body]) => body)
+      .filter(({ opId }) => opId !== admitted[0]!.opId);
     expect(retried.slice(0, 2)).toEqual(refused);
     expect(retried[2]?.hashes).toEqual(refused.flatMap(({ hashes }) => hashes));
     expect(retried[2]?.expected).toEqual(
@@ -248,6 +252,37 @@ it('publishes globals alone, keeps them across a reload and a refusal, and holds
   await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) * 3);
   expect(op()).toMatchObject({ status: 'rejected', error: 'G_refill: Tooltip 10: no.' });
   resumed.stop();
+});
+
+it('reads which globals a finished request left out, and says so', async () => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  const globals = ['a', 'b'].map((name) => ({ id: `g_${name}0000000`, expected: digest(3), name }));
+  await driver.create([inputs[0]!], globals);
+  await settle();
+  h.api.status.mockResolvedValue('done');
+  h.api.post.mockRejectedValueOnce(new PublishHttpError(503, 'busy'));
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  // Not known yet: nothing is called live, and it asks again.
+  expect(op().status).toBe('pending');
+  expect(h.acked).toEqual([]);
+  h.api.post.mockResolvedValue({
+    status: 'done',
+    globals: { live: ['g_a0000000'], refused: [{ id: 'g_b0000000', error: 'Tooltip 10: no.' }] },
+  });
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) * 3);
+  expect(op()).toMatchObject({
+    status: 'done',
+    refusedGlobals: [{ id: 'g_b0000000', name: 'b', error: 'Tooltip 10: no.' }],
+  });
+  const view = describeOp(op(), undefined, Date.now(), () => 'now');
+  expect(view).toMatchObject({
+    chip: 'Partly live',
+    detail: 'Not published: b (Tooltip 10: no).',
+    finished: true,
+  });
+  driver.stop();
 });
 
 it('shows a named changed row without resending its part after another part succeeds', async () => {
