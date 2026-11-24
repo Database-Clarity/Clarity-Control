@@ -36109,7 +36109,8 @@ var Publisher = class _Publisher {
           globalsInPlace
         );
       }
-      if (stableStringify({ ...inPlace?.refills, ...exported }) !== stableStringify(receipt.exported) || stableStringify(inPlace ? this.inPlaceReceipt(inPlace, exported) : null) !== stableStringify(receipt.inPlace ?? null) || stableStringify(
+      const output2 = this.publicationOutput(inPlace, exported);
+      if (stableStringify(output2.exported) !== stableStringify(receipt.exported) || stableStringify(output2.inPlace ?? null) !== stableStringify(receipt.inPlace ?? null) || stableStringify(
         receipt.entries.filter(({ hash: hash2, digest: digest6 }) => !neutral?.has(hash2) && pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2)
       ) !== stableStringify(receipt.changed))
         throw new Error("Publication receipt export or upload markers differ from its snapshots");
@@ -36682,12 +36683,12 @@ var Publisher = class _Publisher {
           ...this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {},
           outcome: "published",
           entries,
-          exported: { ...inPlace?.refills, ...checked.exported },
+          exported: checked.exported,
           changed: entries.filter(({ hash: hash2, digest: digest6 }) => !neutral?.has(hash2) && pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2),
           requester: payload.requester,
           intentDigest: payload.intentDigest,
           ...globals ? { globals } : {},
-          ...inPlace ? { inPlace: this.inPlaceReceipt(inPlace, checked.exported) } : {}
+          ...checked.inPlace ? { inPlace: checked.inPlace } : {}
         };
         candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
       }
@@ -36870,7 +36871,7 @@ var Publisher = class _Publisher {
         error: `The export of tooltip ${unlowered} still holds unlowered markup`,
         proposalRejected: true
       };
-    return { now, exported };
+    return { now, ...this.publicationOutput(inPlace, exported) };
   }
   inPlaceOptions(tree, payload, live) {
     try {
@@ -36903,11 +36904,15 @@ var Publisher = class _Publisher {
       throw new ConsumerOutputRejected(String(error62));
     }
   }
-  inPlaceReceipt(plan, exported) {
+  publicationOutput(plan, exported) {
+    if (!plan) return { exported };
     return {
-      globals: plan.globals,
-      refills: Object.keys(plan.refills).filter((hash2) => !exported[hash2]).map(Number),
-      ...plan.refusals.length ? { refusals: plan.refusals } : {}
+      exported: { ...plan.refills, ...exported },
+      inPlace: {
+        globals: plan.globals,
+        refills: Object.keys(plan.refills).filter((hash2) => !exported[hash2]).map(Number),
+        ...plan.refusals.length ? { refusals: plan.refusals } : {}
+      }
     };
   }
   createCandidate(opId, blob, live, r, previous) {
@@ -37098,7 +37103,7 @@ var Publisher = class _Publisher {
       now: checked.now,
       exported: checked.exported,
       changed: entries.filter(({ hash: hash2, digest: digest6 }) => pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2),
-      ...inPlace ? { inPlace: this.inPlaceReceipt(inPlace, checked.exported) } : {},
+      ...checked.inPlace ? { inPlace: checked.inPlace } : {},
       ...globals ? { globals } : {}
     };
   }
