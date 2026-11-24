@@ -1,12 +1,13 @@
 import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
-import { exportLegacy, ordinaryImportsInBlocks, type Tooltip } from '@clarity/core';
+import { exportLegacy, type Tooltip } from '@clarity/core';
 import {
   buildLegacy,
   bungieIdentical,
   compile,
   newStyleFile,
+  provesInPlace,
   type Catalog,
   type LegacyInput,
 } from '../src/index.js';
@@ -39,6 +40,7 @@ test('checked-in editor data keeps held legacy bytes and format v2 bytes', () =>
   config.data.categories = catalog.categories.map(({ id }) => id);
   const render = (data: LegacyInput) => sha256(compile(data, config, { catalog, identical }).bytes);
   expect(render(resolved)).toBe(render(input));
+  expect(provesInPlace(input, resolved)).toEqual([]);
   const control = structuredClone(readFixtureGlobals(input));
   const note = control.titles?.G_refill?.en;
   if (!note) throw new Error('Expected the refill note in the pinned fixture');
@@ -147,7 +149,7 @@ test('a global note and its caller keep native base and enhanced pairs', () => {
   expect(outputs[1].toString()).toContain('Scorch');
 });
 
-test('appended notes preserve arrows, comments, and spacing through ordinary imports', () => {
+test('local notes preserve arrows, comments, and spacing through ordinary imports', () => {
   const row = (hash: number, text: string) => ({
     hash,
     name: `Trait ${hash}`,
@@ -192,14 +194,12 @@ test('appended notes preserve arrows, comments, and spacing through ordinary imp
   expect(inlineFixtureGlobals(resolved, readFixtureGlobals(input))).toEqual(resolved);
   expect(render(resolved).map((bytes) => bytes.toString().includes('🡅'))).toEqual([true, true]);
 
-  // Slice 2 must use this site and trace imports to detect the generated note's closing line.
-  // The importer remains authored verbatim here, so these bytes demonstrate the boundary.
+  // The importer stays authored verbatim, but is refused when its target gains a generated note.
   const plainTarget = row(200, 'Text <title Read [Help] />');
   const hazard = {
     ...input,
     perks: { ...input.perks, 200: plainTarget, 300: row(300, insideBlock) },
   };
-  expect(ordinaryImportsInBlocks(insideBlock)).toEqual([{ part: 'main', target: '200' }]);
   expect(render(hazard).map((bytes) => bytes.toString().includes('EnhancedOnly'))).toEqual([
     false,
     false,
@@ -207,4 +207,12 @@ test('appended notes preserve arrows, comments, and spacing through ordinary imp
   expect(
     render(inlineFixtureGlobals(hazard)).map((bytes) => bytes.toString().includes('EnhancedOnly')),
   ).toEqual([true, true]);
+  expect(provesInPlace(hazard, inlineFixtureGlobals(hazard))).toContainEqual(
+    expect.objectContaining({
+      hash: '300',
+      language: 'en',
+      part: 'main',
+      message: expect.stringContaining('the shared note Help through the import of Trait 200'),
+    }),
+  );
 });

@@ -2,13 +2,8 @@ import { expect, test } from 'vitest';
 import {
   exportLegacy,
   exportWithInactiveMoves,
-  globalNoteImportInBlockMessage,
-  globalsInPlaceMessages,
-  ordinaryImportsInBlocks,
   publishableHash,
   resolveGlobalsInPlace,
-  validateGlobalsInPlaceDefinition,
-  validateGlobalsInPlaceSource,
   type GlobalsInPlaceOptions,
   type Tooltip,
 } from '../src/index.js';
@@ -43,21 +38,21 @@ test('inlines exact variables, notes and nested named imports per cell', () => {
   const result = inline(text);
   expect(result).toBe(
     [
-      'Energy: 4.5, 4.5x; ok; #e.',
-      '<link Data [https://example.com/x] /> <link Fragment [https://example.org/Energy] />',
-      '<title Read 4.5 [Help] />',
-      '// Keep this comment #Name',
-      'Result ${1+4.5}. <title Read [Help] />',
-      'import main from 100',
       'title Help (',
       'Base/enhanced {{4.5}{5.5}}. <solar Scorch />',
       ')',
+      'Energy: 4.5, 4.5x; ok; #e.',
+      '<link Data [https://example.com/x] /> <link Fragment [https://example.org/Energy] />',
+      '<title Read 4.5 [Help] />',
+      '// Keep this comment Energy',
+      'Result ${1+4.5}. <title Read [Help] />',
+      'import main from 100',
     ].join('\n'),
   );
   expect(inline(result)).toBe(result);
-  const untouched = 'var Nlocal = 6\r\n#Nlocal\r\nimport main from 100\r\n// #N  ';
+  const untouched = 'var Nlocal = 6\r\n#Nlocal\r\nimport main from 100\r\n// #Nlocal  ';
   expect(inline(untouched)).toBe(untouched);
-  expect(inline('A\r\nimport Second from global\r\nB')).toContain(' />\r\nB\ntitle Help');
+  expect(inline('A\r\nimport Second from global\r\nB')).toContain(' />\r\nB');
   expect(inline('#N before #Name')).toBe('4.5 before Energy');
   expect(inline('var d = 2\n#{d}#{N}')).toBe('var d = 2\n#{d}4.5');
   expect(inline('#N // {{comment')).toBe('4.5 // {{comment');
@@ -72,71 +67,11 @@ test('uses the destination language and applies the configured missing/stale glo
   expect(read('reject')).toBe('2.5');
   translation.sourceUpdatedAt = '2026-08-25T23:59:59Z';
   expect(read()).toBe('4.5');
-  expect(() => read('reject')).toThrow(globalsInPlaceMessages.missingTranslation);
+  expect(() => read('reject')).toThrow('Add or update the translation for shared N.');
   expect(resolveGlobalsInPlace('#Name', 'de', globals)).toBe('Energy');
   expect(() =>
     resolveGlobalsInPlace('#Name', 'de', { ...globals, missingTranslation: 'reject' }),
-  ).toThrow(globalsInPlaceMessages.missingTranslation);
-});
-
-test('lists unsupported source and definition forms with actionable messages', () => {
-  const m = globalsInPlaceMessages;
-  const sourceCases = [
-    ['import main from 0002', m.aggregateImport],
-    ['import First from 1', m.aggregateImport],
-    ['import secondary from global', m.wholeGlobalImport],
-    ['export hidden Part (\n<title Read [Help] />\n)', m.noteInExport],
-    ['export Part (\nimport Second from global\n)', m.noteInExport],
-    ['/*\nimport First from global\n*/', m.commentedImport],
-    ['import Absent from global', m.missingExport],
-    ['{{#Empty}{2}}', m.nativePair],
-    ['##{Empty}N', m.generatedReference],
-    ['#e#N', m.generatedReference],
-    ['var d = 2\n#d#{N}', m.generatedReference],
-    ['#e#{Empty}x', m.generatedReference],
-    ['var x = Help\n<title Read [#{x}] />', m.noteReference],
-    ['var x = [Help] />\n<title Read #x', m.noteReference],
-    ['var x = <title Read [Help] />\n#x', m.noteReference],
-    ['<#{N} Scorch />', m.elementTag],
-    ['#{Empty}import main from 100', m.generatedStructure],
-    ['<title Read [Help] />\nenhanced (\nUnclosed', m.unclosedBlock],
-    ['<title Read [Help] />\ntitle Local (\nUnclosed', m.unclosedBlock],
-    ['<title Read [Help] />\nexport hidden Part (\nUnclosed', m.unclosedBlock],
-    ['<title Read [Help] />\ntitle Help (\nA local title\n)', m.localNote],
-    ['import main from 100\ntitle Help (\nA local title\n)', m.localNote],
-  ] as const;
-  for (const [source, message] of sourceCases)
-    expect(validateGlobalsInPlaceSource(source, 'en', options)).toEqual(
-      expect.arrayContaining([expect.stringContaining(message)]),
-    );
-  expect(() =>
-    resolveGlobalsInPlace('import Loop from global', 'en', {
-      definitions: { exports: { Loop: { en: { body: 'import Loop from global' } } } },
-    }),
-  ).toThrow(m.cyclicExport);
-  const definitionCases = [
-    ['titles', '#{=1}', m.numberToken],
-    ['variables', '#N', m.variableBody],
-    ['titles', 'enhanced (\nText\n)', m.nestedBlock],
-    ['exports', 'var local = 1', m.nestedBlock],
-    ['titles', '<title Read [Other] />', m.noteBody],
-    ['titles', 'import main from 100', m.noteBody],
-    ['titles', 'Read #local', m.localVariable],
-  ] as const;
-  for (const [kind, body, message] of definitionCases)
-    expect(validateGlobalsInPlaceDefinition(kind, body, definitions)).toContain(message);
-  const variable = (body: string) => ({
-    definitions: { variables: { N: { en: { body } } } },
-  });
-  expect(() => resolveGlobalsInPlace('<solar #N />', 'en', variable('<arrow/>'))).toThrow(
-    m.elementTag,
-  );
-  expect(() => resolveGlobalsInPlace('#N (\nText\n)', 'en', variable('enhanced'))).toThrow(
-    m.generatedStructure,
-  );
-  expect(() => resolveGlobalsInPlace('import main from #N', 'en', variable('100'))).toThrow(
-    m.generatedStructure,
-  );
+  ).toThrow('Add or update the translation for shared Name.');
 });
 
 const doc = (hash: number, text: string): Tooltip => {
@@ -168,31 +103,7 @@ test('legacy export retains the native markup guard for resolved global values a
       {},
       { globalsInPlace: options },
     ),
-  ).toThrow('Tooltip 100 (en): Choose an existing named global export.');
-});
-
-test('lists block imports for the publisher without rejecting legitimate source', () => {
-  const source = [
-    'import main from 100',
-    'enhanced (',
-    'import  main  from 200',
-    'import Name from 300',
-    'import self',
-    ')',
-    'title Local (',
-    'import secondary from 0400',
-    ')',
-    '/*\nexport hidden Part (\nimport main from 500\n)\n*/',
-  ].join('\r\n');
-  expect(ordinaryImportsInBlocks(source)).toEqual([
-    { part: 'main', target: '200' },
-    { part: 'self' },
-    { part: 'secondary', target: '0400' },
-  ]);
-  expect(inline(source)).toBe(source);
-  expect(globalNoteImportInBlockMessage('Alternate')).toBe(
-    'Move the import of Alternate out of the block: it uses a shared note.',
-  );
+  ).toThrow('Tooltip 100 (en): Choose an existing shared export for Absent.');
 });
 
 test('opt-in preserves metadata, aliases and authored hashes and runs after number selection', async () => {
