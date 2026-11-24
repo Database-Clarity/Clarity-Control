@@ -36,6 +36,7 @@ import {
   type PublishPayload,
   type Tooltip,
 } from '../../packages/core/src/index.js';
+import * as converter from '../../packages/export/src/legacy.js';
 import { LocalRepository, RefRace, type Tree } from './git.js';
 import { RemoteRepository } from './remote.js';
 import { Publisher, paths, type Options } from './publisher.js';
@@ -519,7 +520,13 @@ describe.each(['simulator', 'remote'] as const)('%s: scheduled batch core path',
     const f = await setup(transport);
     await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
     const before = f.head();
-    await f.pub.run();
+    const convert = vi.spyOn(converter, 'buildLegacy');
+    try {
+      await f.pub.run();
+      expect(convert).toHaveBeenCalledTimes(2 * converter.deployedLegacyPresets.length);
+    } finally {
+      convert.mockRestore();
+    }
     const { batch, log, receipt } = assertPublished(f);
     // The claim commit S' is the receipt's source: the scheduled head plus only schedule files.
     const claim = f.git.tree(receipt.sourceCommit);

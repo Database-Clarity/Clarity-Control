@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import {
   applyInactiveLive,
@@ -424,16 +425,23 @@ it.each([
       databaseSettings: {},
     });
     let live = initial;
+    const liveSnapshots = new Map<string, string>();
     const publisher = Object.assign(Object.create(Publisher.prototype), {
-      git: { tree: () => ({ 'liveDescriptions.json': 'live' }), blob: () => live },
+      git: {
+        tree: (commit: string) =>
+          liveSnapshots.has(commit) ? { 'liveDescriptions.json': commit } : {},
+        blob: (oid: string) => liveSnapshots.get(oid),
+      },
+      options: { publisherSha: 'a'.repeat(40), publisherDigest: 'b'.repeat(64) },
       aliasesAt: () => ({}),
       movesAt: () => moves,
       pickRecomputeAt: () => undefined,
-      checkedOutputs: new Set<string>(),
     }) as Publisher;
     function merge(hashes: number[]) {
       const rows = saved.filter(({ hash }) => hashes.includes(hash));
-      return publisher.merge('live', {
+      const parent = createHash('sha1').update(live).digest('hex');
+      liveSnapshots.set(parent, live);
+      return publisher.merge(parent, {
         changed: hashes,
         entries: hashes.map((hash) => ({ hash })),
         sourceCommit: 'source',

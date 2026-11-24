@@ -2173,6 +2173,53 @@ describe('dependency-safe global release', () => {
     expect(git.tree(changed)).toEqual(git.tree(kicked));
     expect(pub['sourceAdvance'](source, changed, git.tree(changed), A)).toBe('blocked');
   });
+  it('reuses a release only for the same data and live commits', async () => {
+    const f = await fixture();
+    await f.globals.drain();
+    await f.request([42]);
+    const release = vi.spyOn(GlobalsPublisher.prototype, 'release');
+    try {
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+      expect(release).toHaveBeenCalledTimes(1);
+      const sibling = '01K95H00000000000000000002';
+      await f.request([42], sibling);
+      release.mockClear();
+      f.git.beforeAtomic = () =>
+        f.change({ [`publish/kicks/${sibling}-34567.json`]: { opId: sibling } });
+      await f.pub.operation(sibling);
+      expect(f.read(paths(sibling).log).result.status).toMatch(/done|unchanged/);
+      expect(release).toHaveBeenCalledTimes(2);
+    } finally {
+      release.mockRestore();
+    }
+  });
+
+  it('validates a lease winner against its earlier receipt source', async () => {
+    const f = await fixture();
+    await f.globals.drain();
+    await f.request([42]);
+    const peer = new Publisher(f.git, f.options);
+    let winner: string | undefined;
+    peer.createCandidate = (_opId, _blob, live, receipt) => {
+      winner = peer.buildCandidate(live, receipt);
+      throw new RefRace('Peer paused before installing the candidate');
+    };
+    await expect(peer.operation(A)).rejects.toThrow('Peer paused');
+    expect(winner).toBeDefined();
+    const sibling = '01K95H00000000000000000002';
+    f.change({ [`publish/kicks/${sibling}-34567.json`]: { opId: sibling } });
+
+    const create = f.pub.createCandidate.bind(f.pub);
+    f.pub.createCandidate = (...args) => {
+      f.git.beforeCas = () => f.git.cas(paths(A).candidate, undefined, winner);
+      return create(...args);
+    };
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+    expect(f.git.head(L)).toBe(winner);
+  });
+
   it('refreshes independent approved components in RECORD and drains the next request without another workflow', async () => {
     const f = await fixture();
     await f.globals.drain();

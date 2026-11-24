@@ -126,6 +126,11 @@ export interface GlobalReleaseReceipt {
   /** Immutable signed scheduling source; never an Action-selected replacement pin. */
   batchSource?: string;
 }
+export interface GlobalRelease {
+  documents: Tooltip[];
+  receipt: GlobalReleaseReceipt;
+  entryOnlyAggregates: number[];
+}
 
 export class GlobalReleaseRejected extends Error {}
 
@@ -659,7 +664,7 @@ export class GlobalsPublisher {
     roots: number[],
     live: string,
     batch?: { source: string; documents: Tooltip[] },
-  ) {
+  ): Promise<GlobalRelease | undefined> {
     if (!hasGlobals(tree)) return undefined;
     const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
     const sources = await this.sources(tree, live, revision);
@@ -930,10 +935,11 @@ export class GlobalsPublisher {
     tree: Tree,
     head: string,
     live: string,
+    cached?: GlobalRelease,
   ) {
     if (!hasGlobals(tree) && !receipt) return undefined;
     if (!receipt || receipt.version !== 1) throw new Error('Global release receipt required');
-    const checked = await this.release(tree, head, receipt.roots, live);
+    const checked = cached ?? (await this.release(tree, head, receipt.roots, live));
     if (
       !checked ||
       checked.receipt.digest !== receipt.digest ||
