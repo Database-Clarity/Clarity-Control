@@ -231,8 +231,8 @@
   font-variant-numeric: tabular-nums;
 }
 // The control has to fit beside a draft's Discard in the narrowest editor (480px). As the header
-// narrows, queue mode first drops the shortcut hint; below 38.5rem (a work-through queue names its
-// list and carries the list's action) the control takes a row of its own, as on a phone and in
+// narrows, queue mode first drops the shortcut hint; below 38.5rem (45.5rem where
+// the queue carries its list's action) the control takes a row of its own, as on a phone and in
 // toggle mode, so the language field keeps its usual width (v2's 9rem cap) and "Markup tools"
 // its full text. The row is there
 // for the whole visit: nothing moves when a draft appears.
@@ -248,24 +248,31 @@
     flex-wrap: wrap;
     row-gap: 2px;
   }
+  @mixin own-row {
+    order: 2;
+    flex: 1 1 100%;
+    min-width: 0;
+    margin-left: 0;
+    + .paneRight {
+      margin-left: auto;
+    }
+    .queuePosition {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
   @container pane-header (max-width: 38.5rem) {
-    .paneHeader:has(> .queue) {
-      .queue {
-        order: 2;
-        flex: 1 1 100%;
-        min-width: 0;
-        margin-left: 0;
-        + .paneRight {
-          margin-left: auto;
-        }
-      }
-      .queuePosition {
-        flex: 1 1 auto;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
+    .paneHeader > .queue {
+      @include own-row;
+    }
+  }
+  // With an action of its own (Bungie drift, Lost text) the control is that much wider.
+  @container pane-header (max-width: 45.5rem) {
+    .paneHeader > .queue[data-action] {
+      @include own-row;
     }
   }
 }
@@ -338,18 +345,6 @@ $override-three-toggles: 14.2rem; // and English
 $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 1.625rem)
   (markup 1.875rem) (back 2.75rem);
 
-// The open tag as its arrow; the word stays for screen readers.
-@mixin arrow-only {
-  position: relative;
-  flex: none;
-  min-width: 0;
-  .ell {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    clip-path: inset(50%);
-  }
-}
 @mixin override-step($step) {
   @if $step == key {
     .key {
@@ -481,14 +476,6 @@ $queue-needed: 60rem;
       }
     }
     $queue-needed: $queue-needed - $saves !global;
-  }
-}
-// A queue with an action of its own (Bungie drift, Lost text) needs the tag's word too, at last.
-@container pane-header (min-width: 38.51rem) and (max-width: 43.5rem) {
-  .workspace[data-mode='split']
-    .paneHeader:has(> .queue [aria-haspopup] ~ [aria-haspopup])
-    > .overrideTag:not([data-plain]) {
-    @include arrow-only;
   }
 }
 // A queued entry that no longer exists: one line, with the way on.
@@ -883,7 +870,15 @@ $queue-needed: 60rem;
   }
   @container pane-header (max-width: 18rem) {
     .paneHeader > .overrideTag:not([data-plain]) {
-      @include arrow-only;
+      position: relative;
+      min-width: 0;
+      // The word stays for screen readers.
+      .ell {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        clip-path: inset(50%);
+      }
     }
   }
   // The editor box runs full-bleed (owner 2026-11-10): no outer margin and no side borders; its
