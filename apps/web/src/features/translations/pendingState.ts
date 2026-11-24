@@ -1,46 +1,66 @@
-import { isTranslatable, merge3, translationStateOf, type Lang, type Tooltip } from '@clarity/core';
+import {
+  hasConflictMarkers,
+  isTranslatable,
+  merge3,
+  translationStateOf,
+  type Lang,
+  type Tooltip,
+} from '@clarity/core';
 import { stampRevisions } from '../../services/save/enrichers/metadata';
+import { expectedSubmission } from '../../services/save/recovery';
 import type { EditorData } from '../../stores/data';
 import { translatableEntry } from './queue';
 
-type State = ReturnType<typeof translationStateOf>;
+/** A draft's two sides. */
+interface Edit {
+  base: Tooltip;
+  next: Tooltip;
+}
+
+export type Update = ReturnType<typeof translationStateOf> & {
+  /** The English the state was judged against (the draft's, when it edits both). */
+  english: string;
+};
 
 /**
- * The state `lang` would have once the open draft is saved, by the two rules that decide it: the
- * save's own stamping (`stampRevisions`) on the draft, then the Translations tab's
- * `translationStateOf`. A draft that leaves this language's text alone shows the saved state: an
- * unsaved English edit is not behind anything yet. A draft started before a newer save merges
- * onto it the way the Worker will; while they conflict, the saved state stands.
+ * The tooltip as saving the open draft would leave it, for judging `lang`: the save's own stamping
+ * (`stampRevisions`), merged onto a newer save as the Worker would, with the number map it derives.
+ * The saved tooltip stands while the draft leaves this language alone (an unsaved English edit is
+ * not behind anything yet) and while the draft cannot be saved over it (a conflict).
  */
-export function pendingTranslationState(
+export function pendingTooltip(
   saved: Tooltip,
-  draft: { base: Tooltip; next: Tooltip } | undefined,
+  draft: Edit | undefined,
   lang: Lang,
   now = new Date().toISOString(),
-): State {
-  const typed = draft?.next.text[lang];
-  if (!draft?.next.text.en || !typed || typed.text === draft.base.text[lang]?.text)
-    return translationStateOf(saved, lang);
+): Tooltip {
+  const typed = draft?.next.text[lang]?.text;
+  if (
+    !draft?.next.text.en ||
+    typed === draft.base.text[lang]?.text ||
+    hasConflictMarkers(typed ?? '')
+  )
+    return saved;
   const stamped = stampRevisions(draft.base, draft.next, '', now);
-  const moved = (['en', lang] as const).some(
-    (language) => draft.base.text[language]?.updatedAt !== saved.text[language]?.updatedAt,
-  );
-  if (!moved) return translationStateOf(stamped, lang);
+  if (draft.base === saved) return expectedSubmission(saved, stamped);
   const merged = merge3(draft.base, saved, stamped);
-  return translationStateOf(merged.ok ? merged.merged : saved, lang);
+  return merged.ok ? expectedSubmission(saved, merged.merged) : saved;
 }
 
 /**
- * What the editor's banner says needs updating, or null. Only entries the Translations tab can
- * list, so the two never disagree about a saved translation.
+ * What the editor's banner says needs updating, or null: the Translations tab's rule on the pending
+ * tooltip, for the entries the tab can list, so the two never disagree about a saved translation.
  */
 export function needsUpdate(
   saved: Tooltip,
-  draft: { base: Tooltip; next: Tooltip } | undefined,
+  draft: Edit | undefined,
   lang: Lang,
   data: EditorData,
-): State | null {
+): Update | null {
   if (lang === 'en' || !isTranslatable(saved, data.aliases)) return null;
-  const state = pendingTranslationState(saved, draft, lang);
-  return state.state === 'outdated' && translatableEntry(saved, data) ? state : null;
+  const pending = pendingTooltip(saved, draft, lang);
+  const state = translationStateOf(pending, lang);
+  return state.state === 'outdated' && translatableEntry(saved, data)
+    ? { ...state, english: pending.text.en!.text }
+    : null;
 }

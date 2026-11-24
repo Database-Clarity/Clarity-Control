@@ -1031,6 +1031,34 @@ it('shows the needs-updating banner from the Current draft, and from the batch d
     await act(async () => useBatchDraftStore.setState({ drafts: {} }));
     await page.settle();
     expect(text()).toBe(behind(101));
+    // A colleague saves other German to the batch, still behind: my draft now conflicts with it.
+    await type('Stapel-Deutsch 10');
+    expect(text()).toBeNull();
+    const old = fixture.members.get(batch.id)!.get(10)!;
+    await call(`/batches/${batch.id}/save`, {
+      revision: fixture.batches.get(batch.id)!.revision,
+      changes: [
+        {
+          hash: 10,
+          base: old.proposed,
+          next: {
+            ...old.proposed,
+            text: {
+              ...old.proposed.text,
+              de: { ...old.proposed.text.de!, text: 'Kollegen-Deutsch', updatedAt: day(2) },
+            },
+          },
+        },
+      ],
+    });
+    const { refreshBatches } = await import('./UpcomingSwitch.load');
+    const { upcomingStore } = await import('./UpcomingSwitch.store');
+    await act(async () => refreshBatches());
+    await page.settle(() => {
+      const load = upcomingStore().getState().loads[batch.id];
+      return load?.state === 'ready' && load.revision === fixture.batches.get(batch.id)!.revision;
+    });
+    expect(text()).toBe(behind(101));
 
     // English has no such line; its line is kept, empty, for a current translation.
     await act(async () => page.router.navigate('/t/10?lang=en'));

@@ -49,7 +49,12 @@ function changeSizeWorker(request: ChangeRequest, finish: (value: ChangeSize) =>
   });
   worker.onmessage = (event: MessageEvent<ChangeSize>) => finish(event.data);
   worker.onerror = () => finish({ error: 'History unavailable' });
-  worker.postMessage(message);
+  try {
+    worker.postMessage(message);
+  } catch (error) {
+    worker.terminate();
+    throw error;
+  }
   return worker;
 }
 
@@ -68,11 +73,12 @@ export function useChangeSize(request: ChangeRequest | undefined): number | unde
   const latest = useRef(request);
   latest.current = request;
   useEffect(() => {
-    if (!key || memory.has(key) || typeof Worker === 'undefined') return;
+    const asked = latest.current;
+    if (!asked || !key || memory.has(key) || typeof Worker === 'undefined') return;
     let worker: Worker | undefined;
     const timer = setTimeout(() => {
       try {
-        worker = changeSizeWorker(latest.current!, (value) => {
+        worker = changeSizeWorker(asked, (value) => {
           worker?.terminate();
           rememberSize(key, value);
           setRevision((value) => value + 1);

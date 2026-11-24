@@ -1021,7 +1021,9 @@ function TooltipWorkspace({
                       saved={activeBase}
                       // A batch draft is judged against the batch's own future text.
                       base={batchEditing ? activeBase : drafts[activeHash]?.base}
-                      next={drafts[activeHash]?.next}
+                      next={
+                        batchEditing?.conflicted(activeHash) ? undefined : drafts[activeHash]?.next
+                      }
                       lang={lang}
                       data={data}
                       suspended={suspended}

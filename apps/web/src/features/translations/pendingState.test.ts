@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Lang, Tooltip } from '@clarity/core';
+import { translationStateOf, type Lang, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
 import { stampRevisions } from '../../services/save/enrichers/metadata';
-import { needsUpdate, pendingTranslationState } from './pendingState';
+import { needsUpdate, pendingTooltip } from './pendingState';
 import { translationIndex } from './queue';
 
 const start = Date.parse('2026-01-01T00:00:00.000Z');
@@ -38,7 +38,7 @@ function typed(base: Tooltip, text: string, lang: Lang = 'de') {
 }
 
 const state = (saved: Tooltip, draft?: { base: Tooltip; next: Tooltip }) =>
-  pendingTranslationState(saved, draft, 'de', at(300));
+  translationStateOf(pendingTooltip(saved, draft, 'de', at(300)), 'de');
 
 describe('the state once the draft is saved', () => {
   it('is the saved state without a draft', () => {
@@ -91,6 +91,52 @@ describe('the state once the draft is saved', () => {
     expect(state(saved, draft).state).toBe('outdated');
     saved.text.de.sourceUpdatedAt = at(200);
     expect(state(saved, draft).state).toBe('current');
+  });
+
+  it('merges a markup-only or no-impact save that kept its stamps', () => {
+    const base = tooltip(100);
+    base.text.de!.text = '<solar/>Mehr Schaden.';
+    const retagged = structuredClone(base);
+    retagged.text.de!.text = '<solar Mehr /> Schaden.';
+    expect(state(retagged, typed(base, 'Neu.')).state).toBe('outdated'); // A conflict.
+
+    const numbered = tooltip(100);
+    numbered.text.en!.text = 'Deals 5 damage.';
+    numbered.text.de!.text = 'Schaden: #{=1}';
+    const dropped = structuredClone(numbered);
+    dropped.text.en = {
+      ...dropped.text.en!,
+      text: 'Deals damage.',
+      numbers: { ids: [], next: 2, retired: { 1: '5' } },
+    };
+    expect(state(dropped, typed(numbered, 'Neuer Schaden: #{=1}'))).toMatchObject({
+      state: 'outdated',
+      reason: 'numbers',
+    });
+  });
+
+  it('retires a number the same draft removes from English', () => {
+    const saved = tooltip(200);
+    saved.text.en!.text = 'Deals 5 damage.';
+    saved.text.de!.text = 'Schaden: #{=1}';
+    const draft = typed(saved, 'Neuer Schaden: #{=1}');
+    draft.next.text.en = { ...saved.text.en!, text: 'Deals damage.', updatedAt: at(300) };
+    expect(state(saved, draft)).toMatchObject({ state: 'outdated', reason: 'numbers' });
+    draft.next.text.de!.text = 'Neuer Schaden.';
+    expect(state(saved, draft).state).toBe('current');
+  });
+
+  it('is missing when the draft removes the translation', () => {
+    const saved = tooltip(100);
+    const next = structuredClone(saved);
+    delete next.text.de;
+    expect(state(saved, { base: saved, next }).state).toBe('missing');
+  });
+
+  it('keeps the saved state while conflict markers remain', () => {
+    const saved = tooltip(100);
+    const text = '<<<<<<< mine\nMeins.\n=======\nDeins.\n>>>>>>> theirs';
+    expect(state(saved, typed(saved, text)).state).toBe('outdated');
   });
 
   it('follows a removed number until its token is gone', () => {

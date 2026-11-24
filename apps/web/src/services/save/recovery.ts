@@ -34,7 +34,7 @@ function sameSubmission(saved: Tooltip | undefined, sent: Tooltip): boolean {
 }
 
 /** Derive the server-owned number metadata and translation carry for an unchanged base. */
-function expectedSubmission(base: Tooltip | null, sent: Tooltip): Tooltip {
+export function expectedSubmission(base: Tooltip | null, sent: Tooltip): Tooltip {
   const next = structuredClone(sent);
   if (next.text.en && base?.text.en?.text !== next.text.en.text) {
     const numbers = reconcileNumberMap(base?.text.en, next.text.en, next);

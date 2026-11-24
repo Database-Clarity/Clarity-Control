@@ -1,20 +1,20 @@
 import { useMemo } from 'react';
-import type { Lang, Tooltip } from '@clarity/core';
+import { translationMaxAge, type Lang, type Tooltip } from '@clarity/core';
 import type { EditorData } from '../../stores/data';
-import { needsUpdate } from '../translations/pendingState';
+import { needsUpdate, type Update } from '../translations/pendingState';
 import { useChangeSize } from '../translations/useChangeSizes';
 import styles from './TranslationBanner.module.scss';
 
-type Update = NonNullable<ReturnType<typeof needsUpdate>>;
+type Shown = Omit<Update, 'english'>;
 
 /** Live output falls back strictly after 90 days, so 90 and a bit must not read "90 days". */
 const daysBehind = (ageMs: number) => Math.ceil(ageMs / 86_400_000);
 
 /** The banner's words: in full, and short for a narrow pane. */
-function bannerText(update: Update, words: number | undefined): { full: string; short: string } {
+function bannerText(update: Shown, words: number | undefined): { full: string; short: string } {
   const ageMs = update.ageMs ?? 0;
   if (update.exportedInEnglish) {
-    if (update.reason === 'numbers')
+    if (ageMs <= translationMaxAge)
       return {
         full: 'Published in English until this is updated: it uses a number English removed',
         short: 'Published in English: removed number',
@@ -37,7 +37,7 @@ function bannerText(update: Update, words: number | undefined): { full: string; 
   };
 }
 
-export function TranslationBannerView({ update, words }: { update: Update; words?: number }) {
+export function TranslationBannerView({ update, words }: { update: Shown; words?: number }) {
   const { full, short } = bannerText(update, words);
   return (
     <p className={styles.banner} data-level={update.exportedInEnglish ? 'published' : 'behind'}>
@@ -73,12 +73,13 @@ export function TranslationBanner({
     [saved, base, next, lang, data],
   );
   const words = useChangeSize(
-    update?.sourceUpdatedAt && update.ageMs && !update.exportedInEnglish && !suspended
-      ? {
-          hash: saved.hash,
-          sourceUpdatedAt: update.sourceUpdatedAt,
-          current: saved.text.en?.text ?? '',
-        }
+    update?.sourceUpdatedAt &&
+      update.ageMs &&
+      !update.exportedInEnglish &&
+      !suspended &&
+      // Words are counted between saved texts, never against English still being typed.
+      update.english === saved.text.en?.text
+      ? { hash: saved.hash, sourceUpdatedAt: update.sourceUpdatedAt, current: update.english }
       : undefined,
   );
   return update && <TranslationBannerView update={update} words={words} />;
