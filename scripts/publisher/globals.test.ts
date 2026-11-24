@@ -563,6 +563,32 @@ describe('in-place shared text publication', () => {
     expect(live(f)).toEqual(before);
   });
 
+  it.each(['Before #Magnitude', 'var Magnitude = 10\nBefore #Beta'])(
+    'refuses a rename onto a name already used in published text: %s',
+    async (source) => {
+      const f = await inPlaceFixture();
+      const document = tooltip(142, source);
+      f.change({ 'tooltips/142.json': document });
+      await f.request([142]);
+      await f.pub.run(false);
+      expect(f.read(paths(A).log).result.status).toBe('done');
+      const before = f.pub.head(f.options.liveBranch);
+      const snapshot = f.read('live/tooltips/142.json');
+      const original = f.published.entries.find(({ id }) => id === f.entry.id)!;
+      f.change({ [f.entryPath]: { ...original, name: 'Magnitude' } });
+      const row = pending(f).find(({ id }) => id === f.entry.id)!;
+      expect(row.refusal).toBe(
+        'Tooltip 142 already uses or declares Magnitude. Choose a different name.',
+      );
+      const rename = A.replace(/1$/, '2');
+      await f.request([], rename, selection(row));
+      await f.pub.run(false);
+      expect(f.read(paths(rename).log).result).toMatchObject({ status: 'rejected' });
+      expect(f.pub.head(f.options.liveBranch)).toBe(before);
+      expect(f.read('live/tooltips/142.json')).toEqual(snapshot);
+    },
+  );
+
   it('drops a reversed rename, but publishes a rename and body edit without the tooltip draft', async () => {
     const f = await inPlaceFixture();
     const original = f.published.entries.find(({ id }) => id === f.entry.id)!;

@@ -47,7 +47,10 @@ import {
   type Tooltip,
 } from '../../packages/core/src/index.js';
 import { provesInPlace, type LegacyInput } from '../../packages/export/src/index.js';
+import { variableReferences } from '../../packages/core/src/markup/braces.js';
+import { removeMarkupComments } from '../../packages/core/src/markup/comments.js';
 import { markupImports } from '../../packages/core/src/markup/prepare.js';
+import { extractVariables } from '../../packages/core/src/markup/syntax.js';
 import { createHash } from 'node:crypto';
 import { ZodError } from 'zod';
 import { type Tree } from './git.js';
@@ -719,29 +722,36 @@ function selectedRelease(
     if (entry.kind !== 'variables' || entry.tombstone || (old && !old.tombstone && old.name === to))
       continue;
     const name = new Set([to]);
-    const conflicts = (source: string) => inPlaceLabelVariable(source, name, to);
+    const rename = old && !old.tombstone;
+    const conflicts = (source: string) => {
+      if (inPlaceLabelVariable(source, name, to) !== undefined) return true;
+      if (!rename) return false;
+      const text = removeMarkupComments(source);
+      if (!text.includes(to)) return false;
+      return (
+        Object.hasOwn(extractVariables(text), to) ||
+        variableReferences(text).some(({ name }) => name === to)
+      );
+    };
+    const reason = rename
+      ? `already uses or declares ${to}. Choose a different name.`
+      : `already uses #${to} inside a title or link. Choose a different name.`;
     for (const tooltip of liveDocs)
       for (const cell of Object.values(tooltip.text))
         if (conflicts(cell.text))
-          throw new Error(
-            `Tooltip ${tooltip.custom?.name || tooltip.hash} already uses #${to} inside a title or link. Choose a different name.`,
-          );
+          throw new Error(`Tooltip ${tooltip.custom?.name || tooltip.hash} ${reason}`);
     for (const row of Object.values(live.perks))
       if (
         'editor' in row &&
         Object.values(row.editor).some((cell) => conflicts(cell.main) || conflicts(cell.secondary))
       )
-        throw new Error(
-          `Tooltip ${row.name || row.hash} already uses #${to} inside a title or link. Choose a different name.`,
-        );
+        throw new Error(`Tooltip ${row.name || row.hash} ${reason}`);
     for (const publishedEntry of published.store.entries)
       if (
         !publishedEntry.tombstone &&
         Object.values(publishedEntry.definitions).some(({ body }) => conflicts(body))
       )
-        throw new Error(
-          `Shared definition ${publishedEntry.name} already uses #${to} inside a title or link. Choose a different name.`,
-        );
+        throw new Error(`Shared definition ${publishedEntry.name} ${reason}`);
   }
   const beforeEntries = rewriteEntries(published.store.entries, renames);
   const before = reconcileGlobalStore(
