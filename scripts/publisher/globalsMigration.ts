@@ -153,6 +153,13 @@ export async function dryRunGlobalsMigration(
     legacyLive,
   );
   const before = liveGlobalsInput(pub, legacyLive);
+  for (const hash of [1, 2, 3]) {
+    const library = before.perks[hash];
+    if (!library || !('editor' in library)) continue;
+    for (const [lang, cell] of Object.entries(library.editor))
+      if (cell.englishFallback)
+        throw new Error(`Legacy LIVE library ${hash} (${lang}) falls back to English.`);
+  }
   const definitions = (perks: LegacyInput['perks'] | ReturnType<typeof exportLegacy>) =>
     legacyGlobalsInPlaceDefinitions(perks as Parameters<typeof legacyGlobalsInPlaceDefinitions>[0]);
   const liveDefinitions = definitions(before.perks);

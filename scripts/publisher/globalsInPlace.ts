@@ -193,12 +193,7 @@ function proofLibraries(live: LegacyInput, options: GlobalsInPlaceOptions, engli
   return rows;
 }
 
-function affectedRows(
-  before: LegacyInput,
-  after: LegacyInput,
-  roots: readonly number[],
-  lang?: Lang,
-) {
+function affectedRows(before: LegacyInput, after: LegacyInput, roots: readonly number[]) {
   const affected = new Set(roots.map(String));
   const parents = new Map<string, Set<string>>();
   const link = (from: string, to: string) => {
@@ -209,9 +204,7 @@ function affectedRows(
     for (const [hash, row] of Object.entries(perks)) {
       if ('aliasOf' in row) link(hash, String(row.aliasOf));
       else
-        for (const { main, secondary } of lang
-          ? [row.editor[lang]].filter((cell) => cell !== undefined)
-          : Object.values(row.editor))
+        for (const { main, secondary } of Object.values(row.editor))
           for (const cell of [main, secondary]) {
             if (!cell.includes('import ')) continue;
             for (const match of cell.matchAll(/^import [A-z0-9 ]+? from (\d+) *\r?$/gm))
@@ -248,14 +241,7 @@ export function provePublication(
             `Tooltip ${entry.name || entry.hash} (${lang}) still reads shared text after export.`,
           );
   }
-  const { raw, fallbacks } = exportGlobalsProof(
-    documents,
-    now,
-    pub.options.facts,
-    aliases,
-    moves,
-    options,
-  );
+  const raw = exportGlobalsProof(documents, now, pub.options.facts, aliases, moves, options);
   const merge = (entries: Receipt['exported']) =>
     pub.mergePublicationPerks(tree, live.perks, entries, hashes) as LegacyInput['perks'];
   proveInPlaceInputs(
@@ -264,7 +250,6 @@ export function provePublication(
     { ...live, perks: merge(exported) },
     options,
     hashes,
-    fallbacks,
   );
 }
 
@@ -276,17 +261,10 @@ export function exportGlobalsProof(
   moves: InactiveMoves,
   globalsInPlace: GlobalsInPlaceOptions,
 ) {
-  const fallbacks = new Map<number, Set<Lang>>();
-  const raw = exportWithInactiveMoves(documents, now, facts, aliases, moves, {
+  return exportWithInactiveMoves(documents, now, facts, aliases, moves, {
     globalsInPlace,
     preserveGlobalReferencesForProof: true,
-    onGlobalsFallback(hash, { language }) {
-      let langs = fallbacks.get(hash);
-      if (!langs) fallbacks.set(hash, (langs = new Set()));
-      langs.add(language);
-    },
   });
-  return { raw, fallbacks };
 }
 
 export function proveInPlaceInputs(
@@ -295,28 +273,33 @@ export function proveInPlaceInputs(
   after: LegacyInput,
   options: GlobalsInPlaceOptions,
   hashes: readonly number[],
-  fallbacks: ReadonlyMap<number, ReadonlySet<Lang>>,
 ) {
   const before = { ...raw, perks: { ...raw.perks, ...proofLibraries(live, options) } };
   assertInPlaceLibraries(after);
   const affected = affectedRows(before, after, hashes);
   const english = new Set<Lang>();
+  const fallbacks = new Map<string, Set<Lang>>();
   const fallbackBefore = { ...after, perks: { ...after.perks } };
-  // The two baselines isolate raw localized cells and raw English fallback cells.
-  // Other rows stay inlined, including import targets whose own language did not fall back.
-  for (const [hash, langs] of fallbacks) {
+  // The English baseline needs the raw English cells of numeric import targets,
+  // including targets that do not otherwise fall back.
+  for (const hash of affected) {
     const localized = before.perks[hash];
     const filled = after.perks[hash];
-    if (!localized || !filled || !('editor' in localized) || !('editor' in filled))
-      throw new Error(`Missing English fallback proof input for tooltip ${hash}.`);
+    if (!localized || !filled || !('editor' in localized) || !('editor' in filled)) continue;
     const localizedEditor = { ...localized.editor };
-    const fallbackEditor = { ...filled.editor };
-    for (const lang of langs) {
+    const fallbackEditor = { ...filled.editor, en: localized.editor.en };
+    const flagged = new Set<Lang>();
+    for (const lang of languages) {
+      if (!filled.editor[lang]?.englishFallback) continue;
       english.add(lang);
+      flagged.add(lang);
       localizedEditor[lang] = filled.editor[lang];
       fallbackEditor[lang] = localized.editor[lang];
     }
-    before.perks[hash] = { ...localized, editor: localizedEditor };
+    if (flagged.size) {
+      fallbacks.set(hash, flagged);
+      before.perks[hash] = { ...localized, editor: localizedEditor };
+    }
     fallbackBefore.perks[hash] = { ...filled, editor: fallbackEditor };
   }
   const prove = (baseline: LegacyInput, includes?: (hash: string, lang: Lang) => boolean) => {
@@ -332,22 +315,13 @@ export function proveInPlaceInputs(
       hash = String(row.aliasOf);
       row = after.perks[hash];
     }
-    return Number(hash);
+    return hash;
   };
-  prove(before, (hash, lang) => !fallbacks.get(aliasSource(hash))?.has(lang));
-  const fallbackScope = new Map(
-    [...english].map((lang) => [
-      lang,
-      affectedRows(
-        raw,
-        after,
-        [...fallbacks].flatMap(([hash, langs]) => (langs.has(lang) ? [hash] : [])),
-        lang,
-      ),
-    ]),
-  );
+  const fallsBack = (hash: string, lang: Lang) =>
+    fallbacks.get(aliasSource(hash))?.has(lang) ?? false;
+  prove(before, (hash, lang) => !fallsBack(hash, lang));
   Object.assign(fallbackBefore.perks, proofLibraries(live, options, english));
-  prove(fallbackBefore, (hash, lang) => fallbackScope.get(lang)?.has(hash) ?? false);
+  prove(fallbackBefore, fallsBack);
 }
 
 export function assertInPlaceDocuments(
@@ -728,6 +702,18 @@ function selectedRelease(
     selected.map(({ id }) => id),
   );
   const options = releaseOptions(next, saved);
+  for (const entry of selected) {
+    if (entry.tombstone) continue;
+    for (const { body } of Object.values(entry.definitions))
+      for (const kind of ['exports', 'variables', 'titles'] as const) {
+        const unavailable = options.unavailable?.[kind];
+        if (!unavailable?.size) continue;
+        const reference = globalReferenceSpans(body, kind).find(({ name }) =>
+          unavailable.has(name),
+        );
+        if (reference) throw new Error(`Publish the shared change for ${reference.name} first.`);
+      }
+  }
   const rewritten = new Map<number, Tooltip>();
   const updatedDocs = liveDocs.map((prior) => {
     const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
@@ -798,7 +784,7 @@ function refillPublishedDocuments(
     const [drift] = provesInPlace(live, expectedBefore, affectedRows(live, expectedBefore, hashes));
     if (drift) throw new Error(drift.message);
     assertInPlaceDocuments(affected, publishedOptions);
-    const { raw, fallbacks } = exportGlobalsProof(affected, 0, undefined, {}, {}, publishedOptions);
+    const raw = exportGlobalsProof(affected, 0, undefined, {}, {}, publishedOptions);
     const rawPerks = { ...withAuthoredRows.perks };
     for (const { hash } of affected) {
       const existing = rawPerks[hash],
@@ -809,11 +795,6 @@ function refillPublishedDocuments(
       const editor = { ...existing.editor };
       for (const lang of changed)
         editor[lang] = refillLanguage(existing.editor[lang], source.editor[lang]);
-      const fallback = fallbacks.get(hash);
-      if (fallback) {
-        for (const lang of fallback) if (!changed.includes(lang)) fallback.delete(lang);
-        if (!fallback.size) fallbacks.delete(hash);
-      }
       rawPerks[hash] = { ...existing, editor };
     }
     proveInPlaceInputs(
@@ -825,7 +806,6 @@ function refillPublishedDocuments(
       },
       publishedOptions,
       hashes,
-      fallbacks,
     );
   }
   return refills;
@@ -914,16 +894,21 @@ export function planInPlaceRelease(
     // A failed choice cannot stop independent definitions in the same signed part.
     const accepted: Selection = [];
     let result = plan(accepted);
-    for (const item of [...selection].sort((a, b) => a.id.localeCompare(b.id))) {
-      try {
-        result = plan([...accepted, item]);
-        accepted.push(item);
-      } catch (refusal) {
-        refusals.push({
-          id: item.id,
-          error: refusalMessage(refusal),
-        });
+    let pending = [...selection].sort((a, b) => a.id.localeCompare(b.id));
+    while (pending.length) {
+      const retry: Selection = [];
+      refusals.length = 0;
+      for (const item of pending) {
+        try {
+          result = plan([...accepted, item]);
+          accepted.push(item);
+        } catch (refusal) {
+          retry.push(item);
+          refusals.push({ id: item.id, error: refusalMessage(refusal) });
+        }
       }
+      if (retry.length === pending.length) break;
+      pending = retry;
     }
     if (!accepted.length && !hasTooltipSelection) throw error;
     return { ...result, globals: accepted.map(({ id }) => id), refusals };

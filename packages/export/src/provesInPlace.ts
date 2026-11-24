@@ -3,7 +3,7 @@ import { descriptionConverter } from './converter/descriptionConverter.js';
 import { expandAliases } from './converter/index.js';
 import { lowerInput } from './elementTags.js';
 import type { LegacyInput } from './legacy.js';
-import { globalsOf, readFormatV2Lines } from './v2/compile.js';
+import { globalsForCell, globalsOf, readFormatV2Lines } from './v2/compile.js';
 import { exportLanguages, type ExportLanguage } from './v2/vocabulary.js';
 
 type Part = 'main' | 'secondary';
@@ -43,9 +43,8 @@ function formatV2Lines(input: ReaderInputs, hash: string, language: ExportLangua
   return readFormatV2Lines(
     cell.main,
     {
-      ...input.globals.get(language)!,
+      ...globalsForCell(input.globals, language, cell.englishFallback),
       type: row.type,
-      lang: cell.englishFallback ? 'en' : language,
     },
     hash,
     language,

@@ -169,6 +169,15 @@ export function globalsOf(lookup: ExpandedPerks, language: ExportLanguage) {
   return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
 }
 
+export function globalsForCell(
+  globals: ReadonlyMap<ExportLanguage, ReturnType<typeof globalsOf>>,
+  language: ExportLanguage,
+  englishFallback?: true,
+) {
+  const lang = englishFallback ? 'en' : language;
+  return { ...globals.get(language)!, imports: globals.get(lang)!.imports, lang };
+}
+
 /** The format v2 reader's source-to-lines step, also used by the in-place publish proof. */
 export function readFormatV2Lines(
   text: string,
@@ -197,21 +206,25 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
   const resolving = perLanguage
     ? exportLanguages.filter((language) => language === 'en' || languages.includes(language))
     : languages;
-  const globals = new Map(resolving.map((language) => [language, globalsOf(lookup, language)]));
+  const globals = new Map(
+    [...new Set<ExportLanguage>(['en', ...resolving])].map((language) => [
+      language,
+      globalsOf(lookup, language),
+    ]),
+  );
   const resolved = new Map<string, Partial<Record<ExportLanguage, MarkupLine[]>>>();
   const resolve = (hash: string, perk: IntermediatePerk) => {
     let rows = resolved.get(hash);
     if (rows) return rows;
     rows = {};
     for (const language of resolving) {
-      const text = perk.editor[language]?.main;
-      if (text === undefined) continue;
+      const cell = perk.editor[language];
+      if (cell === undefined) continue;
       const markupGlobals: MarkupGlobals = {
-        ...globals.get(language)!,
+        ...globalsForCell(globals, language, cell.englishFallback),
         type: perk.type,
-        lang: perk.editor[language]?.englishFallback ? 'en' : language,
       };
-      const lines = readFormatV2Lines(text, markupGlobals, hash, language);
+      const lines = readFormatV2Lines(cell.main, markupGlobals, hash, language);
       if (lines.length) rows[language] = lines;
     }
     resolved.set(hash, rows);

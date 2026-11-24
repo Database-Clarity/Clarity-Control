@@ -58,6 +58,7 @@ it('preserves the current capabilities and declares numberTokens in its PIN', ()
     'currentSaveStagingV1',
     'exoticTags',
     'aliasGroupRemovals',
+    'globalsInPlaceV1',
   ]);
 });
 
