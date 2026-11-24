@@ -145,7 +145,19 @@ export async function runPipeline(
   let handoff: ReturnType<typeof pendingProductionHandoff>;
   function snapshot(label: string) {
     // Always latest heads after acquiring the workflow slot, never the event checkout.
-    gitAt(cwd, ['fetch', '--prune', '--no-tags', 'origin', '+refs/heads/*:refs/remotes/origin/*']);
+    const shallow = gitAt(cwd, ['rev-parse', '--is-shallow-repository']).trim() === 'true';
+    // The workflow checks out only its runtime tip. Simulations and history guards
+    // still need complete histories, including refs outside the publication write scope.
+    gitAt(cwd, [
+      'fetch',
+      '--prune',
+      '--no-tags',
+      ...(shallow ? ['--unshallow'] : []),
+      'origin',
+      '+refs/heads/*:refs/remotes/origin/*',
+    ]);
+    if (shallow && gitAt(cwd, ['rev-parse', '--is-shallow-repository']).trim() !== 'false')
+      throw new Error('Publisher snapshot requires complete Git history');
     const repo = join(temp, label + '.git');
     gitAt(cwd, ['clone', '--bare', '--no-hardlinks', '--', cwd, repo]);
     const command = (args: string[]) => gitAt(repo, args);
@@ -178,19 +190,32 @@ export async function runPipeline(
       : new LocalRepository(repo);
   }
   function publishBundle(repo: LocalRepository, options: Options) {
-    const pub = new Publisher(repo, options),
-      old = repo.head(bundleRef);
-    pub.bundle();
-    const next = repo.head(bundleRef)!;
-    if (next !== old && !(repo instanceof RemoteRepository)) {
+    const pub = new Publisher(repo, options);
+    let next: string;
+    for (let attempt = 0; ; attempt++) {
+      const old = repo.head(bundleRef);
+      pub.bundle();
+      next = repo.head(bundleRef)!;
+      if (next === old || repo instanceof RemoteRepository) break;
       gitAt(cwd, ['fetch', '--no-tags', repo.path, `+${bundleRef}:refs/publisher/bundle`]);
-      // Explicit lease, including the create-only empty old value. No data/live/candidate pushes.
-      gitAt(cwd, [
-        'push',
-        `--force-with-lease=${bundleRef}:${old ?? ''}`,
-        'origin',
-        `${next}:${bundleRef}`,
-      ]);
+      try {
+        // Explicit lease, including the create-only empty old value. No data/live/candidate pushes.
+        gitAt(cwd, [
+          'push',
+          `--force-with-lease=${bundleRef}:${old ?? ''}`,
+          'origin',
+          `${next}:${bundleRef}`,
+        ]);
+        break;
+      } catch (error) {
+        if (attempt === 2) throw error;
+        // Refresh only the bundle base. The dry run continues simulating its original data snapshot.
+        gitAt(cwd, ['fetch', '--no-tags', 'origin', `+${bundleRef}:refs/publisher/bundle-base`]);
+        gitAt(repo.path, ['fetch', '--no-tags', cwd, 'refs/publisher/bundle-base']);
+        const current = repo.git(['rev-parse', '--verify', 'FETCH_HEAD']).trim();
+        if (current === old || (old && !repo.ancestor(old, current))) throw error;
+        repo.cas(bundleRef, next, current);
+      }
     }
     const queue = pub.queue(pub.head(options.dataBranch));
     reports.push({

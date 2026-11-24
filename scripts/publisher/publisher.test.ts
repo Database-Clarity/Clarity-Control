@@ -2,7 +2,7 @@ import { Fixture, makePrivateKey } from '../../apps/worker/test/fixture.js';
 import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js';
 import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync, createHash, sign } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { RemoteRepository } from './remote.js';
@@ -47,9 +47,37 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       const checkoutRoot = mkdtempSync(join(tmpdir(), 'pipeline-checkout-'));
       const checkout = join(checkoutRoot, 'checkout');
       roots.push(checkoutRoot);
-      execFileSync('git', ['clone', '--branch', 'editor-data', '--', f.upstream, checkout], {
-        stdio: 'pipe',
-      });
+      execFileSync(
+        'git',
+        [
+          'clone',
+          '--depth=1',
+          '--branch',
+          'editor-data',
+          '--',
+          pathToFileURL(f.upstream).href,
+          checkout,
+        ],
+        { stdio: 'pipe' },
+      );
+      const bundleRef = 'refs/heads/editor-data-bundle';
+      // A report push wins the initial bundle lease, after the pipeline snapshot.
+      f.pub.bundle();
+      f.change(D, { 'notes.json': { changed: true } });
+      const origin = new LocalRepository(f.upstream);
+      const reportBase = f.git.head(bundleRef)!;
+      const reportTree = {
+        ...origin.tree(reportBase),
+        'report-items.json': origin.writeBlob('catalog bytes'),
+      };
+      const reportCommit = origin.commit(reportBase, reportTree, 'Concurrent report update');
+      const hook = join(checkout, '.git', 'hooks', 'pre-push');
+      vi.stubEnv('PUBLISHER_FIXTURE_ORIGIN', f.upstream.replace(/\\/g, '/'));
+      writeFileSync(
+        hook,
+        `#!/bin/sh\ngit --git-dir "$PUBLISHER_FIXTURE_ORIGIN" update-ref ${bundleRef} ${reportCommit} ${reportBase} 2>/dev/null || true\n`,
+      );
+      chmodSync(hook, 0o755);
       let latest = f.git.head(D)!;
       vi.stubGlobal(
         'fetch',
@@ -85,7 +113,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
           hashes: number[];
           createdAt: string;
         }[];
-      }>(f.git.tree(f.git.head('refs/heads/editor-data-bundle')!), 'bundle.json')!;
+      }>(f.git.tree(f.git.head(bundleRef)!), 'bundle.json')!;
+      expect(f.git.ancestor(reportCommit, f.git.head(bundleRef)!)).toBe(true);
+      expect(f.git.tree(f.git.head(bundleRef)!)['report-items.json']).toBe(
+        reportTree['report-items.json'],
+      );
       expect(bundle.sourceCommit).toBe(latest);
       expect(bundle.publishQueue.map((p) => p.opId)).toEqual([A]);
       expect(Object.keys(bundle.publishQueue[0]).sort()).toEqual([
@@ -126,6 +158,35 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       expect(simulatedLog.includes(paths(A).log)).toBe(!badKey);
     },
   );
+
+  it('rebuilds a raced publisher bundle on the winning report commit', async () => {
+    const f = await setup();
+    const bundleRef = 'refs/heads/editor-data-bundle';
+    f.pub.bundle();
+    const old = f.git.head(bundleRef)!;
+    const data = f.change(D, { 'notes.json': { changed: true } });
+    const writes = f.git.cas.bind(f.git);
+    const origin = new LocalRepository(f.upstream);
+    const catalog = origin.writeBlob('report contents');
+    const report = origin.commit(
+      old,
+      { ...origin.tree(old), 'report-items.json': catalog },
+      'Concurrent report update',
+    );
+    const cas = vi.spyOn(f.git, 'cas').mockImplementationOnce((ref, base, next) => {
+      expect(ref).toBe(bundleRef);
+      origin.cas(ref, old, report);
+      writes(ref, base, next);
+    });
+    f.pub.bundle();
+    const head = f.git.head(bundleRef)!;
+    expect(f.git.git(['rev-parse', `${head}^`]).trim()).toBe(report);
+    const tree = f.git.tree(head);
+    expect(tree['report-items.json']).toBe(catalog);
+    expect(f.pub.read(tree, 'bundle.json')).toHaveProperty('sourceCommit', data);
+    expect(cas).toHaveBeenCalledTimes(2);
+    cas.mockRestore();
+  });
 
   it('invalid bundle inputs preserve the prior bundle, including the remote pipeline bundle', async () => {
     const f = await setup();
@@ -291,6 +352,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   const roots: string[] = [];
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
   });
@@ -357,7 +419,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     const fingerprint = f.options.keyFingerprint,
       data = f.git.head(D);
     f.options.keyFingerprint = 'unverified';
-    await expect(f.pub.operation(A)).rejects.toThrow('Invalid credit envelope');
+    await expect(f.pub.operation(A)).rejects.toThrow('Invalid signature or key pin');
     expect(f.git.head(D)).toBe(data);
     f.options.keyFingerprint = fingerprint;
     await f.pub.operation(A);
@@ -454,6 +516,111 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.pub.run();
     f.assertDone(B);
   });
+
+  it.each([false, true])(
+    'rejects a candidate with the wrong signed marker (inactive=%s)',
+    async (inactive) => {
+      const f = await setup();
+      if (inactive) {
+        f.change(D, {
+          'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } },
+        });
+        await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
+      } else await f.request(A);
+      const create = f.pub.createCandidate.bind(f.pub);
+      f.pub.createCandidate = (opId, blob, live, receipt) => {
+        receipt.entries[0].digest = '0'.repeat(64);
+        return create(opId, blob, live, receipt);
+      };
+      const before = f.git.head(L);
+      await f.pub.operation(A);
+      expect(f.git.head(L)).toBe(before);
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+        result: {
+          status: 'rejected',
+          error: expect.stringContaining('Tooltip 123 would publish a different revision'),
+        },
+      });
+    },
+  );
+
+  it('recovers a signed alias marker using the generator at the frozen source', async () => {
+    const f = await setup();
+    f.options.aliases = { 555: { to: 123, kind: 'frame' } };
+    f.options.facts[555] = { name: 'Frame alias', type: 'perk' };
+    f.change(D, {
+      '.publisher/config.json': {
+        generatorSha: f.options.generatorSha,
+        aliases: f.options.aliases,
+        facts: f.options.facts,
+      },
+    });
+    const digest = await inactivePublishableHash(f.tooltip, f.options.aliases);
+    await f.request(A, [555], { 555: digest });
+    const create = f.pub.createCandidate.bind(f.pub);
+    f.pub.createCandidate = (opId, blob, live, receipt) => {
+      const candidate = create(opId, blob, live, receipt);
+      f.git.cas(L, live, candidate.c);
+      f.options.generatorSha = 'c'.repeat(40);
+      f.options.aliases = {};
+      return candidate;
+    };
+    await f.pub.operation(A);
+    const { result } = f.pub.read<{ result: { status: string; error?: string } }>(
+      f.git.tree(f.git.head(D)!),
+      paths(A).log,
+    )!;
+    expect(result.status, result.error).toMatch(/done|unchanged/);
+    f.assertDone(A);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), 'live/pushed.json')).toMatchObject({
+      123: digest,
+    });
+  });
+
+  it.each([
+    ['snapshot', false],
+    ['metadata', false],
+    ['export', false],
+    ['export', true],
+  ] as const)(
+    'fails closed for a receipt with a valid signed marker and a mismatched %s (landed=%s)',
+    async (part, landed) => {
+      const f = await setup();
+      await f.request(A);
+      const create = f.pub.createCandidate.bind(f.pub);
+      f.pub.createCandidate = (opId, blob, live, receipt) => {
+        const changed = structuredClone(f.tooltip);
+        if (part === 'metadata') changed.text.en!.updatedBy = 'someone-else';
+        else changed.text.en!.text = 'different text';
+        if (part !== 'export') receipt.entries[0].tooltipBlob = f.git.writeBlob(encode(changed));
+        if (part !== 'snapshot')
+          receipt.exported = exportLegacy([changed], receipt.now, f.options.facts);
+        const candidate = create(opId, blob, live, receipt);
+        if (landed) f.git.cas(L, live, candidate.c);
+        return candidate;
+      };
+      const live = f.git.head(L);
+      if (landed) {
+        await expect(f.pub.operation(A)).rejects.toThrow(
+          'Publication already landed. Operator required',
+        );
+        expect(f.git.tree(f.git.head(D)!)[paths(A).log]).toBeUndefined();
+        expect(f.git.tree(f.git.head(D)!)[paths(A).request]).toBeDefined();
+      } else {
+        await f.pub.operation(A);
+        expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+          result: {
+            status: 'rejected',
+            error: expect.stringMatching(
+              /receipt marker|frozen source snapshot|export or upload markers/,
+            ),
+          },
+        });
+      }
+      expect(f.git.head(L) === live).toBe(!landed);
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), 'live/pushed.json')).toEqual({});
+    },
+  );
 
   it.each([true, false])(
     'inactive: an unrelated publish cannot restore an absent pick stub (inactive=%s)',

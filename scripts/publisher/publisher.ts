@@ -89,6 +89,7 @@ import { setTimeout } from 'node:timers/promises';
 import {
   bundleGlobals,
   GlobalsPublisher,
+  GlobalReleaseRejected,
   hasGlobals,
   type GlobalReleaseReceipt,
 } from './globals.js';
@@ -272,10 +273,10 @@ export class Publisher {
    * Generator aliases plus the maintainer sandbox picks at this snapshot (core mergeSandboxPointers,
    * the same merge as the Worker and the editor). A malformed picks file throws: fail closed.
    */
-  aliasesAt(tree: Tree): Aliases {
+  aliasesAt(tree: Tree, options = this.options): Aliases {
     try {
       return Publisher.aliasesAt(
-        this.options,
+        options,
         this.read<unknown>(tree, aliasGroupsPath),
         this.read<unknown>(tree, sandboxPointersPath),
       );
@@ -789,6 +790,141 @@ export class Publisher {
     }
     return rebuild ? 'rebuild' : 'bookkeeping';
   }
+  private assertRequestedDigests(
+    entries: Entry[],
+    hashes: number[],
+    expected: (hash: number) => string | undefined,
+    aliases: Aliases,
+  ) {
+    const markers = new Map(entries.map(({ hash, digest }) => [hash, digest]));
+    if (markers.size !== entries.length)
+      throw new ConsumerOutputRejected('Publication has duplicate markers');
+    for (const hash of hashes) {
+      const digest = expected(hash);
+      if (!digest || markers.get(resolveAlias(hash, aliases)) !== digest)
+        throw new ConsumerOutputRejected(
+          `Tooltip ${hash} would publish a different revision than requested. Review the changes again.`,
+        );
+    }
+  }
+  private async verifyReceiptDigests(receipt: Receipt, atomic = false) {
+    const frozen = this.git.tree(receipt.sourceCommit);
+    const signed = await this.verifyRequest(receipt.requestBlob, receipt.opId, frozen);
+    const options =
+      receipt.generatorSha === this.options.generatorSha
+        ? this.options
+        : this.read<Options>(frozen, '.publisher/config.json');
+    if (options?.generatorSha !== receipt.generatorSha)
+      throw new ConsumerOutputRejected(
+        'Missing pinned generator facts for the publication receipt',
+      );
+    const aliases = this.aliasesAt(frozen, options);
+    const moves = this.movesAt(frozen);
+    const pushed = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
+    if (
+      signed.intentDigest !== receipt.intentDigest ||
+      stableStringify(signed.requester) !== stableStringify(receipt.requester)
+    )
+      throw new ConsumerOutputRejected('Receipt does not match the signed publication intent');
+    if (
+      !receipt.globals &&
+      receipt.entries.length !==
+        new Set(signed.hashes.map((hash) => resolveAlias(hash, aliases))).size
+    )
+      throw new ConsumerOutputRejected('Receipt does not match the requested rows');
+    if (signed.kind === 'push') {
+      if (!atomic)
+        this.assertRequestedDigests(
+          receipt.entries,
+          signed.hashes,
+          (hash) => signed.expected[hash],
+          aliases,
+        );
+    } else {
+      const members = batchMembers(this, frozen, signed.batchId);
+      if (
+        signed.batchId !== receipt.batchId ||
+        stableStringify(members.map(({ hash }) => hash)) !== stableStringify(signed.hashes) ||
+        (await approvedDigest(members)) !== signed.approvedDigest
+      )
+        throw new ConsumerOutputRejected('Batch receipt differs from the signed request');
+      const expected = new Map<number, string>();
+      const entries = new Map(receipt.entries.map((entry) => [entry.hash, entry]));
+      for (const member of members) {
+        const { hash } = member;
+        const document = (prefix: string) => {
+          const raw = this.read<unknown>(frozen, `${prefix}/${hash}.json`);
+          return raw === undefined ? null : tooltipSchema.parse(raw);
+        };
+        const composed = this.composeMember(
+          member,
+          document('live/tooltips'),
+          document('tooltips'),
+          pushed[hash] !== undefined,
+        );
+        if (
+          composed.status === 'stale' ||
+          this.git.writeBlob(json(composed.tooltip)) !== entries.get(hash)?.tooltipBlob
+        )
+          throw new ConsumerOutputRejected(
+            `Tooltip ${hash} differs from the approved batch composition`,
+          );
+        expected.set(hash, await inactivePublishableHash(composed.tooltip, aliases, moves));
+      }
+      this.assertRequestedDigests(
+        receipt.entries,
+        signed.hashes,
+        (hash) => expected.get(hash),
+        aliases,
+      );
+    }
+    // Atomic RECORD checks these bytes against the approved composition at the current head.
+    if (atomic) return;
+    // Recovery verifies the frozen bytes independently of the receipt's claimed markers.
+    try {
+      const documents: Tooltip[] = [];
+      for (const entry of receipt.entries) {
+        const document = tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob)));
+        if (
+          document.hash !== entry.hash ||
+          (await inactivePublishableHash(document, aliases, moves)) !== entry.digest
+        )
+          throw new Error(`Tooltip ${entry.hash} does not match its receipt marker`);
+        if (signed.kind === 'push' && !receipt.globals) {
+          const source =
+            this.read<unknown>(frozen, `tooltips/${entry.hash}.json`) ??
+            (isMovedInactive(entry.hash, moves)
+              ? { hash: entry.hash, text: {}, associated: [] }
+              : undefined);
+          if (stableStringify(document) !== stableStringify(tooltipSchema.parse(source)))
+            throw new Error(`Tooltip ${entry.hash} does not match the frozen source snapshot`);
+        }
+        documents.push(document);
+      }
+      const exported = exportWithInactiveMoves(
+        documents,
+        receipt.now,
+        options.facts,
+        aliases,
+        selectedInactiveMoves(
+          moves,
+          documents.map(({ hash }) => hash),
+          aliases,
+        ),
+      );
+      if (
+        stableStringify(exported) !== stableStringify(receipt.exported) ||
+        stableStringify(
+          receipt.entries
+            .filter(({ hash, digest }) => pushed[hash] !== digest)
+            .map(({ hash }) => hash),
+        ) !== stableStringify(receipt.changed)
+      )
+        throw new Error('Publication receipt export or upload markers differ from its snapshots');
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
+  }
   async record(
     opId: string,
     receipt: Receipt | undefined,
@@ -799,6 +935,7 @@ export class Publisher {
     atomicLive?: { parent: string; candidate: string },
   ) {
     const p = paths(opId);
+    if (receipt) await this.verifyReceiptDigests(receipt, atomicLive !== undefined);
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch),
         tree = this.git.tree(h);
@@ -835,6 +972,7 @@ export class Publisher {
             throw new ConsumerOutputRejected('Global receipt identity mismatch');
         }
         let documents: Tooltip[] | undefined;
+        let entryOnlyAggregates: number[] = [];
         if (signed.kind === 'batch') {
           const plan = await this.batchPlan(
             tree,
@@ -851,13 +989,16 @@ export class Publisher {
           documents = plan.entries.map((entry) =>
             tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob))),
           );
-        } else
-          documents = await new GlobalsPublisher(this).validate(
+        } else {
+          const release = await new GlobalsPublisher(this).validate(
             receipt.globals,
             tree,
             source,
             atomicLive.parent,
           );
+          documents = release?.documents;
+          entryOnlyAggregates = release?.entryOnlyAggregates ?? [];
+        }
         if (
           !documents ||
           stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots) ||
@@ -866,12 +1007,21 @@ export class Publisher {
           receipt.generatorSha !== this.options.generatorSha
         )
           throw new ConsumerOutputRejected('Global receipt identity mismatch');
-        const aliases = this.aliasesAt(tree),
-          moves = selectedInactiveMoves(
-            this.movesAt(tree),
-            documents.map((document) => document.hash),
+        const aliases = this.aliasesAt(tree);
+        if (signed.kind === 'push')
+          this.assertRequestedDigests(
+            receipt.entries,
+            signed.hashes.filter(
+              (hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases)),
+            ),
+            (hash) => signed.expected[hash],
             aliases,
           );
+        const moves = selectedInactiveMoves(
+          this.movesAt(tree),
+          documents.map((document) => document.hash),
+          aliases,
+        );
         const exported = exportWithInactiveMoves(
           documents,
           receipt.now,
@@ -1105,6 +1255,12 @@ export class Publisher {
           if (attempt < 2) continue;
         }
         if (!(error instanceof ConsumerOutputRejected)) throw error;
+        const live = this.head(this.options.liveBranch);
+        const pending = this.git.head(p.candidate);
+        if (this.receipt(live, opId) || (pending && this.git.ancestor(pending, live)))
+          throw new Error('Publication already landed. Operator required to finish RECORD.', {
+            cause: error,
+          });
         // A terminal content refusal closes the signed request without changing LIVE.
         await this.record(
           opId,
@@ -1121,8 +1277,7 @@ export class Publisher {
           tree[p.request],
         );
         try {
-          const candidate = this.git.head(p.candidate);
-          if (candidate) this.git.cas(p.candidate, candidate, undefined);
+          if (pending) this.git.cas(p.candidate, pending, undefined);
         } catch {
           /* A terminal Record is authoritative; candidate cleanup is best effort. */
         }
@@ -1271,11 +1426,13 @@ export class Publisher {
           return;
         }
         let globals: GlobalReleaseReceipt | undefined;
+        let entryOnlyAggregates: number[] = [];
         if (hasGlobals(tree)) {
           try {
             const release = await new GlobalsPublisher(this).release(tree, s, payload.hashes, live);
             if (!release) throw new Error('Missing global release');
             globals = release.receipt;
+            entryOnlyAggregates = release.entryOnlyAggregates;
             tooltips.splice(0, tooltips.length, ...release.documents);
             entries.splice(
               0,
@@ -1288,10 +1445,20 @@ export class Publisher {
                 })),
               )),
             );
-          } catch {
-            throw new ConsumerOutputRejected('Sync pending: global dependency review required');
+          } catch (error) {
+            throw new ConsumerOutputRejected(
+              error instanceof GlobalReleaseRejected
+                ? error.message
+                : 'Sync pending: global dependency review required',
+            );
           }
         }
+        this.assertRequestedDigests(
+          entries,
+          payload.hashes.filter((hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases))),
+          (hash) => payload.expected[hash],
+          aliases,
+        );
         const checked = this.checkAndExport(tree, tooltips, aliases);
         if ('error' in checked) {
           await this.record(
@@ -1363,7 +1530,12 @@ export class Publisher {
               { parent: l, candidate: c },
             );
           } catch (error) {
-            if (error instanceof RefRace || error instanceof ManualSourceAdvanced) throw error;
+            if (
+              error instanceof RefRace ||
+              error instanceof ManualSourceAdvanced ||
+              error instanceof ConsumerOutputRejected
+            )
+              throw error;
             throw new ConsumerOutputRejected(
               'Global publication changed or requires recovery; nothing partially published',
             );
@@ -1375,6 +1547,7 @@ export class Publisher {
           }
           return;
         }
+        await this.verifyReceiptDigests(r);
         let pushed = false;
         try {
           this.git.cas(dataRef(this.options.liveBranch), l, c);
@@ -1639,9 +1812,25 @@ export class Publisher {
     for (const tooltip of documents)
       entries.push({
         hash: tooltip.hash,
-        digest: await inactivePublishableHash(tooltip, aliases, this.movesAt(tree)),
+        digest: await inactivePublishableHash(tooltip, aliases, moves),
         tooltipBlob: this.git.writeBlob(json(tooltip)),
       });
+    if (globals) {
+      const expected = new Map(
+        await Promise.all(
+          tooltips.map(
+            async (tooltip) =>
+              [tooltip.hash, await inactivePublishableHash(tooltip, aliases, moves)] as const,
+          ),
+        ),
+      );
+      try {
+        this.assertRequestedDigests(entries, payload.hashes, (hash) => expected.get(hash), aliases);
+      } catch (error) {
+        if (!(error instanceof ConsumerOutputRejected)) throw error;
+        return { failure: { status: 'rejected', error: error.message } };
+      }
+    }
     return {
       entries,
       now: checked.now,
@@ -1938,40 +2127,11 @@ export class Publisher {
     if (receipt.batchId !== payload.batchId) throw new Error('Receipt batch mismatch');
     const frozen = this.git.tree(receipt.sourceCommit);
     const members = batchMembers(this, frozen, payload.batchId);
-    const snapshotAt = (hash: number) => {
-      const value = this.read<unknown>(frozen, `live/tooltips/${hash}.json`);
-      return value === undefined ? null : tooltipSchema.parse(value);
-    };
-    const pushedAt = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
-    // The composed snapshots exist only as receipt OIDs: rewrite them from S' (deterministic)
-    // so a recovering runner holds the blobs, and fail closed if they ever differ.
-    const byHash = new Map(members.map((m) => [m.hash, m]));
     if (
       receipt.globals &&
-      (stableStringify(receipt.globals.roots) !== stableStringify(payload.hashes) ||
-        stableStringify(members.map((member) => member.hash)) !== stableStringify(payload.hashes) ||
-        members.some((member) => !receipt.entries.some((entry) => entry.hash === member.hash)))
+      stableStringify(receipt.globals.roots) !== stableStringify(payload.hashes)
     )
       throw new Error('Global batch receipt roots differ from its signed members');
-    for (const e of receipt.entries) {
-      const m = byHash.get(e.hash);
-      // Global closure entries were checked as a set before the atomic transaction.
-      // They publish alongside the batch, but only actual members activate into current.
-      if (!m && receipt.globals) continue;
-      if (!m) throw new Error(`Receipt member ${e.hash} missing at S'; operator required`);
-      const saved = this.read<unknown>(frozen, `tooltips/${m.hash}.json`);
-      const composed = this.composeMember(
-        m,
-        snapshotAt(m.hash),
-        saved === undefined ? null : tooltipSchema.parse(saved),
-        pushedAt[m.hash] !== undefined,
-      );
-      if (
-        composed.status === 'stale' ||
-        this.git.writeBlob(json(composed.tooltip)) !== e.tooltipBlob
-      )
-        throw new Error(`Composition of ${e.hash} differs from its receipt; operator required`);
-    }
     const batch = batchSchema.parse(this.read<unknown>(tree, path));
     if (batch.status !== 'publishing' || batch.opId !== opId || batch.claim?.opId !== opId)
       throw new Error(`Batch ${batch.id} is not claimed by ${opId}; operator required`);
@@ -2037,10 +2197,22 @@ export class Publisher {
     return { landedAt, landedAtSource: land.source, recordedAt };
   }
   bundle() {
+    const ref = dataRef('editor-data-bundle');
+    let old = this.git.head(ref);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return this.bundleAt(ref, old);
+      } catch (error) {
+        if (!(error instanceof RefRace) || attempt === 2) throw error;
+        const current = this.git.head(ref);
+        if (!current || current === old || (old && !this.git.ancestor(old, current))) throw error;
+        old = current;
+      }
+    }
+  }
+  private bundleAt(ref: string, old: string | undefined) {
     const h = this.head(this.options.dataBranch),
       t = this.git.tree(h),
-      ref = dataRef('editor-data-bundle'),
-      old = this.git.head(ref),
       oldTree = old ? this.git.tree(old) : {};
     const prior = old ? this.read<{ sourceCommit: string }>(oldTree, 'bundle.json') : undefined;
     if (prior?.sourceCommit === h) return;

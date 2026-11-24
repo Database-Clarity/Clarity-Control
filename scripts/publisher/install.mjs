@@ -11,6 +11,7 @@ import {
 import { resolve, join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { load } from 'js-yaml';
 import { maxBuffer } from './childProcess.mjs';
 const [checkoutArg, configArg, mode = '--plan', targetArg, ...extra] = process.argv.slice(2);
 const plans = { test: 'converter-v2-test', production: 'converter' };
@@ -18,13 +19,13 @@ const plan = targetArg?.replace(/^--target=/, '') ?? 'test';
 if (
   !checkoutArg ||
   !configArg ||
-  !['--plan', '--apply-local'].includes(mode) ||
+  !['--plan', '--apply-local', '--verify'].includes(mode) ||
   (targetArg !== undefined && targetArg !== `--target=${plan}`) ||
   !Object.hasOwn(plans, plan) ||
   extra.length
 )
   throw new Error(
-    'Usage: install.mjs <editor-data checkout> <config.json> [--plan|--apply-local] [--target=test|--target=production]',
+    'Usage: install.mjs <editor-data checkout> <config.json> [--plan|--apply-local|--verify] [--target=test|--target=production]',
   );
 const liveBranch = plans[plan];
 const checkout = resolve(checkoutArg);
@@ -39,6 +40,31 @@ if (
 )
   throw new Error('Unexpected remote');
 const template = resolve('scripts/publisher/template');
+const pipelinePath = '.github/workflows/pipeline.yml';
+const runPath = '.github/workflows/publisher-run.yml';
+const callsPublisherRun = (workflow) =>
+  Object.values(load(workflow)?.jobs ?? {}).some((job) => job?.uses === `./${runPath}`);
+const headFiles = new Map(
+  git(
+    'ls-tree',
+    '-r',
+    '--format=%(path)%x09%(objectname)',
+    'HEAD',
+    '--',
+    '.publisher',
+    '.github/workflows',
+  )
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => line.split('\t')),
+);
+const readBlob = (oid) =>
+  execFileSync('git', ['-C', checkout, 'cat-file', 'blob', oid], { maxBuffer });
+const callerOid = headFiles.get(pipelinePath);
+const installedCaller = callerOid ? readBlob(callerOid).toString('utf8') : '';
+// A legacy inline pipeline is a valid starting point. A split pipeline requires both files.
+if (callsPublisherRun(installedCaller) !== headFiles.has(runPath))
+  throw new Error('Incomplete publisher workflow pair at HEAD');
 const pin = JSON.parse(readFileSync(join(template, '.publisher/PIN')));
 if (
   createHash('sha256')
@@ -63,7 +89,7 @@ if (existsSync(installedConfig)) {
     throw new Error('Target switch requires an explicit --target plan');
 }
 // The installed pipeline publishes for real exactly when config.publishWritesEnabled is true
-// (pipeline.yml picks --pipeline-publish). Refuse that config for a build whose baked switch
+// (publisher-run.yml picks --pipeline-publish). Refuse that config for a build whose baked switch
 // (config/publisher.json at the PIN source) is OFF: it would throw on every run instead.
 const runtime = readFileSync(join(template, '.publisher/publisher.mjs'), 'utf8');
 const baked =
@@ -92,21 +118,21 @@ if (
 // Compute the Git blob identity from the SAME canonical bytes written below. The
 // Worker observes it at the same head as this small installed-generator binding.
 const configBytes = Buffer.from(JSON.stringify(config, null, 2) + '\n', 'utf8');
+const blobOid = (bytes) =>
+  createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex');
 const installed = {
   version: 1,
-  configOid: createHash('sha1')
-    .update(`blob ${configBytes.byteLength}\0`)
-    .update(configBytes)
-    .digest('hex'),
+  configOid: blobOid(configBytes),
   generatorSha: config.generatorSha,
 };
-(mode === '--plan' ? console.error : console.log)(
-  `Plan: retire bundle.yml; copy pipeline.yml and pinned .publisher; install public config and installed.json binding in the same commit. ${
-    writes
-      ? `PUBLISH WRITES ENABLED: the pipeline runs --pipeline-publish and writes ${liveBranch}.`
-      : 'Publish transport remains dry-run.'
-  } No commit/push.`,
-);
+if (mode !== '--verify')
+  (mode === '--plan' ? console.error : console.log)(
+    `Plan: retire bundle.yml and install pipeline.yml, publisher-run.yml, and pinned .publisher in one commit. ${
+      writes
+        ? `PUBLISH WRITES ENABLED: the pipeline runs --pipeline-publish and writes ${liveBranch}.`
+        : 'Publish transport remains dry-run.'
+    } No commit/push.`,
+  );
 // Both modes use exactly these bytes. --plan prints an applicable patch without
 // changing the checkout, its index, its object store, or any remote ref.
 const files = new Map();
@@ -125,61 +151,60 @@ const downstream =
         .join('\n') +
       '\n'
     : '';
+const caller = readFileSync(join(template, pipelinePath), 'utf8');
+const secretMarker =
+  '    # Production output secrets are inherited only in the production install.';
+if (!callsPublisherRun(caller) || !caller.includes(secretMarker))
+  throw new Error('Invalid publisher workflow caller template');
 files.set(
-  '.github/workflows/pipeline.yml',
-  Buffer.from(readFileSync(join(template, '.github/workflows/pipeline.yml'), 'utf8') + downstream),
+  pipelinePath,
+  Buffer.from(
+    plan === 'production' ? caller.replace(secretMarker, '    secrets: inherit') : caller,
+  ),
 );
+const publisherRun = readFileSync(join(template, runPath), 'utf8') + downstream;
+load(publisherRun);
+files.set(runPath, Buffer.from(publisherRun));
 files.set('.github/workflows/bundle.yml', null);
 for (const [file, bytes] of files)
   if (bytes?.includes(13)) throw new Error(`Template must use LF bytes: ${file}`);
 if (plan === 'production') {
-  // actionlint 1.7.12 predates queue:max. Parse YAML with the existing project
-  // parser and validate the exact supported queue policy from GitHub's schema.
-  const reusable = readFileSync(join(template, '.github/workflows/build-outputs.yml'), 'utf8');
-  const { format } = await import('prettier');
-  for (const text of [reusable, files.get('.github/workflows/pipeline.yml').toString('utf8')])
-    await format(text, { parser: 'yaml' });
+  // actionlint 1.7.12 predates queue:max. Parse YAML and verify GitHub's queue policy.
+  const reusable = load(
+    readFileSync(join(template, '.github/workflows/build-outputs.yml'), 'utf8'),
+  );
   for (const [job, group] of [
     ['legacy', 'legacy-outputs'],
     ['site', 'data-site'],
   ]) {
-    const body = reusable.split(`\n  ${job}:\n`)[1]?.split('\n    steps:')[0];
+    const concurrency = reusable?.jobs?.[job]?.concurrency;
     if (
-      !body?.includes(
-        `concurrency:\n      group: ${group}\n      cancel-in-progress: false\n      queue: max`,
-      )
+      concurrency?.group !== group ||
+      concurrency['cancel-in-progress'] !== false ||
+      concurrency.queue !== 'max'
     )
       throw new Error(
         `Unsupported ${group} queue policy; require queue:max and cancel-in-progress:false`,
       );
   }
 }
+if (mode === '--verify') {
+  for (const [file, bytes] of files) {
+    const expected = bytes === null ? undefined : blobOid(bytes);
+    if (headFiles.get(file) !== expected)
+      throw new Error(`Unexpected installed file at HEAD: ${file}`);
+  }
+  console.log(`Verified ${plan} publisher workflows and runtime at HEAD.`);
+}
 if (mode === '--plan') {
   const scratch = mkdtempSync(join(tmpdir(), 'publisher-install-plan-'));
-  const headFiles = new Map(
-    git(
-      'ls-tree',
-      '-r',
-      '--format=%(path)%x09%(objectname)',
-      'HEAD',
-      '--',
-      '.publisher',
-      '.github/workflows',
-    )
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => line.split('\t')),
-  );
   try {
     for (const side of ['a', 'b']) mkdirSync(join(scratch, side));
     for (const [file, bytes] of files) {
       const oid = headFiles.get(file);
       if (oid) {
         mkdirSync(dirname(join(scratch, 'a', file)), { recursive: true });
-        writeFileSync(
-          join(scratch, 'a', file),
-          execFileSync('git', ['-C', checkout, 'cat-file', 'blob', oid], { maxBuffer }),
-        );
+        writeFileSync(join(scratch, 'a', file), readBlob(oid));
       }
       if (bytes !== null) {
         mkdirSync(dirname(join(scratch, 'b', file)), { recursive: true });
