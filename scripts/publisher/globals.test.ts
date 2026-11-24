@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { inventoryGlobals, projectGlobals } from '../../packages/core/src/globals/projection.js';
 import {
   composeGlobalRelease,
@@ -747,6 +747,7 @@ describe('dependency-safe global release', () => {
     ],
     ['a glossary edit', { 'glossary/de.json': { v: 1, lang: 'de', terms: {} } }, false],
     ['a localized snippet edit', { 'snippets/de.json': {} }, false],
+    ['an export project save', { 'exports/projects/partner.json': { version: 1 } }, false],
     [
       'a staged save',
       {
@@ -825,6 +826,126 @@ describe('dependency-safe global release', () => {
     f.pub.record = record;
     await f.pub.operation(A);
     expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+  });
+  it.each(['before', 'after'] as const)(
+    'fences a second DATA move %s rebuild sync',
+    async (when) => {
+      const f = await fixture();
+      await f.globals.drain();
+      await f.request([42]);
+      const live = f.git.head(L);
+      f.git.beforeAtomic = () =>
+        f.change({ 'tooltips/41.json': tooltip(41, 'Saved concurrently') });
+      const drain = GlobalsPublisher.prototype.drain;
+      const move = () => f.change({ 'live/pushed.json': { 42: 'a'.repeat(64) } });
+      const spy = vi
+        .spyOn(GlobalsPublisher.prototype, 'drain')
+        .mockImplementationOnce(async function (this: GlobalsPublisher, head) {
+          if (when === 'before') move();
+          const checked = await drain.call(this, head);
+          if (when === 'after') move();
+          return checked;
+        });
+      try {
+        await expect(f.pub.operation(A)).rejects.toBeInstanceOf(RefRace);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(f.git.head(L)).toBe(live);
+      expect(f.git.head(paths(A).candidate)).toBeDefined();
+      expect(f.current()[paths(A).request]).toBeDefined();
+      expect(f.current()[paths(A).log]).toBeUndefined();
+    },
+  );
+
+  it('keeps the signed candidate recoverable after an interruption following sync', async () => {
+    const f = await fixture();
+    f.options.facts[42].name = 'Selected perk';
+    await f.globals.drain();
+    await f.request([42]);
+    const live = f.git.head(L);
+    f.git.beforeAtomic = () => f.change({ 'tooltips/42.json': tooltip(42, 'Saved concurrently') });
+    const drain = GlobalsPublisher.prototype.drain;
+    const spy = vi
+      .spyOn(GlobalsPublisher.prototype, 'drain')
+      .mockImplementationOnce(async function (this: GlobalsPublisher, head) {
+        await drain.call(this, head);
+        throw new Error('Interrupted after sync');
+      });
+    try {
+      await expect(f.pub.operation(A)).rejects.toThrow('Interrupted after sync');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(f.git.head(paths(A).candidate)).toBeDefined();
+    await new Publisher(f.git, f.options).operation(A);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      code: 'selected-rows-changed',
+      error: expect.stringContaining('Selected perk'),
+    });
+    expect(f.git.head(L)).toBe(live);
+  });
+
+  it('names a refusal when stored proof changes disagree with recomputation', async () => {
+    const f = await fixture();
+    f.options.facts[42].name = 'Selected perk';
+    await f.globals.drain();
+    await f.request([42]);
+    const live = f.git.head(L);
+    f.git.beforeAtomic = () =>
+      f.change({ 'globals/proofs/publication/converter-v2-test/42-en.json': { wrong: true } });
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      code: 'selected-rows-changed',
+      error: expect.stringContaining('global proofs for Selected perk'),
+    });
+    expect(f.git.head(L)).toBe(live);
+  });
+
+  it('keeps the candidate that won an exact replacement lease', async () => {
+    const f = await fixture();
+    await f.globals.drain();
+    await f.request([42]);
+    f.git.beforeAtomic = () => f.change({ 'tooltips/41.json': tooltip(41, 'Saved concurrently') });
+    const create = f.pub.createCandidate.bind(f.pub);
+    let winner: string | undefined;
+    f.pub.createCandidate = (...args) => {
+      const [opId, , live, receipt, previous] = args;
+      if (previous) {
+        winner = f.pub.buildCandidate(live, receipt);
+        f.git.beforeCas = () => f.git.cas(paths(opId).candidate, previous, winner);
+      }
+      return create(...args);
+    };
+    await f.pub.operation(A);
+    expect(winner).toBeDefined();
+    expect(f.read(paths(A).log).candidateCommit).toBe(winner);
+    expect(f.git.head(L)).toBe(winner);
+  });
+
+  it('reconciles when another recovery finishes the same request during sync', async () => {
+    const f = await fixture();
+    await f.globals.drain();
+    await f.request([42]);
+    f.git.beforeAtomic = () => f.change({ 'tooltips/41.json': tooltip(41, 'Saved concurrently') });
+    const drain = GlobalsPublisher.prototype.drain;
+    const spy = vi
+      .spyOn(GlobalsPublisher.prototype, 'drain')
+      .mockImplementationOnce(async function (this: GlobalsPublisher, head) {
+        const checked = await drain.call(this, head);
+        await new Publisher(f.git, f.options).operation(A);
+        return checked;
+      });
+    try {
+      await f.pub.operation(A);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(f.read(paths(A).log).candidateCommit).toBe(f.git.head(L));
+    expect(f.git.additions(f.git.head(D)!, paths(A).log)).toHaveLength(1);
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
   });
   it.each(['100755', undefined])(
     'rejects a retry kick with mode %s from a mode-aware adapter',

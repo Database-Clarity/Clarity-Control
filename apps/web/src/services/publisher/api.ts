@@ -6,7 +6,7 @@ export type RemoteStatus = 'pending' | 'done' | 'unchanged' | 'stale' | 'rejecte
 export interface PublishAnswer {
   status: RemoteStatus;
   refusal?: string;
-  changedSelection?: string;
+  regroupable?: false;
 }
 export const terminalStatuses = ['done', 'unchanged', 'stale', 'rejected', 'failed'] as const;
 
@@ -92,7 +92,7 @@ export async function postPublish(body: {
     result.data?.code === 'selected-rows-changed' &&
     typeof error === 'string'
   )
-    return { status: resolved, changedSelection: error };
+    return { status: resolved, refusal: error, regroupable: false };
   // The Publisher records this terminal refusal before making any live change.
   const prefix = 'ConsumerOutputRejected: ';
   return resolved === 'rejected' && typeof error === 'string' && error.startsWith(prefix)

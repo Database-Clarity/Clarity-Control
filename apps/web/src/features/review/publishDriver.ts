@@ -155,12 +155,7 @@ export function recovering(members: readonly PublishOp[]): boolean {
 
 /** An older open tab can persist a rejection from the status projection alone. */
 export function needsPublishReceipt(op: PublishOp): boolean {
-  return (
-    op.status === 'rejected' &&
-    op.round !== undefined &&
-    !op.receiptChecked &&
-    op.refusal === undefined
-  );
+  return op.status === 'rejected' && !op.receiptChecked && op.refusal === undefined;
 }
 
 /** Keep successful requests and greedily combine only the latest round's refused parts in order. */
@@ -174,7 +169,9 @@ export function regroupRefusals(members: readonly PublishOp[]): PublishOp[][] {
     return [];
   const round = Math.max(...members.map((op) => op.round ?? 0));
   const latest = members.filter((op) => op.round === round).sort(byAge);
-  const refused = latest.filter((op) => op.status === 'rejected' && op.refusal !== undefined);
+  const refused = latest.filter(
+    (op) => op.status === 'rejected' && op.refusal !== undefined && op.regroupable !== false,
+  );
   const parts: PublishOp[][] = [];
   let weight = 0;
   for (const op of refused) {
@@ -650,7 +647,7 @@ export class PublishDriver {
   private async adopt(opId: string, remote: RemoteStatus, answer?: PublishAnswer) {
     const op = this.current(opId);
     if (!op) return;
-    if (remote === 'rejected' && op.round !== undefined && !answer) {
+    if (remote === 'rejected' && !answer) {
       const generation = this.generation;
       if (op.status !== 'rejected') {
         // Store the rejection first: a finished part is never kicked or retried, and if the
@@ -692,10 +689,15 @@ export class PublishDriver {
       acceptedAt: op.acceptedAt ?? this.deps.now(),
       ...(remote === 'rejected' && answer ? { receiptChecked: true } : {}),
       ...(refusal !== undefined
-        ? { refusal, error: `Tooltips ${hashList(op.hashes)}: ${refusal}` }
-        : answer?.changedSelection !== undefined
-          ? { error: answer.changedSelection }
-          : {}),
+        ? {
+            refusal,
+            regroupable: answer?.regroupable,
+            error:
+              answer?.regroupable === false
+                ? refusal
+                : `Tooltips ${hashList(op.hashes)}: ${refusal}`,
+          }
+        : {}),
     });
   }
 

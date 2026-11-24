@@ -29,7 +29,8 @@ it('returns the named terminal reason for a changed selection', async () => {
     postPublish({ opId: 'op', hashes: [10], expected: { 10: 'digest' } }),
   ).resolves.toEqual({
     status: 'rejected',
-    changedSelection: reason,
+    refusal: reason,
+    regroupable: false,
   });
 });
 
