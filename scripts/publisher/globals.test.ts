@@ -813,6 +813,31 @@ describe('in-place shared text publication', () => {
     );
   });
 
+  it.each(['rename', 'remove'] as const)(
+    'refuses a %s when a published source uses an untracked variable',
+    async (operation) => {
+      const f = await inPlaceFixture();
+      const source = tooltip(141, 'See https://example.com/#Beta now');
+      const entry =
+        operation === 'rename'
+          ? { ...f.entry, name: 'Magnitude' }
+          : { ...f.entry, tombstone: { by: 'alice', at: new Date(now).toISOString() } };
+      f.change({
+        [f.entryPath]: entry,
+        'live/tooltips/141.json': source,
+        'tooltips/141.json': source,
+      });
+      const row = pending(f).find(({ id }) => id === entry.id)!;
+      expect(row.refusal).toContain('Tooltip 141');
+      expect(row.refusal).toContain(operation === 'rename' ? 'Move #Beta' : 'still uses Beta');
+      const liveBefore = f.git.head(L);
+      await f.request([], A, selection(row));
+      await f.pub.run(false);
+      expect(f.read(paths(A).log).result.status).toBe('rejected');
+      expect(f.git.head(L)).toBe(liveBefore);
+    },
+  );
+
   it('lands a tooltip edit when a published variable supplies a note whose definition is only saved', async () => {
     const f = await inPlaceFixture();
     const variable = structuredClone(f.published.entries.find(({ name }) => name === 'Alpha')!);

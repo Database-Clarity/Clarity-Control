@@ -15,6 +15,7 @@ import {
   globalsInPlaceSaveIssue,
   inPlaceLabelVariable,
   inPlaceLinkVariables,
+  inPlaceReferenceIssue,
   plainInPlaceDestination,
   globalsReleasePaths,
   isLegacyAliasStub,
@@ -373,6 +374,7 @@ export function assertInPlaceDocuments(
       const context = `Tooltip ${tooltip.custom?.name || tooltip.hash} (${lang})`;
       const issue =
         sharedVariableLabelIssue(cell.text, names) ??
+        inPlaceReferenceIssue(cell.text, names, titleNames) ??
         globalsInPlaceSaveIssue(cell.text, titleNames);
       if (issue) throw new Error(`${context}: ${issue}`);
       assertLinkVariableValues(cell.text, context, options.definitions.variables, publishedNames);
@@ -613,8 +615,14 @@ export function withdrawalIssue(
 ) {
   if (!previous || previous.tombstone) return;
   const names = new Set([selected.name, previous.name]);
+  const empty = new Set<string>();
   const reads = (text: string) =>
     globalReferenceSpans(text, selected.kind).some(({ name }) => names.has(name)) ||
+    !!inPlaceReferenceIssue(
+      text,
+      selected.kind === 'variables' ? names : empty,
+      selected.kind === 'titles' ? names : empty,
+    ) ||
     (selected.kind === 'titles' &&
       text.includes('<title') &&
       text.includes('#') &&
@@ -678,6 +686,33 @@ function selectedRelease(
   }
 
   const renames = renamesOf(published.store, selected);
+  const changedVariables = new Set<string>();
+  const changedTitles = new Set<string>();
+  for (const entry of selected) {
+    const old = previous.get(entry.id);
+    if (old && !old.tombstone && !entry.tombstone && old.name === entry.name) continue;
+    const names =
+      entry.kind === 'variables'
+        ? changedVariables
+        : entry.kind === 'titles'
+          ? changedTitles
+          : undefined;
+    names?.add(entry.name);
+    if (old && !old.tombstone) names?.add(old.name);
+  }
+  if (changedVariables.size || changedTitles.size) {
+    const check = (source: string, context: string) => {
+      const issue = inPlaceReferenceIssue(source, changedVariables, changedTitles);
+      if (issue) throw new Error(`${context}: ${issue}`);
+    };
+    for (const doc of liveDocs)
+      for (const [lang, { text }] of Object.entries(doc.text))
+        check(text, `Tooltip ${doc.custom?.name || doc.hash} (${lang})`);
+    for (const entry of published.store.entries)
+      if (!entry.tombstone)
+        for (const [lang, { body }] of Object.entries(entry.definitions))
+          check(body, `${entry.name} (${lang})`);
+  }
   for (const entry of selected) {
     const to = entry.name;
     const old = previous.get(entry.id);
@@ -727,12 +762,20 @@ function selectedRelease(
   );
   const options = releaseOptions(next, saved);
   const names = variableNames(options);
+  const titleNames = new Set([
+    ...Object.keys(options.definitions.titles ?? {}),
+    ...(options.unavailable?.titles ?? []),
+  ]);
   const publishedNames = new Set(Object.keys(options.definitions.variables ?? {}));
-  for (const { kind, from } of renames) if (kind === 'variables') names.add(from);
+  for (const { kind, from } of renames) {
+    if (kind === 'variables') names.add(from);
+    if (kind === 'titles') titleNames.add(from);
+  }
   for (const entry of selected) {
     if (entry.tombstone) continue;
     for (const [lang, { body }] of Object.entries(entry.definitions)) {
-      const issue = sharedVariableLabelIssue(body, names);
+      const issue =
+        sharedVariableLabelIssue(body, names) ?? inPlaceReferenceIssue(body, names, titleNames);
       if (issue) throw new Error(`${entry.name} (${lang}): ${issue}`);
       for (const kind of ['exports', 'variables', 'titles'] as const) {
         const unavailable = options.unavailable?.[kind];

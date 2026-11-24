@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import {
+  inPlaceReferenceIssue,
   exportLegacy,
   exportWithInactiveMoves,
   MissingGlobalTranslation,
@@ -8,6 +9,47 @@ import {
   type GlobalsInPlaceOptions,
   type Tooltip,
 } from '../src/index.js';
+
+test.each([
+  '<link Up <solar/> to #Beta [https://example.com] />',
+  '<title Foo [Known]/> gains #Beta, see <link x [https://example.com] />',
+  '<link Text /> #Beta <title b [Help] />',
+  '<title  /> #Beta <title b [Help] />',
+  '<link <bold x /> #Beta [https://example.com] />',
+  '<link Up\u2028to #Beta [https://example.com] />',
+  '<link <bold/> Up to #Beta [https://example.com] />',
+  'see https://example.com/#Beta now',
+])('refuses an untracked variable span in %s', (source) => {
+  expect(inPlaceReferenceIssue(source, new Set(['Beta']), new Set())).toContain('#Beta');
+});
+
+test.each([
+  '<title A [Help]/>',
+  '<title A [Help]  />',
+  '<title [Help] />',
+  '<title\tA [Help] />',
+  '<title Good [Help] /> and <title A [Help]/>',
+])('refuses an untracked note occurrence in %s', (source) => {
+  expect(inPlaceReferenceIssue(source, new Set(), new Set(['Help']))).toContain('Help');
+});
+
+test('tracks ordinary link and note uses, and excludes comments and shadowed variables', () => {
+  const variables = new Set(['Beta']);
+  const titles = new Set(['Help']);
+  expect(
+    inPlaceReferenceIssue('<link URL [#{Beta}] /> and <title Info [Help] />', variables, titles),
+  ).toBeUndefined();
+  expect(
+    inPlaceReferenceIssue(
+      'var Beta = 5\n<link Up to #Beta [https://example.com] />',
+      variables,
+      titles,
+    ),
+  ).toBeUndefined();
+  expect(
+    inPlaceReferenceIssue('// see https://example.com/#Beta', variables, titles),
+  ).toBeUndefined();
+});
 import { exportCanonical, tooltip } from './helpers.js';
 
 const definitions = {

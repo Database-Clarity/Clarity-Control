@@ -8,6 +8,7 @@ import {
   globalsInPlaceDefinitions,
   globalsInPlaceFenceSchema,
   globalsInPlacePath,
+  inPlaceReferenceIssue,
   languages,
   legacyGlobalsInPlaceDefinitions,
   projectGlobals,
@@ -179,11 +180,13 @@ export async function dryRunGlobalsMigration(
   const before = liveGlobalsInput(pub, legacyLive);
   const entries = [...published.entries, ...saved.entries].filter(({ tombstone }) => !tombstone);
   const names = new Set(entries.filter(({ kind }) => kind === 'variables').map(({ name }) => name));
+  const titles = new Set(entries.filter(({ kind }) => kind === 'titles').map(({ name }) => name));
   const definitionStores = [saved, published].map(
     (store) => globalsInPlaceDefinitions(store.entries).variables,
   );
   const checkLabel = (text: string, context: string) => {
-    const issue = sharedVariableLabelIssue(text, names);
+    const issue =
+      sharedVariableLabelIssue(text, names) ?? inPlaceReferenceIssue(text, names, titles);
     if (issue) throw new Error(`${context}: ${issue}`);
     for (const variables of definitionStores)
       assertLinkVariableValues(text, context, variables, names);

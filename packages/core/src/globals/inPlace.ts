@@ -252,6 +252,49 @@ export function effectiveSharedNotes(
   return [...reads];
 }
 
+function inPlaceVariableUses(text: string) {
+  const refs = variableReferences(text);
+  if (!refs.length) return refs;
+  const comments =
+    text.includes('//') || text.includes('/*') ? markupCommentContext(text).comments : [];
+  return refs.filter(
+    ({ name, from }) =>
+      name !== 'e' && !comments.some((span) => span.from <= from && from < span.to),
+  );
+}
+
+/** A shared read must have a source range the rename and withdrawal logic can track. */
+export function inPlaceReferenceIssue(
+  source: string,
+  variables: ReadonlySet<string>,
+  titles: ReadonlySet<string>,
+): string | undefined {
+  if (variables.size && source.includes('#')) {
+    const locals = localInPlaceVariables(source);
+    const tracked = new Set(globalReferenceSpans(source, 'variables').map(({ from }) => from));
+    for (const { name, from } of inPlaceVariableUses(source))
+      if (variables.has(name) && !Object.hasOwn(locals, name) && !tracked.has(from))
+        return `Move #${name} out of the label, URL, or ambiguous markup so it can be tracked.`;
+  }
+  if (titles.size && source.includes('<') && source.includes('[')) {
+    const globals = { variables: globalsInPlaceLibraryText(2)!, titles: '' };
+    const local = extractBlocks(source.replace(/\r/g, ''), 'title');
+    const reads = new Set(
+      effectiveSharedNotes(lowerConsumerMarkup(source), globals, titles).filter(
+        (name) => !Object.hasOwn(local, name),
+      ),
+    );
+    if (!reads.size) return;
+    // Neutralize each tracked occurrence and ask the reader whether a second, untracked
+    // occurrence of the same note is still effective.
+    let unchecked = source;
+    for (const { name, from, to } of globalReferenceSpans(source, 'titles').reverse())
+      if (reads.has(name)) unchecked = unchecked.slice(0, from) + '!' + unchecked.slice(to);
+    const [name] = effectiveSharedNotes(lowerConsumerMarkup(unchecked), globals, reads);
+    if (name) return `Use the standard title markup for ${name} so the note can be tracked.`;
+  }
+}
+
 /** The legacy reader expands import lines before it removes block comments. */
 export function protectCommentedGlobalImports(source: string): string {
   if (!source.includes('/*') || !source.includes('import ')) return source;
@@ -305,20 +348,10 @@ export function resolveGlobalsInPlace(
         return expanded;
       },
     );
-  const variableUses = (text: string) => {
-    const refs = variableReferences(text);
-    if (!refs.length) return refs;
-    const comments =
-      text.includes('//') || text.includes('/*') ? markupCommentContext(text).comments : [];
-    return refs.filter(
-      ({ name, from }) =>
-        name !== 'e' && !comments.some((span) => span.from <= from && from < span.to),
-    );
-  };
   const fill = (text: string): string => {
     let result = '';
     let at = 0;
-    for (const { name, from, to } of variableUses(text)) {
+    for (const { name, from, to } of inPlaceVariableUses(text)) {
       const body = lookup('variables', name)?.trim();
       if (body === undefined) continue;
       result += text.slice(at, from) + (body === 'empty' ? '' : body);
@@ -330,7 +363,7 @@ export function resolveGlobalsInPlace(
   // The pending catalogue governs this authored cell, including its direct imports.
   // Once published text is inserted, resolve it only against the published catalogue.
   if (unavailable?.variables?.size)
-    for (const { name } of variableUses(source)) requirePublished('variables', name);
+    for (const { name } of inPlaceVariableUses(source)) requirePublished('variables', name);
   const expanded = source.includes('import ') ? expand(source, true) : source;
   const text = fill(expanded);
   const names = new Set(Object.keys(definitions.titles ?? {}));
