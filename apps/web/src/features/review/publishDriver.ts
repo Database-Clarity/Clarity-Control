@@ -1,8 +1,8 @@
 import { publicationSyncPendingCode } from '@clarity/core';
 import { create } from 'zustand';
 import { dependencyChunks } from '../../services/dependencyChunks';
-import type { PublishAnswer, RemoteStatus } from '../../services/publisher/api';
-import { PublishHttpError } from '../../services/publisher/api';
+import type { PublishAnswer, PublishBody, RemoteStatus } from '../../services/publisher/api';
+import { PublishHttpError, publishBody } from '../../services/publisher/api';
 import { isTerminal, type OpStore, type PublishOp } from '../../services/publisher/opStore';
 import { newOpId } from '../../services/publisher/ulid';
 
@@ -43,11 +43,7 @@ export const publishTiming = {
 } as const;
 
 export interface PublishApi {
-  post(body: {
-    opId: string;
-    hashes: number[];
-    expected: Record<string, string>;
-  }): Promise<PublishAnswer>;
+  post(body: PublishBody): Promise<PublishAnswer>;
   status(opId: string): Promise<RemoteStatus | 'unknown'>;
   kick(opId: string): Promise<void>;
 }
@@ -64,6 +60,8 @@ export interface DriverDeps {
   broadcast(): void;
   /** A publish finished with `done`/`unchanged`: mark its hashes pushed in the review overlay. */
   acknowledge(op: PublishOp): void;
+  /** What a status line calls a tooltip (its hash without this). */
+  name?(hash: number): string;
 }
 
 export interface PublishState {
@@ -257,7 +255,7 @@ export class PublishDriver {
    * Persist, then send. The record exists in storage before any request leaves, so a reload or a
    * lost 202 can only ever resend this exact opId and body. Rejects if storage is unavailable.
    */
-  async create(inputs: PublishInput[]): Promise<PublishOp> {
+  async create(inputs: PublishInput[], globalsRevision?: string): Promise<PublishOp> {
     const userId = this.userId;
     const generation = this.generation;
     if (!userId) throw new Error('Sign in to publish.');
@@ -284,12 +282,11 @@ export class PublishDriver {
         hashes: chunk.map((input) => input.hash),
         expected: Object.fromEntries(chunk.map((input) => [input.hash, input.digest])),
         previous: Object.fromEntries(chunk.map((input) => [input.hash, input.previous ?? null])),
+        ...(globalsRevision === undefined ? {} : { globalsRevision }),
         status: 'created',
         updatedAt: now,
       };
-      const bodyBytes = new TextEncoder().encode(
-        JSON.stringify({ opId: op.opId, hashes: op.hashes, expected: op.expected }),
-      ).length;
+      const bodyBytes = new TextEncoder().encode(JSON.stringify(publishBody(op))).length;
       if (bodyBytes > publishTiming.maxBodyBytes)
         throw new Error('This publish is too large to send. Nothing was sent.');
       chunks.push(op);
@@ -547,6 +544,9 @@ export class PublishDriver {
           hashes: part.flatMap((op) => op.hashes),
           expected: Object.assign({}, ...part.map((op) => op.expected)),
           previous: Object.assign({}, ...part.map((op) => op.previous)),
+          ...(first.globalsRevision === undefined
+            ? {}
+            : { globalsRevision: first.globalsRevision }),
           status: 'created',
           createdAt: now,
           groupCreatedAt: first.groupCreatedAt ?? first.createdAt,
@@ -661,7 +661,7 @@ export class PublishDriver {
       // The status projection omits the reason. Replaying the exact POST returns the terminal
       // receipt for this intent, with no new request or change to the original selection.
       try {
-        answer = await this.deps.api.post({ opId, hashes: op.hashes, expected: op.expected });
+        answer = await this.deps.api.post(publishBody(op));
       } catch (reason) {
         if (generation !== this.generation) return;
         const status = reason instanceof PublishHttpError ? reason.status : 0;
@@ -676,7 +676,7 @@ export class PublishDriver {
           return this.settle(opId, {
             status: 'rejected',
             receiptChecked: true,
-            error: `The publisher refused tooltips ${hashList(op.hashes)}. Its reason could not be read (HTTP ${status}${detail ? `: ${detail.slice(0, 160)}` : ''}).`,
+            error: `The publisher refused tooltips ${this.names(op)}. Its reason could not be read (HTTP ${status}${detail ? `: ${detail.slice(0, 160)}` : ''}).`,
           });
         } else this.note(opId, 'Checking why the publisher refused this part.');
         return;
@@ -693,12 +693,14 @@ export class PublishDriver {
             refusal,
             regroupable: answer?.regroupable,
             error:
-              answer?.regroupable === false
-                ? refusal
-                : `Tooltips ${hashList(op.hashes)}: ${refusal}`,
+              answer?.regroupable === false ? refusal : `Tooltips ${this.names(op)}: ${refusal}`,
           }
         : {}),
     });
+  }
+
+  private names(op: PublishOp) {
+    return hashList(op.hashes, this.deps.name);
   }
 
   private current(opId: string) {
@@ -813,7 +815,7 @@ export class PublishDriver {
       if (generation !== this.generation) return;
       let result: Awaited<ReturnType<PublishApi['post']>>;
       try {
-        result = await this.deps.api.post({ opId, hashes: op.hashes, expected: op.expected });
+        result = await this.deps.api.post(publishBody(op));
       } catch (reason) {
         if (generation === this.generation) await this.sendFailed(op, reason);
         return;
@@ -1016,10 +1018,15 @@ export class PublishDriver {
 }
 
 /** Names up to ten tooltips, then "and N more", so the reason after the list is never lost. */
-export function hashList(hashes: readonly number[]): string {
-  return hashes.length <= 10
-    ? hashes.join(', ')
-    : `${hashes.slice(0, 10).join(', ')} and ${hashes.length - 10} more`;
+export function hashList(
+  hashes: readonly number[],
+  name: (hash: number) => string = String,
+): string {
+  const named = hashes
+    .slice(0, 10)
+    .map((hash) => name(hash))
+    .join(', ');
+  return hashes.length <= 10 ? named : `${named} and ${hashes.length - 10} more`;
 }
 
 function byAge(a: PublishOp, b: PublishOp) {

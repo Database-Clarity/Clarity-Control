@@ -623,6 +623,13 @@
   gap: 0.75rem;
   min-width: 0;
 
+  > .openGlobal {
+    overflow: hidden;
+    color: var(--link);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   // Restore live text as draft: a quiet link-style action at the end of the bar.
   > button {
     min-height: 0;
@@ -712,6 +719,11 @@
   background: var(--raised);
   border: 1px solid var(--pop-edge);
   border-radius: 0.25rem;
+}
+
+.moreMenu .openGlobal {
+  @include controls.button;
+  color: var(--link);
 }
 
 .step {

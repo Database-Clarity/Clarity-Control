@@ -193,10 +193,18 @@ export async function loadPublished(
 
 /** The rows whose published text a snapshot needs: published changes (not leftovers, not new). */
 export function publishedRows(
-  entries: readonly { markerOnly: boolean; pushed?: string; tooltip: { hash: number } }[],
+  entries: readonly {
+    markerOnly: boolean;
+    pushed?: string;
+    tooltip: { hash: number };
+    globals?: { unedited?: Published };
+  }[],
 ) {
   return entries
-    .filter(({ markerOnly, pushed }) => !markerOnly && pushed !== undefined)
+    .filter(
+      ({ markerOnly, pushed, globals }) =>
+        !markerOnly && pushed !== undefined && !globals?.unedited,
+    )
     .map(({ tooltip, pushed }) => ({ hash: tooltip.hash, marker: pushed }));
 }
 

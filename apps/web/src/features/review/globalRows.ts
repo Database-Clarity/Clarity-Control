@@ -34,10 +34,10 @@ export interface GlobalPart {
   change?: 'removed' | 'same-text';
 }
 
-/** A row's identity: the tooltip hash, or the file's hash and the entry's name. */
+/** A row's identity: the tooltip hash, with the entry's name or the global it is listed under. */
 export type RowKey = number | string;
-export const rowKey = ({ tooltip, part }: PendingTooltip): RowKey =>
-  part ? `${tooltip.hash}:${part.name}` : tooltip.hash;
+export const rowKey = ({ tooltip, part, under }: PendingTooltip): RowKey =>
+  part ? `${tooltip.hash}:${part.name}` : under ? `${tooltip.hash}:${under.id}` : tooltip.hash;
 
 /** The row a `?hash=` names; a file's plain hash (or an entry no longer listed) finds its first. */
 export function routedRow<T extends PendingTooltip>(
@@ -189,10 +189,43 @@ const isFile = ({ categoryId, markerOnly, tooltip }: PendingTooltip) =>
 const same = (a: Published | undefined, b: Published | undefined) =>
   a === b || (a?.status === 'ready' && b?.status === 'ready' && a.tooltip === b.tooltip);
 
+type Cause = NonNullable<PendingTooltip['under']>;
+const groups = new WeakMap<readonly PendingTooltip[], PendingTooltip[]>();
+/**
+ * Globals that fill in tooltips: after the tooltips people edited, each changed global with every
+ * tooltip it changes (those with their own edits last). An unedited tooltip is listed only there.
+ */
+function globalGroups(entries: PendingTooltip[]): PendingTooltip[] {
+  const known = groups.get(entries);
+  if (known) return known;
+  const causes = new Map<string, { cause: Cause; rows: PendingTooltip[] }>();
+  for (const entry of entries)
+    for (const cause of entry.globals?.causes ?? []) {
+      const group = causes.get(cause.id);
+      if (group) group.rows.push(entry);
+      else causes.set(cause.id, { cause, rows: [entry] });
+    }
+  const rows = !causes.size
+    ? entries
+    : [
+        ...entries.filter(({ globals }) => !globals?.unedited || !globals.causes.length),
+        ...[...causes.values()]
+          .sort((a, b) => a.cause.name.localeCompare(b.cause.name))
+          .flatMap(({ cause, rows: changed }) =>
+            [
+              ...changed.filter(({ globals }) => globals!.unedited),
+              ...changed.filter(({ globals }) => !globals!.unedited),
+            ].map((entry) => ({ ...entry, under: cause })),
+          ),
+      ];
+  groups.set(entries, rows);
+  return rows;
+}
+
 /** The list Review shows: every pending change, with a globals file as its changed entries. */
 export function reviewRows(entries: PendingTooltip[], byHash: ByHash): PendingTooltip[] {
   const files = entries.filter(isFile);
-  if (!files.length) return entries;
+  if (!files.length) return globalGroups(entries);
   // Rows stay the same objects until these files' own published text changes.
   const used = files.map((file) => publishedOf(file, byHash));
   const known = expanded.get(entries);
@@ -215,7 +248,9 @@ export function useReviewRows(entries: PendingTooltip[] | null): PendingTooltip[
 
 /** The published version a row is compared with. */
 export const publishedOf = (entry: PendingTooltip, byHash: ByHash): Published | undefined =>
-  entry.part ? entry.part.published : publishedFor(byHash, entry.tooltip.hash, entry.pushed);
+  entry.part
+    ? entry.part.published
+    : (entry.globals?.unedited ?? publishedFor(byHash, entry.tooltip.hash, entry.pushed));
 
 /** How many changes (publish units) these rows stand for. */
 export const unitCount = (rows: readonly PendingTooltip[]) =>
@@ -241,6 +276,10 @@ export const editorPath = ({ tooltip, part }: PendingTooltip) =>
         : `/t/${tooltip.hash}`;
 export const editorLabel = ({ part }: PendingTooltip) =>
   part && !hasPage(part) ? 'Open globals' : 'Open in editor';
+
+/** A changed global's own page, in a language it changed. */
+export const globalEntryPath = ({ id }: Cause, langs: readonly Lang[]) =>
+  `/globals/${id}${langs.length && !langs.includes('en') ? `?lang=${langs[0]}` : ''}`;
 
 /** How many tooltips use this entry directly, as saved. */
 export function globalUsers({ kind, name }: GlobalPart, data: EditorData): number {

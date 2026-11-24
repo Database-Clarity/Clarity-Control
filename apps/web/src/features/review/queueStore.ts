@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { PendingTooltip } from './model';
-import { markerGroup, type Leftovers } from './queueModel';
+import { globalGroupPrefix, markerGroup, type Leftovers } from './queueModel';
 
 /**
  * Review state shared by the left-column queue and the page: the pending entries, what is
@@ -10,6 +10,7 @@ interface ReviewQueueState {
   /** Every pending saved change, leftovers included; null until the first comparison. */
   entries: PendingTooltip[] | null;
   selected: ReadonlySet<number>;
+  /** Categories that are closed, and the groups of globals that were toggled. */
   collapsed: ReadonlySet<string>;
   /** Migration leftovers are hidden until the list's "Show". */
   leftovers: Leftovers;
@@ -30,7 +31,7 @@ interface ReviewQueueState {
 
 const empty: ReadonlySet<never> = new Set();
 
-/** The collapsed category groups, remembered per device like the other view state. */
+/** The collapsed category groups, remembered per device; toggled global groups are not. */
 const collapsedKey = 'clarity-review-collapsed:v1';
 function readCollapsed(): ReadonlySet<string> {
   try {
@@ -46,7 +47,8 @@ function readCollapsed(): ReadonlySet<string> {
 }
 function writeCollapsed(collapsed: ReadonlySet<string>) {
   try {
-    if (collapsed.size) localStorage.setItem(collapsedKey, JSON.stringify([...collapsed]));
+    const kept = [...collapsed].filter((id) => !id.startsWith(globalGroupPrefix));
+    if (kept.length) localStorage.setItem(collapsedKey, JSON.stringify(kept));
     else localStorage.removeItem(collapsedKey);
   } catch {
     // Storage full or blocked: the choice still holds for this session.

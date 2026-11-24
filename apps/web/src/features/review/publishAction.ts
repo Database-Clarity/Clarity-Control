@@ -3,7 +3,7 @@ import { globalsEnabled } from '../../services/globalsFlag';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
-import { unitNames } from './globalRows';
+import { publishedOf, unitNames } from './globalRows';
 import { canPush, type PendingTooltip } from './model';
 import { publishDependencies } from './publishDependencies';
 import {
@@ -14,7 +14,7 @@ import {
   usePublishState,
   type PublishInput,
 } from './publishDriver';
-import { publishedFor, usePublished } from './published';
+import { usePublished } from './published';
 import { publishDriver } from './publisher';
 import { useReviewSession } from './session';
 
@@ -26,7 +26,10 @@ export function planReviewedPublish(
   const { bundle, aliases } = data;
   const byHash = usePublished.getState().byHash;
   const pendingByHash = new Map(
-    pending.filter((entry) => !entry.markerOnly).map((entry) => [entry.tooltip.hash, entry]),
+    // A row that only a global changes is already live as saved: nothing waits for it.
+    pending
+      .filter((entry) => !entry.markerOnly && !entry.globals?.unedited)
+      .map((entry) => [entry.tooltip.hash, entry]),
   );
   const inputs = entries.map(({ tooltip, inactiveChange, inactiveAliases }) => ({
     tooltip,
@@ -39,14 +42,14 @@ export function planReviewedPublish(
   }));
   const published: Record<number, Tooltip | null | undefined> = {};
   if (inputs.some(({ removal }) => removal)) {
-    const versions = entries.map(({ tooltip, pushed, inactiveChange }) => ({
-      hash: tooltip.hash,
-      pushed,
+    const versions = entries.map((entry) => ({
+      hash: entry.tooltip.hash,
+      pushed: entry.pushed,
       // A canonical removal marker records absence even when the archive retains old text.
       version:
-        inactiveChange === 'restore'
+        entry.inactiveChange === 'restore'
           ? { status: 'ready' as const, tooltip: null }
-          : publishedFor(byHash, tooltip.hash, pushed),
+          : publishedOf(entry, byHash),
     }));
     if (versions.some(({ version }) => version?.status === 'missing'))
       throw new Error('Some selected changes need published versions that could not be recovered.');
@@ -128,7 +131,7 @@ export async function queuePublish(
     // A confirmation can outlive the rows it listed: another publish may hold them by now.
     const held = activeHashes(usePublishState.getState().ops);
     if (reviewed.some(({ hash }) => held.has(hash))) throw new Error(publishingAlready);
-    await publishDriver.create(reviewed);
+    await publishDriver.create(reviewed, data.bundle.globalsInPlace?.revision);
     return true;
   } catch (reason) {
     useReviewSession.setState({ error: `${errorMessage(reason).replace(/[.!?]*$/, '.')}` });

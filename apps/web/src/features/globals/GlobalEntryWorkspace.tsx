@@ -655,8 +655,11 @@ function Workspace({
   );
   const renameIntent = snapshot.renameIntents?.[entry.id];
   const renameQueued = renameIntent && renameIntent.status !== 'not-applied';
+  // Globals that fill in tooltips wait for nothing and hold no publish back: only failures show.
+  const inPlace = !!data?.bundle.globalsInPlace;
+  const syncNotice = inPlace ? sync.status === 'sync-failed' : sync.status !== 'current';
   const blockedDestinations = Object.entries(snapshot.destinationSync)
-    .filter(([, state]) => state.status !== 'current')
+    .filter(([, state]) => !inPlace && state.status !== 'current')
     .map(([destination]) => destinationLabel(destination));
   const notices = (
     <>
@@ -665,7 +668,7 @@ function Workspace({
           Rename to {renameIntent.name} did not apply. Open Actions and choose Rename to try again.
         </p>
       )}
-      {(renameQueued || sync.status !== 'current' || blockedDestinations.length > 0) && (
+      {(renameQueued || syncNotice || blockedDestinations.length > 0) && (
         <div
           className={styles.notice}
           data-tone={sync.status === 'sync-failed' ? 'warn' : undefined}
@@ -676,7 +679,7 @@ function Workspace({
               ? /^sync failed/i.test(sync.lastFailure ?? '')
                 ? sync.lastFailure
                 : `Sync failed. ${sync.lastFailure ?? 'Failure details unavailable.'}`
-              : sync.status === 'sync-pending'
+              : sync.status === 'sync-pending' && !inPlace
                 ? !snapshot.sync[entry.id]
                   ? 'Check status unavailable. Refresh to try again.'
                   : ownCauses.length && !renameQueued

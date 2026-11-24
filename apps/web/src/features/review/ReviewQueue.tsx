@@ -118,6 +118,8 @@ const GroupHeader = memo(function GroupHeader({
   locked: boolean;
 }) {
   const marker = group.id === markerGroup;
+  // Rows ticked one by one: no checkbox for the group.
+  const plain = marker || group.global === 'edited';
   const checkbox = useRef<HTMLInputElement>(null);
   const all = available > 0 && selectedCount === available;
   useLayoutEffect(() => {
@@ -125,8 +127,8 @@ const GroupHeader = memo(function GroupHeader({
       checkbox.current.indeterminate = selectedCount > 0 && selectedCount < available;
   }, [selectedCount, available]);
   return (
-    <div className={styles.group} data-marker={marker || undefined}>
-      {!marker && (
+    <div className={styles.group} data-marker={marker || undefined} data-global={group.global}>
+      {!plain && (
         <label className={styles.check}>
           <input
             ref={checkbox}
@@ -135,7 +137,7 @@ const GroupHeader = memo(function GroupHeader({
             readOnly
             disabled={locked}
             data-review-group-toggle={group.id}
-            aria-label={`Include all ${group.count} in ${group.label}`}
+            aria-label={`Include all ${group.global ? group.publishable.length : group.count} in ${group.label}`}
           />
         </label>
       )}
@@ -146,7 +148,11 @@ const GroupHeader = memo(function GroupHeader({
         title={
           marker
             ? 'Saved text already matches live; listed only because of the alias migration.'
-            : group.note
+            : group.global === 'edited'
+              ? 'Include all leaves these out: include them one by one, or through their category.'
+              : group.global
+                ? `${group.label} changed: tooltips that show it`
+                : group.note
         }
       >
         <span className={styles.chevron} aria-hidden="true" />
@@ -154,11 +160,20 @@ const GroupHeader = memo(function GroupHeader({
           {group.label}
           {group.note && <small className={styles.identity}> · {group.note}</small>}
         </span>
-        <span className={styles.groupCount}>{countFormat.format(group.count)}</span>
+        {group.global !== 'edited' && (
+          <span className={styles.groupCount}>
+            {countFormat.format(group.count)}
+            {group.global && (group.count === 1 ? ' tooltip' : ' tooltips')}
+          </span>
+        )}
       </button>
     </div>
   );
 });
+
+/** A name within the group that lists it: its hash shows only where the name repeats. */
+const nameKey = ({ under, categoryId, name }: PendingTooltip) =>
+  `${under?.id ?? categoryId}:${name}`;
 
 let rememberedHash: string | null = null;
 
@@ -185,7 +200,7 @@ export function ReviewQueue({
   const repeatedNames = useMemo(() => {
     const counts = new Map<string, number>();
     for (const entry of view.ordered) {
-      const key = `${entry.categoryId}:${entry.name}`;
+      const key = nameKey(entry);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return new Set([...counts].filter(([, count]) => count > 1).map(([key]) => key));
@@ -596,7 +611,7 @@ export function ReviewQueue({
     return (
       <QueueRow
         entry={item.entry}
-        distinguish={repeatedNames.has(`${item.entry.categoryId}:${item.entry.name}`)}
+        distinguish={repeatedNames.has(nameKey(item.entry))}
         href={href}
         editorHref={editorHref}
         current={currentHash === String(rowKey(item.entry))}

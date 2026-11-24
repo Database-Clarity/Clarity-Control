@@ -10,6 +10,20 @@ export interface PublishAnswer {
 }
 export const terminalStatuses = ['done', 'unchanged', 'stale', 'rejected', 'failed'] as const;
 
+/** One operation's request: immutable, so a re-send is byte-identical. */
+export interface PublishBody {
+  opId: string;
+  hashes: number[];
+  expected: Record<string, string>;
+  globalsRevision?: string;
+}
+export const publishBody = ({ opId, hashes, expected, globalsRevision }: PublishBody) => ({
+  opId,
+  hashes,
+  expected,
+  ...(globalsRevision === undefined ? {} : { globalsRevision }),
+});
+
 /** A non-2xx answer. `status` 0 = the request never got an answer (offline, timeout, CORS). */
 export class PublishHttpError extends Error {
   constructor(
@@ -64,15 +78,11 @@ async function send(path: string, init?: RequestInit): Promise<{ status: number;
  * Submits (or re-submits, byte-identical) one operation. 202 = queued; 200 = already finished, with the
  * terminal status recovered from the Worker's log. Anything else is a PublishHttpError.
  */
-export async function postPublish(body: {
-  opId: string;
-  hashes: number[];
-  expected: Record<string, string>;
-}): Promise<PublishAnswer> {
+export async function postPublish(body: PublishBody): Promise<PublishAnswer> {
   const { status, value } = await send('/publish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ opId: body.opId, hashes: body.hashes, expected: body.expected }),
+    body: JSON.stringify(publishBody(body)),
   });
   if (status === 202) {
     if (!acceptedSchema.safeParse(value).success)

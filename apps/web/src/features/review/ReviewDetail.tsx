@@ -1,5 +1,12 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { languages, parseMarkup, type Lang, type MarkupLine, type Tooltip } from '@clarity/core';
+import {
+  extractBlocks,
+  languages,
+  parseMarkup,
+  type Lang,
+  type MarkupLine,
+  type Tooltip,
+} from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { getHistory, type HistoryCommit } from '../../services/history';
 import { apiUrl } from '../../services/api';
@@ -26,9 +33,9 @@ import { CompendiumChanges, FieldChanges } from '../history/TooltipDiff';
 import { useRenderedDiff } from '../history/useRenderedDiff';
 import { itemFor } from '../navigation/catalog';
 import { globalUsers, unitName, type GlobalPart } from './globalRows';
-import { textLanguages, type Classification } from './kinds';
+import { publishedGlobals, textChanges, type Classification } from './kinds';
 import type { PendingTooltip } from './model';
-import { exportedText, type Published } from './published';
+import type { Published } from './published';
 import { useDelayed } from './useDelayed';
 import styles from './Review.module.scss';
 
@@ -90,6 +97,22 @@ function Sentence({
           <b>Text changed</b>
           {where}
           {langs}.{classification.numbers && ' The stored number values changed.'}
+        </p>
+      );
+    }
+    case 'Global changed': {
+      const names = list(entry.globals!.causes.map(({ name }) => name));
+      const { languages: langs } = classification;
+      return (
+        <p className={styles.sentence}>
+          <b>Global changed.</b>{' '}
+          {langs?.length === 0
+            ? `Players see the same text as now; only the way ${names} is written changed.`
+            : `Nobody edited this tooltip; it publishes with the new text of ${names}${
+                !langs || (langs.length === 1 && langs[0] === 'en')
+                  ? ''
+                  : ` in ${list(langs.map((lang) => languageLabel(lang)))}`
+              }.`}
         </p>
       );
     }
@@ -311,15 +334,22 @@ function TextChange({
   lang,
   hash,
   classification,
+  published = false,
 }: {
   before: string;
   after: string;
   lang: Lang;
   hash: number;
   classification: Classification | undefined;
+  /** Both texts have their globals filled in. */
+  published?: boolean;
 }) {
   const data = useDataStore((state) => state.data);
-  const globals = useMemo(() => diffGlobals(data, {}, lang, hash, 'live'), [data, lang, hash]);
+  const globals = useMemo(
+    () =>
+      published ? publishedGlobals(data, lang, hash) : diffGlobals(data, {}, lang, hash, 'live'),
+    [data, lang, hash, published],
+  );
   const { result, busy } = useRenderedDiff(before, after, globals);
   const variants = classification?.variants;
   const scope = classification?.scope;
@@ -365,6 +395,42 @@ function TextChange({
   if (scope === 'both' && enhanced)
     return <Columns lang={lang} base={column(result)} enhanced={column(enhanced)} />;
   return <Columns lang={lang} base={column(result)} />;
+}
+
+/** A shared note shows only when its term is opened: its change is shown as text of its own. */
+function NoteChanges({
+  entry,
+  before,
+  after,
+  lang,
+}: {
+  entry: PendingTooltip;
+  before: string;
+  after: string;
+  lang: Lang;
+}) {
+  const notes = useMemo(() => {
+    const from = extractBlocks(before, 'title'),
+      to = extractBlocks(after, 'title');
+    return (entry.globals?.causes ?? []).flatMap(({ name }) =>
+      (from[name] ?? '') === (to[name] ?? '')
+        ? []
+        : [{ name, before: from[name] ?? '', after: to[name] ?? '' }],
+    );
+  }, [entry, before, after]);
+  return notes.map((note) => (
+    <div key={note.name}>
+      <h4>Note {note.name}</h4>
+      <TextChange
+        before={note.before}
+        after={note.after}
+        lang={lang}
+        hash={entry.tooltip.hash}
+        classification={undefined}
+        published
+      />
+    </div>
+  ));
 }
 
 /** Source lines that changed, with one line of context, line numbers, and changed characters. */
@@ -470,15 +536,18 @@ export const ReviewDetail = memo(function ReviewDetail({
   }, [entry.tooltip.hash, user]);
   const live = published?.status === 'ready' ? published.tooltip : undefined;
   const kind = classification?.kind;
-  const saverLine = user?.role ? (
-    <p className={styles.savedBy}>
-      {saved && (
-        <>
-          Saved by <CommitAuthor entry={saved} />
-        </>
-      )}
-    </p>
-  ) : null;
+  // A global's change was not saved by the tooltip's last editor.
+  const unedited = !!entry.globals?.unedited;
+  const saverLine =
+    user?.role && !unedited ? (
+      <p className={styles.savedBy}>
+        {saved && (
+          <>
+            Saved by <CommitAuthor entry={saved} />
+          </>
+        )}
+      </p>
+    ) : null;
   // The text a reader judges when there is no comparison: the saved text, plain.
   const savedText = (tooltip: Tooltip) =>
     Object.keys(tooltip.text).length
@@ -492,21 +561,32 @@ export const ReviewDetail = memo(function ReviewDetail({
           ))
       : null;
   let evidence: ReactNode = null;
-  if (kind === 'Text changed' && live) {
-    const changed = classification!.languages ?? textLanguages(live, entry.tooltip);
-    evidence = changed.map((lang) => (
+  const changes = entry.globals || live ? textChanges(entry, live ?? null) : [];
+  const textEvidence = (langs: Lang[] | undefined) => {
+    const changed = langs ? changes.filter(({ lang }) => langs.includes(lang)) : changes;
+    return changed.map(({ lang, before, after }) => (
       <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
         {(changed.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
+        {entry.globals && <NoteChanges entry={entry} before={before} after={after} lang={lang} />}
         <TextChange
-          before={exportedText(live, lang)}
-          after={exportedText(entry.tooltip, lang)}
+          before={before}
+          after={after}
           lang={lang}
           hash={entry.tooltip.hash}
           classification={classification}
+          published={!!entry.globals}
         />
       </section>
     ));
-  } else if (kind === 'Links changed' && live)
+  };
+  if (kind === 'Text changed' && (live || entry.globals))
+    evidence = textEvidence(classification!.languages);
+  // The columns wait for the check of the open change; its sentence does not.
+  else if (kind === 'Global changed')
+    evidence = classification!.languages && textEvidence(classification!.languages);
+  else if (kind === 'On hold' && entry.globals && changes.length)
+    evidence = textEvidence(undefined);
+  else if (kind === 'Links changed' && live)
     evidence = (
       <div className={styles.links}>
         <CompendiumChanges before={live} current={entry.tooltip} />
@@ -529,12 +609,13 @@ export const ReviewDetail = memo(function ReviewDetail({
   const rawSource = (side: 'before' | 'after', lang: Lang) =>
     part
       ? (part.source[side][lang] ?? '')
-      : ((side === 'before' ? live : entry.tooltip)?.text[lang]?.text ?? '');
-  const rawLanguages = !live
-    ? []
-    : part
-      ? languages.filter((lang) => rawSource('before', lang) !== rawSource('after', lang))
-      : textLanguages(live, entry.tooltip);
+      : entry.globals
+        ? (entry.globals.diff[lang]?.[side]?.main ?? '')
+        : ((side === 'before' ? live : entry.tooltip)?.text[lang]?.text ?? '');
+  const rawLanguages = part
+    ? languages.filter((lang) => live && rawSource('before', lang) !== rawSource('after', lang))
+    : changes.map(({ lang }) => lang);
+  const compared = !!live || !!entry.globals;
   return (
     <section aria-label="Selected change" className={styles.detail}>
       <Sentence
@@ -544,6 +625,12 @@ export const ReviewDetail = memo(function ReviewDetail({
         onRetry={onRetry}
       />
       {part && <GlobalNote entry={entry} part={part} />}
+      {entry.globals && !unedited && (
+        <p className={styles.note}>
+          Publishing this also fills in the change to{' '}
+          {list(entry.globals.causes.map(({ name }) => name))}.
+        </p>
+      )}
       {saverLine}
       {entry.inactiveAliases?.length ? (
         <p className={styles.note}>
@@ -552,7 +639,7 @@ export const ReviewDetail = memo(function ReviewDetail({
         </p>
       ) : null}
       <div className={styles.evidence}>{evidence}</div>
-      {raw && live && rawLanguages.length > 0 && (
+      {raw && compared && rawLanguages.length > 0 && (
         <div className={styles.rawBlock} aria-label="Raw markup">
           {rawLanguages.map((lang) => (
             <div key={lang}>
@@ -562,8 +649,8 @@ export const ReviewDetail = memo(function ReviewDetail({
           ))}
         </div>
       )}
-      {raw && live && !rawLanguages.length && <p className={styles.note}>Markup unchanged.</p>}
-      {raw && live === null && (
+      {raw && compared && !rawLanguages.length && <p className={styles.note}>Markup unchanged.</p>}
+      {raw && live === null && !entry.globals && (
         <p className={styles.note}>Raw markup compares with the published text: there is none.</p>
       )}
     </section>

@@ -15,6 +15,7 @@ import { publisherEnabled } from '../../services/publisher/flag';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
+import { savedGlobalsAhead } from '../../stores/savedOverlay';
 import { workspaceShortcutsBlocked } from '../../ui/interaction';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useAdvanceSetting } from '../compendium/advanceSetting';
@@ -23,6 +24,7 @@ import { useLeftQueue } from '../queue/useQueue';
 import {
   editorLabel,
   editorPath,
+  globalEntryPath,
   publishedOf,
   routedRow,
   rowKey,
@@ -32,7 +34,7 @@ import {
   useReviewRows,
   type RowKey,
 } from './globalRows';
-import { classifyRows, kindOf, useKinds, useRowKinds } from './kinds';
+import { classifyRows, kindOf, textChanges, useKinds, useRowKinds } from './kinds';
 import {
   canPush,
   pendingTooltips,
@@ -50,7 +52,12 @@ import { queueView, stepRow } from './queueModel';
 import { useReviewQueue } from './queueStore';
 import { ReviewDetail, RestoreLive } from './ReviewDetail';
 import { filterParams, SelectionCounts, useInFlight } from './ReviewSidebar';
-import { acknowledgedMarkers, publishReviewed, useReviewSession } from './session';
+import {
+  acknowledgedGlobals,
+  acknowledgedMarkers,
+  publishReviewed,
+  useReviewSession,
+} from './session';
 import {
   BatchesHeader,
   BatchesMain,
@@ -188,7 +195,8 @@ export function ReviewPage() {
       return;
     }
     const markers = acknowledgedMarkers(data);
-    const ready = preparedPending(data, markers);
+    const settled = acknowledgedGlobals(data);
+    const ready = preparedPending(data, markers, settled);
     if (ready) {
       setEntries(ready);
       setComparing(false);
@@ -198,7 +206,7 @@ export function ReviewPage() {
       return;
     }
     setComparing(true);
-    void pendingTooltips(data, markers).then(
+    void pendingTooltips(data, markers, settled).then(
       (result) => {
         if (!active) return;
         setEntries(result);
@@ -250,6 +258,17 @@ export function ReviewPage() {
   // Without a route, open the first change; leftovers open only when named or picked.
   const index = routedIndex >= 0 ? routedIndex : view.contentCount ? 0 : -1;
   const current = index < 0 ? undefined : ordered[index];
+  const following = ordered[index + 1];
+  useEffect(() => {
+    // How a global's change shows (columns, languages) is checked as its row opens, one row ahead.
+    if (!data) return;
+    const near = [current, following].filter((entry) => entry !== undefined);
+    classifyRows(
+      near.map((entry) => ({ entry, published: publishedOf(entry, published) })),
+      data,
+      true,
+    );
+  }, [current, following, published, data]);
   const selectRow = useCallback(
     (key: RowKey | undefined) => {
       if (key === undefined) return;
@@ -549,6 +568,11 @@ export function ReviewPage() {
     if (current) void loadPublished([{ hash: current.tooltip.hash, marker: current.pushed }], true);
   }, [current]);
   const refreshing = reloading || comparing;
+  // The definitions this list was built with are older than a save of this tab.
+  const globalsAhead = useMemo(
+    () => !!data?.bundle.globalsInPlace && savedGlobalsAhead(data.bundle),
+    [data],
+  );
 
   const switcher =
     SubviewSwitch && canReadBatches(user) ? (
@@ -572,7 +596,18 @@ export function ReviewPage() {
       </article>
     );
 
-  const restore = current && (
+  const cause = current?.globals?.unedited && (current.under ?? current.globals.causes[0]);
+  const restore = !current ? undefined : cause ? (
+    <Link
+      className={styles.openGlobal}
+      to={globalEntryPath(
+        cause,
+        textChanges(current, null).map(({ lang }) => lang),
+      )}
+    >
+      Open {cause.name}
+    </Link>
+  ) : (
     <RestoreLive
       entry={current.part?.unit ?? current}
       name={unitName(current)}
@@ -640,6 +675,9 @@ export function ReviewPage() {
       {error && <p role="alert">{error}</p>}
       {pushError && <p role="alert">{pushError}</p>}
       {notice && <p role="status">{notice}</p>}
+      {globalsAhead && (
+        <p role="status">A global you saved is not in this list yet. Refresh to check again.</p>
+      )}
       {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
       {!entries ? null : !changeCount && !current ? (
         <section className={styles.empty}>

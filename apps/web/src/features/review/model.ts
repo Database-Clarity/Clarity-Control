@@ -8,6 +8,7 @@ import {
 } from '@clarity/core';
 import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
 import type { GlobalPart } from './globalRows';
+import type { Published } from './published';
 import { heldSetBonus } from './setBonusHold';
 import { useReviewQueue } from './queueStore';
 import { useDataStore, type EditorData } from '../../stores/data';
@@ -18,6 +19,9 @@ export { canPushLive as canPush } from '../auth/permissions';
 
 import { categoryDisplay } from '../../services/categoryLabels';
 import { globalAggregates } from '../../services/globalsFlag';
+import { savedAhead } from '../../stores/savedOverlay';
+
+type InPlaceRow = NonNullable<EditorData['bundle']['globalsInPlace']>['rows'][string];
 
 export interface PendingTooltip {
   tooltip: Tooltip;
@@ -41,6 +45,16 @@ export interface PendingTooltip {
   inactiveAliases?: number[];
   /** Review's row for one entry of a globals file (`globalRows.ts`); never a publish unit. */
   part?: GlobalPart;
+  /** A changed global changes what this tooltip publishes (`bundle.globalsInPlace`). */
+  globals?: {
+    causes: InPlaceRow['causes'];
+    /** The published text against what publishes now, globals filled in. */
+    diff: InPlaceRow['diff'];
+    /** Nobody edited the tooltip itself: its saved text is its published text. */
+    unedited?: Published;
+  };
+  /** Review's row in this changed global's group; the tooltip stays the publish unit. */
+  under?: InPlaceRow['causes'][number];
 }
 
 const snapshots = new WeakMap<
@@ -54,6 +68,8 @@ const snapshots = new WeakMap<
     items: EditorData['items'];
     categories: EditorData['categories'];
     inactiveMoves: EditorData['bundle']['inactiveMoves'];
+    globalsInPlace: EditorData['bundle']['globalsInPlace'];
+    settled: ReadonlySet<number>;
   }
 >();
 const queues = new WeakMap<PendingTooltip[], SidebarPendingChange[]>();
@@ -81,12 +97,20 @@ function sameMarkers(a: Record<string, string>, b: Record<string, string>): bool
   return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
 }
 
+const noHashes: ReadonlySet<number> = new Set();
+const sameHashes = (a: ReadonlySet<number>, b: ReadonlySet<number>) =>
+  a.size === b.size && [...a].every((hash) => b.has(hash));
+
 export function preparedPending(
   data: EditorData,
   pushed = data.bundle.pushed,
+  settled = noHashes,
 ): PendingTooltip[] | undefined {
   const snapshot = snapshots.get(data);
-  return snapshot && sameInputs(snapshot, data) && sameMarkers(snapshot.markers, pushed)
+  return snapshot &&
+    sameInputs(snapshot, data) &&
+    sameMarkers(snapshot.markers, pushed) &&
+    sameHashes(snapshot.settled, settled)
     ? snapshot.entries
     : undefined;
 }
@@ -97,26 +121,36 @@ function sameInputs(snapshot: NonNullable<ReturnType<typeof snapshots.get>>, dat
     snapshot.tooltips === data.bundle.tooltips &&
     snapshot.items === data.items &&
     snapshot.categories === data.categories &&
-    snapshot.inactiveMoves === data.bundle.inactiveMoves
+    snapshot.inactiveMoves === data.bundle.inactiveMoves &&
+    snapshot.globalsInPlace === data.bundle.globalsInPlace
   );
 }
 
+/** `settled`: published in this session with the bundle's own globals (`acknowledgedGlobals`). */
 export function pendingTooltips(
   data: EditorData,
   pushed = data.bundle.pushed,
+  settled = noHashes,
 ): Promise<PendingTooltip[]> {
   const existing = snapshots.get(data);
-  if (existing && sameInputs(existing, data) && sameMarkers(existing.markers, pushed))
+  if (
+    existing &&
+    sameInputs(existing, data) &&
+    sameMarkers(existing.markers, pushed) &&
+    sameHashes(existing.settled, settled)
+  )
     return existing.pending;
   const snapshot = {
     markers: { ...pushed },
-    pending: computePending(data, pushed),
+    pending: computePending(data, pushed, settled),
     entries: undefined as PendingTooltip[] | undefined,
     aliases: data.aliases,
     tooltips: data.bundle.tooltips,
     items: data.items,
     categories: data.categories,
     inactiveMoves: data.bundle.inactiveMoves,
+    globalsInPlace: data.bundle.globalsInPlace,
+    settled,
   };
   snapshots.set(data, snapshot);
   void snapshot.pending.then(
@@ -132,9 +166,11 @@ export function pendingTooltips(
 
 async function computePending(
   data: EditorData,
-  pushed = data.bundle.pushed,
+  pushed: Record<string, string>,
+  settled: ReadonlySet<number>,
 ): Promise<PendingTooltip[]> {
   const moves = data.bundle.inactiveMoves ?? {};
+  const inPlace = data.bundle.globalsInPlace;
   const sources = { ...data.bundle.tooltips };
   for (const key of Object.keys(moves)) {
     const hash = resolveAlias(Number(key), data.aliases);
@@ -144,7 +180,9 @@ async function computePending(
   const tooltips = Object.values(sources).filter(
     (tooltip) =>
       (!isTextlessDescription(tooltip) || isMovedInactive(tooltip.hash, moves)) &&
-      resolveAlias(tooltip.hash, data.aliases) === tooltip.hash,
+      resolveAlias(tooltip.hash, data.aliases) === tooltip.hash &&
+      // Globals that fill in tooltips never publish as files of their own.
+      !(inPlace && globalAggregates.includes(tooltip.hash)),
   );
   const digests = await fingerprintDigests(tooltips, activeAliases(data.aliases, moves));
   const removals = new Map(
@@ -160,7 +198,9 @@ async function computePending(
   const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
   const entries = tooltips.map((tooltip, index) => {
     const pushedMarker = pushed[tooltip.hash];
-    if (digests[index].hash === pushedMarker) return null;
+    const row = settled.has(tooltip.hash) ? undefined : inPlace?.rows[tooltip.hash];
+    const authored = digests[index].hash !== pushedMarker;
+    if (!authored && !row?.differs) return null;
     const item = data.items[tooltip.hash];
     const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
     const category = categories.get(categoryId);
@@ -171,18 +211,33 @@ async function computePending(
     const inactiveAliases = Object.keys(moves)
       .map(Number)
       .filter((hash) => hash !== tooltip.hash && resolveAlias(hash, data.aliases) === tooltip.hash);
+    const leftover =
+      !removing &&
+      !restoring &&
+      !inactiveAliases.length &&
+      pushedMarker !== undefined &&
+      digests[index].bare === pushedMarker;
+    const unedited = !authored || leftover;
+    // A removal, a return, or a first publish is judged whole, whatever globals its text uses.
+    const globals: PendingTooltip['globals'] =
+      row?.differs &&
+      !removing &&
+      !restoring &&
+      pushedMarker !== undefined &&
+      (unedited || row.causes.length)
+        ? {
+            causes: row.causes,
+            diff: row.diff,
+            ...(unedited ? { unedited: { status: 'ready' as const, tooltip } } : {}),
+          }
+        : undefined;
     return {
       tooltip,
       name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
       category: global ? 'Globals' : (category ?? categoryDisplay(categoryId)).label,
       categoryId: global ? '~globals' : categoryId,
       categoryOrder: (category ?? categoryDisplay(categoryId)).order,
-      markerOnly:
-        !removing &&
-        !restoring &&
-        !inactiveAliases.length &&
-        pushedMarker !== undefined &&
-        digests[index].bare === pushedMarker,
+      markerOnly: leftover && !row?.differs,
       isNew: pushedMarker === undefined,
       ...(pushedMarker !== undefined ? { pushed: pushedMarker } : {}),
       ...(removing
@@ -195,6 +250,14 @@ async function computePending(
         ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
         : {}),
       ...(!removing ? heldSetBonus(categoryId) : {}),
+      ...(globals ? { globals } : {}),
+      ...(globals && savedAhead(tooltip.hash)
+        ? {
+            unpublishable:
+              'It was saved after this list was built. Refresh to review it with its globals.',
+          }
+        : {}),
+      ...(!removing && row?.refusal !== undefined ? { unpublishable: row.refusal } : {}),
     };
   });
   return entries
@@ -246,10 +309,12 @@ export function publishSelection(
 export function publishableHashes(page: PendingTooltip[]): number[] {
   const hashes = page
     .filter(
-      ({ tooltip, unpublishable, markerOnly, inactiveChange }) =>
+      ({ tooltip, unpublishable, markerOnly, inactiveChange, under, globals }) =>
         (!isTextlessDescription(tooltip) || inactiveChange === 'remove') &&
         !unpublishable &&
-        !markerOnly,
+        !markerOnly &&
+        // A global's group never picks someone's own edit in bulk; its category does.
+        !(under && !globals?.unedited),
     )
     .map(({ tooltip }) => tooltip.hash);
   return [...new Set(hashes)];

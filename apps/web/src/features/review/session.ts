@@ -13,6 +13,8 @@ import { canPush, type PendingTooltip } from './model';
 interface Acknowledgment {
   digest: string;
   previous: string | undefined;
+  /** Published with these globals (`bundle.globalsInPlace.revision`). */
+  globalsRevision?: string;
 }
 interface ReviewSession {
   acknowledgments: Record<string, Acknowledgment>;
@@ -35,6 +37,21 @@ useAuthStore.subscribe((state, previous) => {
   useReviewSession.setState({ notice: undefined, error: undefined });
 });
 
+const coversGlobals = (
+  hash: string,
+  { globalsRevision }: Acknowledgment,
+  { bundle: { globalsInPlace } }: EditorData,
+) => !!globalsInPlace?.rows[hash]?.differs && globalsRevision === globalsInPlace.revision;
+
+/** Tooltips already published with the loaded bundle's globals, which it may not know yet. */
+export function acknowledgedGlobals(data: EditorData): ReadonlySet<number> {
+  return new Set(
+    Object.entries(useReviewSession.getState().acknowledgments).flatMap(([hash, acknowledgment]) =>
+      coversGlobals(hash, acknowledgment, data) ? [Number(hash)] : [],
+    ),
+  );
+}
+
 export function acknowledgedMarkers(data: EditorData): Readonly<Record<string, string>> {
   const { acknowledgments } = useReviewSession.getState();
   const overlays = Object.entries(acknowledgments);
@@ -44,7 +61,13 @@ export function acknowledgedMarkers(data: EditorData): Readonly<Record<string, s
   for (const [hash, acknowledgment] of overlays) {
     // Equal = caught up. Different from the pre-push marker = superseding server state.
     // Deleted tooltips also retire the overlay. Never overlay a later authoritative marker.
-    if (data.bundle.tooltips[hash] && markers[hash] === acknowledgment.previous) {
+    // Filling in a global leaves the marker alone: such a publish is retired by its comparison.
+    const waiting =
+      markers[hash] === acknowledgment.previous &&
+      (acknowledgment.digest !== acknowledgment.previous ||
+        acknowledgment.globalsRevision === undefined ||
+        coversGlobals(hash, acknowledgment, data));
+    if (data.bundle.tooltips[hash] && waiting) {
       retained[hash] = acknowledgment;
       markers[hash] = acknowledgment.digest;
     }
