@@ -35610,8 +35610,9 @@ function createdContent(tooltip) {
 async function verifyTranslationRevisions(change, head, merged, access, now, history) {
   const verified = [];
   const marked2 = [];
+  const restored = [];
   const revisions = change.translationRevisions;
-  if (!revisions) return { verified, marked: marked2 };
+  if (!revisions) return { verified, marked: marked2, restored };
   const invalid = (lang) => new HttpError(422, `Tooltip ${change.hash}: invalid ${lang} translation revision`);
   const snapshots = /* @__PURE__ */ new Map();
   for (const lang of languages2) {
@@ -35623,7 +35624,7 @@ async function verifyTranslationRevisions(change, head, merged, access, now, his
     const before = head?.text[lang];
     const submitted = change.base?.text[lang];
     const after = merged.text[lang];
-    if (!history || !before || !head?.text.en || !submitted || !after || !isTranslatable(merged) || after.updatedBy !== history.login || Date.parse(after.updatedAt) > now + 5 * 6e4 || after.sourceUpdatedAt !== proof2.sourceUpdatedAt || Date.parse(proof2.sourceUpdatedAt) > Date.parse(merged.text.en.updatedAt) || Date.parse(proof2.sourceUpdatedAt) > Date.parse(head.text.en.updatedAt) || stableStringify({
+    if (!history || !before || !head?.text.en || !submitted || !after || !merged.text.en || after.updatedBy !== history.login || Date.parse(after.updatedAt) > now + 5 * 6e4 || after.sourceUpdatedAt !== proof2.sourceUpdatedAt || Date.parse(proof2.sourceUpdatedAt) > Date.parse(merged.text.en.updatedAt) || Date.parse(proof2.sourceUpdatedAt) > Date.parse(head.text.en.updatedAt) || stableStringify({
       ...after,
       updatedAt: before.updatedAt,
       updatedBy: before.updatedBy,
@@ -35633,16 +35634,22 @@ async function verifyTranslationRevisions(change, head, merged, access, now, his
     if (!snapshots.has(proof2.commit))
       snapshots.set(proof2.commit, await history.read(proof2.commit, change.hash));
     const reviewed = snapshots.get(proof2.commit);
-    if (!reviewed || reviewed.hash !== change.hash || !isTranslatable(reviewed) || reviewed.text[lang]?.text !== after.text)
+    if (!reviewed || reviewed.hash !== change.hash || !reviewed.text.en || reviewed.text[lang]?.text !== after.text)
       throw invalid(lang);
     const reviewedEnglish = reviewed.text.en.updatedAt;
     if (proof2.restore) {
       if ((reviewed.text[lang]?.sourceUpdatedAt ?? reviewedEnglish) !== proof2.sourceUpdatedAt)
         throw invalid(lang);
+      restored.push(lang);
     } else {
       const state = translationStateOf(reviewed, lang);
-      if (reviewedEnglish !== proof2.sourceUpdatedAt || state.state !== "outdated" || state.reason === "numbers" || translationStateOf(merged, lang).reason === "numbers")
+      if (!isTranslatable(reviewed) || reviewedEnglish !== proof2.sourceUpdatedAt || state.state !== "outdated" || state.reason === "numbers")
         throw invalid(lang);
+      if (!isTranslatable(merged) || translationStateOf(merged, lang).reason === "numbers") {
+        merged.text[lang] = before;
+        verified.push(lang);
+        continue;
+      }
       if (Date.parse(before.sourceUpdatedAt ?? "") >= Date.parse(proof2.sourceUpdatedAt)) {
         merged.text[lang] = before;
         continue;
@@ -35651,7 +35658,7 @@ async function verifyTranslationRevisions(change, head, merged, access, now, his
     }
     verified.push(lang);
   }
-  return { verified, marked: marked2 };
+  return { verified, marked: marked2, restored };
 }
 async function planSaveChanges(input2, access, current, saveAliases, exporterPin, now = Date.now(), revisionHistory) {
   const conflicts = [];
@@ -35661,6 +35668,7 @@ async function planSaveChanges(input2, access, current, saveAliases, exporterPin
   const carried = [];
   const kept = [];
   const marked2 = [];
+  const restored = [];
   for (const [index, change] of input2.changes.entries()) {
     const canonical = resolveAlias(change.hash, saveAliases);
     if (canonical !== change.hash) {
@@ -35728,7 +35736,12 @@ async function planSaveChanges(input2, access, current, saveAliases, exporterPin
       revisionHistory
     );
     checkTranslationStamps(head, merged, merged.text.en, revisions.verified);
+    if (change.translationRevisions && head && stableStringify(head) === stableStringify(merged)) {
+      tooltips.push(merged);
+      continue;
+    }
     if (revisions.marked.length) marked2.push(`${merged.hash}=${revisions.marked.join(",")}`);
+    if (revisions.restored.length) restored.push(`${merged.hash}=${revisions.restored.join(",")}`);
     refuseUnlowerable(merged, await exporterPin(merged), "saved", head);
     if (head && head.text.en?.text !== merged.text.en?.text && Object.keys(merged.text).some((lang) => lang !== "en")) {
       const result = carryNumberTranslations(head, merged, revisions.verified);
@@ -35759,7 +35772,8 @@ async function planSaveChanges(input2, access, current, saveAliases, exporterPin
 ${kept.length ? `Clarity-No-Translation-Impact: ${kept.join(",")}
 ` : ""}Clarity-Changed: ${changed.join(";")}${carried.length ? `
 Clarity-Carried: ${carried.join(";")}` : ""}${marked2.length ? `
-Clarity-Still-Correct: ${marked2.join(";")}` : ""}`
+Clarity-Still-Correct: ${marked2.join(";")}` : ""}${restored.length ? `
+Clarity-Restored-Translation-Revision: ${restored.join(";")}` : ""}`
   };
 }
 
