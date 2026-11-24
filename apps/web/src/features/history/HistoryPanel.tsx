@@ -1,6 +1,7 @@
 import { LoadingSkeleton } from '../../ui/Skeleton';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Lang, Tooltip } from '@clarity/core';
+import type { TranslationRevisions } from '../../../../../packages/core/src/translationRevision';
 import { apiUrl } from '../../services/api';
 import { type HistoryCommit } from '../../services/history';
 import { errorMessage } from '../../services/http';
@@ -21,13 +22,14 @@ import { lastEdit } from './lastEdit';
 import { itemFor } from '../navigation/catalog';
 import { useRevisionCache } from './revisions';
 import { revertDraft } from './revert';
-import { canRollBackUpload } from '../auth/permissions';
+import { canEditLanguage, canRollBackUpload } from '../auth/permissions';
 import { LegacyHistorySection } from './LegacyHistory';
 import styles from './History.module.scss';
 import {
   isRelevant,
   carriedFromTrailer,
   noImpactFromTrailer,
+  stillCorrectFromTrailer,
   projectHistory,
   viewScope,
   type HistoryScope,
@@ -306,15 +308,33 @@ function HistoryContent({
     ? undefined
     : scope.languages.find((language) => canRollBackUpload(user, language));
   const restore = useCallback(
-    (version: Tooltip) => {
+    (version: Tooltip, commit: string) => {
       setNotice(undefined);
       if (!base || !current || !user || !hydrated) return;
-      replaceDraft(base, revertDraft(current, version, user, scope, true));
+      const next = revertDraft(current, version, user, scope, true);
+      const revisions: TranslationRevisions = { ...draft?.translationRevisions };
+      const original = draft?.base ?? base;
+      if (/^[0-9a-f]{40}$/.test(commit))
+        for (const lang of scope.languages) {
+          if (lang === 'en' || !canEditLanguage(user, lang)) continue;
+          delete revisions[lang];
+          const entry = next.text[lang];
+          const saved = original.text[lang];
+          const sourceUpdatedAt = entry?.sourceUpdatedAt;
+          if (
+            sourceUpdatedAt &&
+            saved &&
+            saved.text === entry.text &&
+            saved.sourceUpdatedAt !== sourceUpdatedAt
+          )
+            revisions[lang] = { commit, sourceUpdatedAt, restore: true };
+        }
+      replaceDraft(base, next, false, revisions);
       setNotice(
         'Historical version loaded as a local draft. Review it in the editor and use the normal save flow to commit it; nothing was saved or pushed automatically.',
       );
     },
-    [base, current, user, hydrated, scope],
+    [base, current, draft?.base, draft?.translationRevisions, user, hydrated, scope],
   );
 
   return (
@@ -365,6 +385,9 @@ function HistoryContent({
               translator={user?.role === 'translator'}
               carriedLanguages={carriedFromTrailer(entry.message, hash)}
               noTranslationImpact={noImpactFromTrailer(entry.message, hash)}
+              stillCorrectLanguages={stillCorrectFromTrailer(entry.message, hash).filter((lang) =>
+                scope.languages.includes(lang),
+              )}
               canRestore={canRestore}
               onRestore={restore}
               rollbackLang={rollbackLang}

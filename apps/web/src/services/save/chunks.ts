@@ -88,7 +88,11 @@ export function saveChunks(
       missing: (hash) => `Tooltip ${hash} is missing from this save.`,
       duplicate: 'This save contains duplicate tooltips.',
     },
-  ).map((chunk) => chunk.map(({ hash, base, next }) => ({ hash, base, next })));
+  ).map((chunk) =>
+    chunk.map(({ hash, base, next, translationRevisions }) => ({
+      hash, base, next, ...(translationRevisions && { translationRevisions }),
+    })),
+  );
 
   // A target may also remove an import still used by saved text. Check each intermediate
   // catalogue before sending anything, using the same live validator as the review.

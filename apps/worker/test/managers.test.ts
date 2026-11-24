@@ -277,6 +277,34 @@ describe('upload rollback', () => {
     as(id, '/rollback/upload', 'POST', { commit, lang });
   const head = (hash: number) => fixture.current()[`tooltips/${hash}.json`] as Tooltip;
 
+  it('rolls back a confirmation as a new revision of the identical translation', async () => {
+    const prior = head(123);
+    const original = prior.text.de!;
+    fixture.moveData({
+      'tooltips/123.json': {
+        ...prior,
+        text: { ...prior.text, de: { ...original, sourceUpdatedAt: '2026-10-01T00:00:00Z' } },
+      },
+    }, 'Historical German');
+    const base = head(123);
+    fixture.moveData({
+      'tooltips/123.json': {
+        ...base,
+        text: { ...base.text, de: {
+          ...base.text.de!, updatedAt: '2026-10-09T00:00:00Z', updatedBy: 'gail',
+          sourceUpdatedAt: base.text.en!.updatedAt,
+        } },
+      },
+    }, 'Checked German\n\nClarity-Changed: 123=de\nClarity-Still-Correct: 123=de');
+    const marked = fixture.dataHead;
+    expect(await (await plan(5, 'de', marked)).json()).toMatchObject({ reverted: [123] });
+    const result = await apply(5, 'de', marked);
+    expect(result.status).toBe(200);
+    expect(head(123).text).toEqual({
+      ...base.text, de: { ...base.text.de!, updatedBy: 'erin', updatedAt: expect.any(String) },
+    });
+  });
+
   it('previews what reverts and what a later save already changed', async () => {
     const response = await plan(5);
     expect(response.status).toBe(200);

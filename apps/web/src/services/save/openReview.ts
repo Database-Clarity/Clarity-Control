@@ -8,10 +8,11 @@ export function openDraftSaveReview(): void {
   if (!data) return;
   const submitted = useDraftStore.getState().drafts;
   reviewSaveChanges(
-    Object.values(submitted).map(({ base, next }) => ({
+    Object.values(submitted).map(({ base, next, translationRevisions }) => ({
       hash: next.hash,
       base: data.bundle.tooltips[next.hash] ? base : null,
       next,
+      ...(translationRevisions && { translationRevisions }),
     })),
     submitted,
   );

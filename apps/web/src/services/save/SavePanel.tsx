@@ -200,8 +200,10 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   // Maintainers and editors only (root 2026-11-14: translators get no Destination row until the
   // later destination task; trials get no batch access, Q3). The Worker stays the guard.
   const batchSaver = user?.role === 'maintainer' || user?.role === 'editor';
+  const batchAvailable =
+    batchSaver && !changes.some(({ translationRevisions }) => translationRevisions);
   const batchTarget =
-    DestinationRow && batchSaver && destination.kind !== 'current' ? destination : null;
+    DestinationRow && batchAvailable && destination.kind !== 'current' ? destination : null;
   // "No translation impact" (TR3): editors and maintainers, direct saves only, and only when an
   // English wording change on a translated tooltip would otherwise stamp a new English revision.
   // The Worker enforces the role and records the tick in History.
@@ -211,8 +213,8 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
   const noTranslationImpact = showImpact && noImpact;
   // The languages whose live output this save turns into the English fallback (validated).
   const fallback = useMemo(
-    () => liveFallback(changes, new Date().toISOString(), noTranslationImpact),
-    [changes, noTranslationImpact],
+    () => liveFallback(changes, new Date().toISOString(), noTranslationImpact, data?.bundle.tooltips),
+    [changes, noTranslationImpact, data?.bundle.tooltips],
   );
   // Linked Compendium cells that changed since they were shown, and the ones the reviewer ticked.
   const [changedSource, setChangedSource] = useState<ChangedSource[]>([]);
@@ -460,7 +462,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
         </>
       }
     >
-      {DestinationRow && batchSaver && (
+      {DestinationRow && batchAvailable && (
         <Suspense fallback={null}>
           <DestinationRow
             value={destination}

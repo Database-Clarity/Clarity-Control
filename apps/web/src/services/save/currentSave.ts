@@ -173,6 +173,7 @@ export async function saveCurrent({
         if (owner)
           await writeSaveReceipt(owner, receipt.id, {
             ...receipt,
+            commit,
             tooltips: result.tooltips,
             savedAt: result.savedAt,
             confirmed: true,

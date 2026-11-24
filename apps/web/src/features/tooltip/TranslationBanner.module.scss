@@ -38,11 +38,12 @@
 .banner {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
   box-sizing: border-box;
   height: 100%;
   margin: 0;
   padding: 0 0.5rem;
-  overflow: hidden;
   font-size: 0.75rem;
   line-height: 1.25;
   white-space: nowrap;
@@ -50,6 +51,17 @@
   background: var(--raised);
   border: 1px solid var(--line);
   border-radius: 0.25rem;
+  &:not([data-level]) {
+    background: transparent;
+    border-color: transparent;
+  }
+  > button {
+    flex: none;
+    min-height: 1.375rem;
+    @include theme.mobile-or-coarse {
+      min-height: var(--tap-sm);
+    }
+  }
   &[data-level='published'] {
     background: var(--warn-bg);
     border-color: var(--warn-edge);
@@ -62,9 +74,23 @@
   }
 }
 
+.message {
+  min-width: 0;
+  margin: 0;
+}
+
 // The whole sentence where the pane holds it; else its short form (never both, never cut).
-.short {
+.short,
+.narrow {
   display: none;
+}
+@container translation-row (max-width: 28rem) {
+  .banner[data-action] .full {
+    display: none;
+  }
+  .banner[data-action] .short {
+    display: inline;
+  }
 }
 @container translation-row (max-width: 20rem) {
   .banner .full {
@@ -82,5 +108,13 @@
     .short {
       display: inline;
     }
+  }
+}
+@container translation-row (max-width: 19rem) {
+  .banner[data-action] .short {
+    display: none;
+  }
+  .banner[data-action] .narrow {
+    display: inline;
   }
 }

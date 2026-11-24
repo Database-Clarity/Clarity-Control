@@ -958,16 +958,22 @@ export const entries: readonly GalleryEntry[] = [
     note: 'One line above the translate-mode editor, in a row that keeps its height without it. Colour only when English is published instead.',
     states: [
       s('Behind English', () => (
-        <TranslationLine update={{ state: 'outdated', ageMs: 864e6 }} words={12} />
+        <TranslationLine
+          update={{ state: 'outdated', ageMs: 864e6 }}
+          words={12}
+          onConfirm={() => {}}
+        />
       )),
       s('Published in English', () => (
         <TranslationLine
           update={{ state: 'outdated', ageMs: 120 * 864e5, exportedInEnglish: true }}
+          onConfirm={() => {}}
         />
       )),
       s('Removed number', () => (
         <TranslationLine update={{ state: 'outdated', reason: 'numbers', ageMs: 0 }} />
       )),
+      s('Marked as still correct', () => <TranslationLine onUndo={() => {}} />),
     ],
   },
   {

@@ -30,6 +30,7 @@ export const sessionSchema = z.object({
   storedAt: z.number().finite().optional(),
   /** Server time of the rejected save (its Date header), dating `head` for the saved overlay. */
   serverAt: z.number().finite().positive().optional(),
+  headCommit: z.string().optional(),
 });
 export type ConflictSession = z.infer<typeof sessionSchema>;
 export type RowChoice = 'mine' | 'theirs';
@@ -53,7 +54,7 @@ export interface ConflictDeps {
    * Makes the server's version (null: none) the one the editor shows as saved. `serverAt` is the
    * server's clock when it reported that version; absent, the browser clock dates it.
    */
-  applyHead(hash: number, head: Tooltip | null, serverAt?: number): void;
+  applyHead(hash: number, head: Tooltip | null, serverAt?: number, headCommit?: string): void;
 }
 
 export interface ConflictState {
@@ -254,15 +255,15 @@ export function createConflictStore(deps: ConflictDeps) {
           const rebased = rebaseConflict(conflict);
           const rows: Record<string, null> = {};
           if (rebased) {
-            replaceDraft(rebased.base, rebased.next, true);
-            deps.applyHead(hash, head, serverAt);
+            replaceDraft(rebased.base, rebased.next, true, conflict.translationRevisions);
+            deps.applyHead(hash, head, serverAt, conflict.headCommit);
             result.markers += rebased.markers;
             result.merged += rebased.mergedLanguages.length;
             for (const field of rebased.rows) rows[field] = null;
           } else {
             // The tooltip exists on one side only: keep my draft and ask what to do with it.
             if (!drafts.drafts[hash]) drafts.updateDraft(base ?? head ?? next, () => next);
-            if (head) deps.applyHead(hash, head, serverAt);
+            if (head) deps.applyHead(hash, head, serverAt, conflict.headCommit);
             rows['$exists'] = null;
           }
           result.rows += Object.keys(rows).length;
@@ -274,6 +275,7 @@ export function createConflictStore(deps: ConflictDeps) {
             mine: next,
             rows,
             ...(serverAt === undefined ? {} : { serverAt }),
+            ...(conflict.headCommit && { headCommit: conflict.headCommit }),
           };
         }
         // Changes made through a one-shot review (Compendium link, drift) were never drafts:
@@ -289,6 +291,9 @@ export function createConflictStore(deps: ConflictDeps) {
               [change.hash]: {
                 base: change.base ?? { hash: change.hash, text: {}, associated: [] },
                 next: change.next,
+                ...(change.translationRevisions && {
+                  translationRevisions: change.translationRevisions,
+                }),
               },
             },
           });
@@ -312,7 +317,7 @@ export function createConflictStore(deps: ConflictDeps) {
             // Deleted on the server while I edited. Mine: bring it back (saved as a new tooltip).
             // Theirs: accept the deletion and let my draft go.
             // The server reported the deletion when the save was rejected, not now.
-            deps.applyHead(hash, null, session.serverAt);
+            deps.applyHead(hash, null, session.serverAt, session.headCommit);
             if (choice === 'theirs') draftStore.discard(hash);
           } else if (choice === 'mine') {
             // They created it meanwhile. Mine: save on top of theirs.
@@ -426,8 +431,13 @@ export function createConflictStore(deps: ConflictDeps) {
 }
 
 /** Makes the server's version (null: deleted) the one the editor shows as saved. */
-export function applyHeadToData(hash: number, head: Tooltip | null, serverAt?: number): void {
-  if (head) rememberSaved([head], [], Date.now(), serverAt);
+export function applyHeadToData(
+  hash: number,
+  head: Tooltip | null,
+  serverAt?: number,
+  headCommit?: string,
+): void {
+  if (head) rememberSaved([head], [], Date.now(), serverAt, headCommit);
   else rememberSaved([], [hash], Date.now(), serverAt);
   useDataStore.setState(({ data }) => {
     if (!data) return {};

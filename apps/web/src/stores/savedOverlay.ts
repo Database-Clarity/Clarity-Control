@@ -16,7 +16,12 @@ export const overlayClockSkewMs = 5 * 60 * 1000;
 export const overlayServerSkewMs = overlayClockSkewMs;
 type Entry = { at: number; serverAt?: number; tooltip: Tooltip | null }; // null = deleted
 const entries = new Map<number, Entry>();
+const tooltipCommits = new WeakMap<Tooltip, string>();
 let version = 0;
+
+export function savedTooltipCommit(tooltip: Tooltip): string | undefined {
+  return tooltipCommits.get(tooltip);
+}
 
 /** Changes whenever a save is remembered or the overlay is cleared (see load() in data.ts). */
 export function savedOverlayVersion(): number {
@@ -28,6 +33,7 @@ export function rememberSaved(
   deleted: number[] = [],
   now = Date.now(),
   serverAt?: number,
+  commit?: string,
 ): void {
   // Broken epoch/ancient timestamps must not retire a fresh save immediately. A day allows
   // substantial browser skew; unusable server times retain the legacy browser-clock fallback.
@@ -38,7 +44,10 @@ export function rememberSaved(
     serverAt >= now - 24 * 60 * 60 * 1000
       ? serverAt
       : undefined;
-  for (const tooltip of tooltips) entries.set(tooltip.hash, { at: now, serverAt, tooltip });
+  for (const tooltip of tooltips) {
+    entries.set(tooltip.hash, { at: now, serverAt, tooltip });
+    if (commit) tooltipCommits.set(tooltip, commit);
+  }
   for (const hash of deleted) entries.set(hash, { at: now, serverAt, tooltip: null });
   version++;
 }

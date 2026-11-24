@@ -8,6 +8,7 @@ import {
   type SandboxConflicts,
   type SandboxPointers,
   type InactiveMoves,
+  type Tooltip,
 } from '@clarity/core';
 import { loadGenerator, loadSandboxConflicts } from '../services/generator';
 import { loadBundle, type Bundle } from '../services/bundle';
@@ -17,12 +18,15 @@ import {
   rememberSaved,
   rememberSavedAliasGroups,
   savedOverlayVersion,
+  savedTooltipCommit,
 } from './savedOverlay';
 import { useMarksStore } from '../features/marks/store';
 
 export type Catalog = Awaited<ReturnType<typeof loadGenerator>>;
 export interface EditorData extends Catalog {
   bundle: Bundle;
+  /** The fetched snapshot, before pending local saves are overlaid on its tooltips. */
+  tooltipSnapshot?: Pick<Bundle, 'sourceCommit' | 'tooltips'>;
   /**
    * The generator's own aliases; `aliases` composes these, accepted groups, and sandbox picks,
    * exactly what push and publish digest and export with. Absent in
@@ -33,6 +37,14 @@ export interface EditorData extends Catalog {
   sandboxConflicts?: SandboxConflicts;
   /** Persisted decisions that no longer match current generator facts. */
   aliasGroupIssues?: AliasGroupIssue[];
+}
+
+export function tooltipSourceCommit(data: EditorData, tooltip: Tooltip): string | undefined {
+  const snapshot = data.tooltipSnapshot ?? data.bundle;
+  return (
+    savedTooltipCommit(tooltip) ??
+    (snapshot.tooltips[tooltip.hash] === tooltip ? snapshot.sourceCommit : undefined)
+  );
 }
 interface DataState {
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -136,6 +148,7 @@ export const useDataStore = create<DataState>((set, get) => ({
           ...catalog,
           generatorAliases: catalog.aliases,
           bundle: applySavedOverlay(bundle),
+          tooltipSnapshot: bundle,
         };
         return hasSandboxTargets(bundle.sandboxPointers) || bundle.aliasGroups
           ? withSandboxPicks(base, bundle.sandboxPointers, picks)
@@ -167,7 +180,7 @@ export function applyGroupRemoval(
   member: number,
 ): void {
   rememberSavedAliasGroups(config, head, member);
-  if (tooltip) rememberSaved([tooltip]);
+  if (tooltip) rememberSaved([tooltip], [], Date.now(), undefined, head);
   useDataStore.setState((state) => {
     if (!state.data) return {};
     // Never through the overlay: the loaded data already holds it, so it would look caught up.

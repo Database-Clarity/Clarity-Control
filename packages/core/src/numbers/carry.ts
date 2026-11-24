@@ -140,6 +140,7 @@ export function canCarryNumbers(before: LangText, after: LangText, translation: 
 export function carryNumberTranslations(
   before: Tooltip,
   merged: Tooltip,
+  excluded: readonly Lang[] = [],
 ): { tooltip: Tooltip; carried: Lang[] } {
   const old = before.text.en,
     english = merged.text.en;
@@ -148,7 +149,12 @@ export function carryNumberTranslations(
   const text = { ...merged.text };
   const carried: Lang[] = [];
   for (const [lang, translation] of Object.entries(text)) {
-    if (lang === 'en' || !canCarryNumbers(old, english, translation)) continue;
+    if (
+      lang === 'en' ||
+      excluded.includes(lang as Lang) ||
+      !canCarryNumbers(old, english, translation)
+    )
+      continue;
     text[lang as Lang] = {
       ...translation,
       sourceUpdatedAt: english.updatedAt,

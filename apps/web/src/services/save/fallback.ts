@@ -1,6 +1,7 @@
-import { languages, usesEnglishFallback, type Lang } from '@clarity/core';
+import { languages, merge3, usesEnglishFallback, type Lang, type Tooltip } from '@clarity/core';
 import type { Change } from '../api';
 import { noImpactApplies, stampRevisions } from './enrichers/metadata';
+import { expectedSubmission } from './recovery';
 
 /** Per changed tooltip, the languages whose live text after this save is the English text. */
 export type LiveFallback = Record<number, Lang[]>;
@@ -18,9 +19,10 @@ export function liveFallback(
   changes: readonly Change[],
   now: string,
   noTranslationImpact: boolean,
+  saved?: Readonly<Record<number, Tooltip>>,
 ): LiveFallback {
   const result: LiveFallback = {};
-  for (const { hash, base, next } of changes) {
+  for (const { hash, base, next, translationRevisions } of changes) {
     // Only a translation with a source revision can fall back (usesEnglishFallback). A stamped
     // entry is the base's (unchanged text) or the draft's restamped to the new English (gap 0),
     // so without such an entry on either side nothing can fall back: skip the stamping work.
@@ -35,9 +37,22 @@ export function liveFallback(
       continue;
     let stamped;
     try {
-      stamped = stampRevisions(base ?? undefined, next, '', now, noTranslationImpact);
+      stamped = stampRevisions(
+        base ?? undefined,
+        next,
+        '',
+        now,
+        noTranslationImpact,
+        translationRevisions,
+      );
     } catch {
       continue; // A translation without English: validation refuses the save anyway.
+    }
+    if (translationRevisions && base) {
+      const head = saved?.[hash] ?? base;
+      const revised = languages.filter((lang) => lang !== 'en' && translationRevisions[lang]);
+      const merged = head === base ? { ok: true as const, merged: stamped } : merge3(base, head, stamped);
+      stamped = merged.ok ? expectedSubmission(head, merged.merged, revised) : head;
     }
     const live = languages.filter((lang) => usesEnglishFallback(stamped, lang));
     if (live.length) result[hash] = live;

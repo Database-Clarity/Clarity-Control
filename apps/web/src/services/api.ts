@@ -1,6 +1,10 @@
 import { hashSchema } from '../../../../packages/core/src/legacy';
 import { syncedSettingsSchema, type SyncedSettings } from '../../../../packages/core/src/settings';
 import { tooltipSchema, type Tooltip } from '../../../../packages/core/src/schemas';
+import {
+  translationRevisionsSchema,
+  type TranslationRevisions,
+} from '../../../../packages/core/src/translationRevision';
 import { z } from 'zod';
 import { assertNoGlobalAggregates } from './globalsFlag';
 
@@ -8,6 +12,7 @@ export interface Change {
   hash: number;
   base: Tooltip | null;
   next: Tooltip;
+  translationRevisions?: TranslationRevisions;
 }
 export const conflictSchema = z.object({
   hash: hashSchema,
@@ -15,6 +20,8 @@ export const conflictSchema = z.object({
   head: tooltipSchema.nullable(),
   next: tooltipSchema,
   fields: z.array(z.string()),
+  translationRevisions: translationRevisionsSchema.optional(),
+  headCommit: z.string().optional(),
 });
 export type SaveConflict = z.infer<typeof conflictSchema>;
 export type SaveResult =

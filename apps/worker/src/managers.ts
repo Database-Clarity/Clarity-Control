@@ -12,7 +12,7 @@ import {
 import { RefRace, type GitHub } from './github.js';
 import { body, HttpError, json } from './http.js';
 import { keepsTranslationRevision, managedLanguages, type Access } from './permissions.js';
-import { saveChanges } from './save.js';
+import { saveChanges, type SaveInput } from './save.js';
 import type { Identity } from './types.js';
 
 /**
@@ -137,16 +137,21 @@ export type SkipReason = 'changed-later' | 'deleted';
  * paragraph counts: /save writes it after the person's (trimmed) message, so a message can neither
  * forge nor hide it (TR-MANAGER sec review). The blobs then confirm each change.
  */
-export function trailerHashes(message: string, lang: Lang): number[] | null {
+export function trailerHashes(
+  message: string,
+  lang: Lang,
+  key = 'Clarity-Changed',
+): number[] | null {
+  const prefix = `${key}: `;
   const line = message
     .trimEnd()
     .split(/\r?\n\r?\n/)
     .at(-1)
     ?.split(/\r?\n/)
-    .find((value) => value.startsWith('Clarity-Changed: '));
+    .find((value) => value.startsWith(prefix));
   if (!line) return null;
   const hashes: number[] = [];
-  for (const part of line.slice('Clarity-Changed: '.length).split(';')) {
+  for (const part of line.slice(prefix.length).split(';')) {
     const [hash, fields = ''] = part.split('=');
     if (/^(0|[1-9]\d*)$/.test(hash ?? '') && fields.split(',').includes(lang))
       hashes.push(Number(hash));
@@ -227,6 +232,7 @@ export async function rollbackUpload(
   if (!hashes || upload.parents.length !== 1)
     throw new HttpError(422, 'Only uploads (saves by people) can be rolled back as a whole');
   const parent = upload.parents[0]!.sha;
+  const marked = new Set(trailerHashes(upload.message, lang, 'Clarity-Still-Correct') ?? []);
   const files = await github.blobs(
     hashes.flatMap((hash) =>
       [parent, input.commit, head].map((ref) => ({ ref, path: `tooltips/${hash}.json` })),
@@ -239,7 +245,7 @@ export async function rollbackUpload(
     return tooltip;
   };
   const now = new Date().toISOString();
-  const changes: { hash: number; base: Tooltip; next: Tooltip }[] = [];
+  const changes: SaveInput['changes'] = [];
   const skipped: { hash: number; reason: SkipReason }[] = [];
   for (const [index, hash] of hashes.entries()) {
     const before = parse(files[index * 3]!, hash);
@@ -251,7 +257,29 @@ export async function rollbackUpload(
     else if (entry(current) !== entry(after)) skipped.push({ hash, reason: 'changed-later' });
     else {
       const next = rolledBack(current, lang, before, user.login, now);
-      if (entry(next) !== entry(current)) changes.push({ hash, base: current, next });
+      const oldText = before?.text[lang];
+      const sourceUpdatedAt = oldText?.sourceUpdatedAt ?? before?.text.en?.updatedAt;
+      if (
+        marked.has(hash) &&
+        sourceUpdatedAt &&
+        oldText &&
+        next.text[lang]?.text === oldText.text &&
+        current.text[lang]?.text === oldText.text &&
+        current.text[lang]?.sourceUpdatedAt !== sourceUpdatedAt
+      ) {
+        next.text[lang] = {
+          ...current.text[lang]!,
+          updatedAt: now,
+          updatedBy: user.login,
+          sourceUpdatedAt,
+        };
+        changes.push({
+          hash,
+          base: current,
+          next,
+          translationRevisions: { [lang]: { commit: parent, sourceUpdatedAt, restore: true } },
+        });
+      } else if (entry(next) !== entry(current)) changes.push({ hash, base: current, next });
     }
   }
   const plan = { upload: input.commit, lang, reverted: changes.map(({ hash }) => hash), skipped };

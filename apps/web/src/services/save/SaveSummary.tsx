@@ -111,6 +111,12 @@ const SaveChange = memo(function SaveChange({
             <WordDiff before={base?.text[lang]?.text ?? ''} after={next.text[lang]?.text ?? ''} />
           </section>
         ))}
+      {Object.entries(change.translationRevisions ?? {}).map(([lang, proof]) => (
+        <section key={lang}>
+          <h4>{languageLabel(lang)}</h4>
+          <p>{proof.restore ? 'Restored translation revision' : 'Marked as still correct'}</p>
+        </section>
+      ))}
       {stableStringify(beforeFields) !== stableStringify(afterFields) && (
         <details>
           <summary>Other tooltip fields ({changedFields.join(', ')})</summary>

@@ -1,8 +1,9 @@
-import { merge3, stableStringify, type Tooltip } from '@clarity/core';
+import { languages, merge3, stableStringify, type Tooltip } from '@clarity/core';
+import type { TranslationRevisions } from '../../../../../packages/core/src/translationRevision';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { rememberSaved } from '../../stores/savedOverlay';
-import { sameDraftContent, type Drafts } from '../draftStorage';
+import { retainedRevisions, sameDraftContent, type Drafts } from '../draftStorage';
 
 /** The part of a draft store (Current or batch) that save reconciliation touches. */
 export interface ReconciledStore {
@@ -15,8 +16,13 @@ export interface ReconciledStore {
   setState(partial: { drafts: Drafts }): void;
 }
 
-export function replaceDraft(base: Tooltip, next: Tooltip, resetBase = false): void {
-  replaceDraftAt(useDraftStore, String(base.hash), base, next, resetBase);
+export function replaceDraft(
+  base: Tooltip,
+  next: Tooltip,
+  resetBase = false,
+  revisions?: TranslationRevisions,
+): void {
+  replaceDraftAt(useDraftStore, String(base.hash), base, next, resetBase, revisions);
 }
 
 /** `replaceDraft` for any draft store and key (batch drafts: services/scheduled/batchDrafts.ts). */
@@ -26,18 +32,37 @@ export function replaceDraftAt(
   base: Tooltip,
   next: Tooltip,
   resetBase = false,
+  revisions?: TranslationRevisions,
 ): void {
   if (base.hash !== next.hash) throw new Error('Cannot replace a draft with a different tooltip.');
   const state = store.getState();
   if (!state.hydrated) throw new Error('Draft recovery must finish before editing.');
   if (!state.ownsKey(key, base.hash))
     throw new Error(`Draft key ${key} does not belong to tooltip ${base.hash}.`);
-  const original = resetBase ? base : (state.drafts[key]?.base ?? base);
+  const previous = state.drafts[key];
+  const original = resetBase ? base : (previous?.base ?? base);
+  const translationRevisions = retainedRevisions(
+    revisions ?? retainedRevisions(previous?.translationRevisions, previous?.next ?? base, next),
+    original,
+    next,
+  );
+  if (translationRevisions) {
+    const text = { ...next.text };
+    for (const lang of Object.keys(translationRevisions) as (keyof TranslationRevisions)[])
+      text[lang] = original.text[lang];
+    next = { ...next, text };
+  }
   const drafts: Drafts = {
     ...state.drafts,
-    [key]: { base: original, next, changedAt: new Date().toISOString() },
+    [key]: {
+      base: original,
+      next,
+      changedAt: new Date().toISOString(),
+      ...(translationRevisions && { translationRevisions }),
+    },
   };
-  if (stableStringify(original) === stableStringify(next)) delete drafts[key];
+  if (!translationRevisions && stableStringify(original) === stableStringify(next))
+    delete drafts[key];
   store.setState({ drafts });
   state.retry();
 }
@@ -65,7 +90,20 @@ export function reconcileSaved(
     if (sameDraftContent(current, draft)) delete out[key];
     else if (head) {
       const merged = merge3(draft.next, head, current.next);
-      if (merged.ok) out[key] = { ...current, base: head, next: merged.merged };
+      if (merged.ok) {
+        const revised = { ...current.translationRevisions };
+        for (const lang of languages) {
+          if (lang === 'en') continue;
+          const proof = revised[lang];
+          if (
+            proof &&
+            stableStringify(proof) === stableStringify(draft.translationRevisions?.[lang] ?? null)
+          )
+            delete revised[lang];
+        }
+        const translationRevisions = retainedRevisions(revised, head, merged.merged);
+        out[key] = { ...current, base: head, next: merged.merged, translationRevisions };
+      }
     }
   }
   return out;
@@ -86,7 +124,7 @@ export function acceptSaved(
     (hash) => saved.get(Number(hash)),
     (hash) => deleted.includes(Number(hash)),
   );
-  rememberSaved([...saved.values()], deleted, Date.now(), savedAt);
+  rememberSaved([...saved.values()], deleted, Date.now(), savedAt, commit);
   useDataStore.setState(({ data }) => {
     if (!data) throw new Error('Editor data disappeared during save.');
     const tooltips = { ...data.bundle.tooltips, ...Object.fromEntries(saved) };
@@ -94,6 +132,7 @@ export function acceptSaved(
     return {
       data: {
         ...data,
+        tooltipSnapshot: data.tooltipSnapshot ?? data.bundle,
         bundle: {
           ...data.bundle,
           sourceCommit: commit ?? data.bundle.sourceCommit,
