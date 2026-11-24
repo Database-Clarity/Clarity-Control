@@ -103,7 +103,14 @@ const plan =
     const role = permissionsSchema.parse(atSource('config/permissions.json')).users[
       payload.requester.id
     ]?.role;
-    const release = planInPlaceRelease(publisher, tree, base, selections, role === 'maintainer');
+    const release = planInPlaceRelease(
+      publisher,
+      tree,
+      base,
+      selections,
+      role === 'maintainer',
+      hashes.length > 0,
+    );
     if (
       stableStringify(release.globals) !== stableStringify(receipt.inPlace.globals) ||
       stableStringify(release.refusals) !== stableStringify(receipt.inPlace.refusals ?? [])

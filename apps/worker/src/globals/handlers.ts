@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { validGlobalName, type GlobalRecord } from '../../../../packages/core/src/globals/model.js';
+import {
+  globalsInPlaceFenceSchema,
+  globalsInPlacePath,
+} from '../../../../packages/core/src/globals/inPlaceReview.js';
 import { reservedNamePattern } from '../../../../packages/core/src/markup/braces.js';
 import { extractBlocks, extractVariables } from '../../../../packages/core/src/markup/syntax.js';
 import type { Lang } from '../../../../packages/core/src/languages.js';
@@ -442,9 +446,20 @@ async function retry(ctx: GlobalsContext, input: z.infer<typeof retrySchema>, sy
 async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) {
   if (mutation.operation === 'acknowledge') return acknowledge(ctx, mutation, sync);
   const lang = 'lang' in mutation ? mutation.lang : undefined;
+  let localeWithdrawal = false;
+  if (mutation.operation === 'remove' && lang && lang !== 'en') {
+    const [file] = await readGlobalFiles(
+      ctx.storage,
+      [globalsInPlacePath],
+      ctx.head,
+      limits.metadataBytes,
+    );
+    const fence = globalsInPlaceFenceSchema.safeParse(file?.value).data;
+    localeWithdrawal = fence?.state === 'active' && ctx.destinations.includes(fence.destination);
+  }
   permit(
     ctx,
-    mutation.operation === 'remove'
+    mutation.operation === 'remove' && !localeWithdrawal
       ? ['maintainer']
       : mutation.operation === 'rename'
         ? ['editor', 'maintainer']
@@ -506,14 +521,16 @@ async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) 
         throw new HttpError(422, 'The enhanced arrow is protected');
       if (mutation.lang && !before!.definitions[mutation.lang])
         throw new HttpError(422, 'Language definition is absent');
-      const proof = await read(ctx, paths.removal(id, mutation.lang), removalSchema);
-      currentProof(proof, ctx);
-      if (
-        proof.id !== id ||
-        proof.revision !== before!.revision ||
-        proof.lang !== (mutation.lang ?? null)
-      )
-        throw new HttpError(503, 'Sync pending: removal proof does not match');
+      if (!localeWithdrawal) {
+        const proof = await read(ctx, paths.removal(id, mutation.lang), removalSchema);
+        currentProof(proof, ctx);
+        if (
+          proof.id !== id ||
+          proof.revision !== before!.revision ||
+          proof.lang !== (mutation.lang ?? null)
+        )
+          throw new HttpError(503, 'Sync pending: removal proof does not match');
+      }
       if (mutation.lang) delete next.definitions[mutation.lang];
       else next.tombstone = { by: ctx.user.login, at };
     } else {

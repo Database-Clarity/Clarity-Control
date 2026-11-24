@@ -1,7 +1,11 @@
+import { isDeepStrictEqual } from 'node:util';
 import {
+  exportLegacy,
   globalsInPlaceCapability,
   globalsInPlaceFenceSchema,
   globalsInPlacePath,
+  legacyGlobalsInPlaceDefinitions,
+  projectGlobals,
   type GlobalsInPlaceFence,
 } from '../../packages/core/src/index.js';
 import { batchSchema } from '@clarity/core/schedule';
@@ -18,6 +22,7 @@ import {
   type SandboxPerks,
 } from '../../packages/export/src/index.js';
 import { appCredits, LocalRepository } from './git.js';
+import { GlobalsPublisher } from './globals.js';
 import {
   publishedGlobals,
   globalsFence,
@@ -138,7 +143,18 @@ export async function dryRunGlobalsMigration(
   let journal = globalsFence(pub, tree);
   let hold = source;
   const legacyLive = journal?.legacyLive ?? pub.head(pub.options.liveBranch);
+  const legacyData = journal?.legacyData ?? source;
+  const { published } = new GlobalsPublisher(pub).capture(
+    git.tree(legacyData),
+    legacyData,
+    legacyLive,
+  );
   const before = liveGlobalsInput(pub, legacyLive);
+  const definitions = (perks: LegacyInput['perks']) =>
+    legacyGlobalsInPlaceDefinitions(perks as Parameters<typeof legacyGlobalsInPlaceDefinitions>[0]);
+  const projected = exportLegacy(Object.values(projectGlobals(published)), 0, pub.options.facts);
+  if (!isDeepStrictEqual(definitions(before.perks), definitions(projected)))
+    throw new Error('Published definitions differ from the effective LIVE libraries.');
   const next = migrateInPlace(before);
   const files = proveMigrationFiles(before, next, inputs);
   if (!journal) {

@@ -19,6 +19,7 @@ import {
   legacyGlobalsInPlaceDefinitions,
   lowerConsumerMarkup,
   publishableHashInput,
+  protectCommentedGlobalImports,
   pushedSchema,
   reconcileGlobalStore,
   rewriteGlobalReferences,
@@ -61,9 +62,7 @@ export function requireGlobalsMode(pub: Publisher, tree: Tree, globals = false) 
 
 export function assertInPlaceRoots(hashes: readonly number[]) {
   if (hashes.some((hash) => globalsInPlaceLibraryText(hash) !== undefined))
-    throw new Error(
-      'Shared definitions publish with their tooltips. Review the affected tooltip instead.',
-    );
+    throw new Error('Publish shared definitions in Review → Globals.');
 }
 
 export function liveGlobalsInput(pub: Publisher, live: string): LegacyInput {
@@ -152,7 +151,7 @@ function proofLibraries(live: LegacyInput, options: GlobalsInPlaceOptions, engli
         if (kind === 'variables' && name === 'e') return [];
         const selected = globalsInPlaceDefinition(entry, english?.has(lang) ? 'en' : lang);
         if (!selected) return [];
-        const { body } = selected;
+        const body = protectCommentedGlobalImports(selected.body);
         if (kind === 'variables') return [`var ${name} = ${body.trim() || 'empty'}`];
         return [`${kind === 'exports' ? 'export' : 'title'} ${name} (\n${body}\n)`];
       });
@@ -602,13 +601,14 @@ export function planInPlaceRelease(
   live: LegacyInput,
   selection: Selection,
   maintainer: boolean,
+  hasTooltipSelection = false,
 ) {
   const plan = (items: Selection) => selectedRelease(pub, tree, live, items, maintainer);
   const refusals: { id: string; error: string }[] = [];
   try {
     return { ...plan(selection), globals: selection.map(({ id }) => id), refusals };
   } catch (error) {
-    if (selection.length < 2) throw error;
+    if (selection.length < 2 && !hasTooltipSelection) throw error;
     // A failed choice cannot stop independent definitions in the same signed part.
     const accepted: Selection = [];
     let result = plan(accepted);
@@ -623,7 +623,7 @@ export function planInPlaceRelease(
         });
       }
     }
-    if (!accepted.length) throw error;
+    if (!accepted.length && !hasTooltipSelection) throw error;
     return { ...result, globals: accepted.map(({ id }) => id), refusals };
   }
 }
@@ -694,7 +694,18 @@ export function bundleInPlaceReview(pub: Publisher, tree: Tree, fence: GlobalsIn
           return before !== after ||
             beforeAvailable !== afterAvailable ||
             (previous?.name !== entry.name && (before !== null || after !== null))
-            ? [[lang, { before, after }]]
+            ? [
+                [
+                  lang,
+                  {
+                    before,
+                    after,
+                    ...((before !== null && !beforeAvailable) || (after !== null && !afterAvailable)
+                      ? { beforeAvailable, afterAvailable }
+                      : {}),
+                  },
+                ],
+              ]
             : [];
         }),
       ),

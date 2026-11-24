@@ -21,10 +21,7 @@ export function inPlaceAdmission(
   if (!Array.isArray(capabilities) || !capabilities.includes(globalsInPlaceCapability))
     throw new HttpError(409, 'Update the installed publisher before publishing shared text.');
   if ([...hashes].some((hash) => globalsInPlaceLibraryText(hash) !== undefined))
-    throw new HttpError(
-      422,
-      'Shared definitions publish with their tooltips. Review the affected tooltip instead.',
-    );
+    throw new HttpError(422, 'Publish shared definitions in Review → Globals.');
   return fence.data;
 }
 

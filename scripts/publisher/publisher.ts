@@ -998,7 +998,11 @@ export class Publisher {
         aliases,
       );
       const inPlace = this.inPlaceOptions(frozen, signed, receipt.liveParent);
-      if (inPlace) assertInPlaceDocuments(documents, inPlace.options);
+      if (inPlace)
+        assertInPlaceDocuments(
+          documents.filter(({ hash }) => !isMovedInactive(hash, selected)),
+          inPlace.options,
+        );
       const exported = exportWithInactiveMoves(
         documents,
         receipt.now,
@@ -1971,7 +1975,14 @@ export class Publisher {
       const role = permissionsSchema.parse(this.read(tree, 'config/permissions.json')).users[
         payload.requester.id
       ]?.role;
-      const plan = planInPlaceRelease(this, tree, input, selection, role === 'maintainer');
+      const plan = planInPlaceRelease(
+        this,
+        tree,
+        input,
+        selection,
+        role === 'maintainer',
+        payload.hashes.length > 0,
+      );
       return {
         ...plan,
         live: { ...input, perks: { ...input.perks, ...plan.refills } as LegacyInput['perks'] },

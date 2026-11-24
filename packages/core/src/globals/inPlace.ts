@@ -1,7 +1,7 @@
 import { translationMaxAge } from '../exportLegacy.js';
 import type { Lang } from '../languages.js';
 import { lowerConsumerMarkup, variableReferences } from '../markup/braces.js';
-import { removeMarkupComments } from '../markup/comments.js';
+import { markupCommentContext, removeMarkupComments } from '../markup/comments.js';
 import { parseLines } from '../markup/lines.js';
 import { markupConditions, prepareMarkup } from '../markup/prepare.js';
 import { extractBlocks, extractVariables } from '../markup/syntax.js';
@@ -145,6 +145,17 @@ export function effectiveSharedNotes(
   return [...reads];
 }
 
+/** The legacy reader expands import lines before it removes block comments. */
+export function protectCommentedGlobalImports(source: string): string {
+  if (!source.includes('/*') || !source.includes('import ')) return source;
+  const { comments } = markupCommentContext(source);
+  return source.replace(
+    /^import [A-z0-9 ]+? from (?:global|0*[123]) *$/gm,
+    (line, offset: number) =>
+      comments.some(({ from, to }) => from <= offset && offset < to) ? ` ${line}` : line,
+  );
+}
+
 /** Resolve one selected language/part after number resolution, before lowering consumer markup. */
 export function resolveGlobalsInPlace(
   source: string,
@@ -172,21 +183,28 @@ export function resolveGlobalsInPlace(
 
   const active = new Set<string>();
   const expand = (text: string): string =>
-    text.replace(/^import ([A-z0-9 ]+?) from global *$/gm, (_line, rawName: string) => {
-      const name = rawName.trim();
-      if (active.has(name)) throw new Error(`Remove the cycle in shared export ${name}.`);
-      const body = lookup('exports', name);
-      if (body === undefined) throw new Error(`Choose an existing shared export for ${name}.`);
-      active.add(name);
-      const expanded = expand(body);
-      active.delete(name);
-      return expanded;
-    });
+    protectCommentedGlobalImports(text).replace(
+      /^import ([A-z0-9 ]+?) from global *$/gm,
+      (_line, rawName: string) => {
+        const name = rawName.trim();
+        if (active.has(name)) throw new Error(`Remove the cycle in shared export ${name}.`);
+        const body = lookup('exports', name);
+        if (body === undefined) throw new Error(`Choose an existing shared export for ${name}.`);
+        active.add(name);
+        const expanded = expand(body);
+        active.delete(name);
+        return expanded;
+      },
+    );
   const fill = (text: string): string => {
+    const refs = variableReferences(text);
+    if (!refs.length) return text;
+    const comments =
+      text.includes('//') || text.includes('/*') ? markupCommentContext(text).comments : [];
     let result = '';
     let at = 0;
-    for (const { name, from, to } of variableReferences(text)) {
-      if (name === 'e') continue;
+    for (const { name, from, to } of refs) {
+      if (name === 'e' || comments.some((span) => span.from <= from && from < span.to)) continue;
       const body = lookup('variables', name)?.trim();
       if (body === undefined) continue;
       result += text.slice(at, from) + (body === 'empty' ? '' : body);
