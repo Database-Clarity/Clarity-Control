@@ -2,6 +2,7 @@
 
 ## Cutover handoff plans (G4/G5 preparation only)
 
+Run the installer from the editor checkout with its development dependencies installed.
 `node scripts/publisher/install.mjs <checkout> <config.json> --plan --target=test`
 prints the exact committed-tree installation patch on stdout (status goes to stderr).
 Its baseline is Git HEAD, so LF and CRLF working checkouts produce the same patch.
@@ -11,6 +12,9 @@ Unknown plans, disagreeing config, implicit rollback from production to the defa
 and capability downgrades are refused. `--apply-local` writes the same planned bytes, without
 committing or pushing. Review/apply the patch against an LF checkout of that HEAD; use
 --apply-local to prepare files in a Windows checkout. Template attributes require LF bytes.
+Commit `pipeline.yml`, `publisher-run.yml`, and the pinned `.publisher` files together.
+After the commit, run the same installer with `--verify` and the same target and config
+to check the exact installed blobs at HEAD. The installer refuses a partial workflow pair.
 
 The serialized pipeline exposes `production_push` and `publication` from its `publish` step.
 One receipt/RECORD identity path handles publication and recovery. `result.json` retains the
@@ -20,9 +24,10 @@ publisher source SHA, runtime digest, and receipt-bound verifier digest. Jobs ch
 digest before executing the verifier with write/deploy privileges. The test branch has no installed consumer engine;
 its absent engine identity is explicitly null, and it never starts legacy or site jobs.
 Production refuses a missing engine. The final catch-up must succeed before job outputs appear.
-The test plan contains no downstream reusable-workflow call. Only the explicit production
-plan appends `template/production-job.yml`, so test installs remain independent of the
-G5-only reusable-workflow input upgrade.
+The pipeline calls the local `publisher-run.yml` under the existing publish concurrency group.
+Only the production plan adds `template/production-job.yml` to that file and passes the existing
+output secrets through. Production outputs finish before the next publisher starts, so two
+runs cannot hand off the same publication before its export pin advances.
 
 The downstream caller passes this immutable publication to `build-outputs.yml@converter`.
 The prepared replacement is `template/.github/workflows/build-outputs.yml`, and its exact
@@ -46,8 +51,10 @@ An ordinary human/engine descendant needs no publication handoff and is also a g
 After a site failure, use Actions **Re-run failed jobs** to retain the original successful
 pipeline outputs and immutable handoff; do not substitute a latest-head build.
 Queue capacity is 100 pending runs per group. G8's complete-window check-queue.mjs audit
-fails visibly for cancelled runs (including overflow); operators reconcile and retry their
-exact pinned inputs. No custom queue or catch-up dispatcher is installed.
+flags cancelled runs, including overflow. If the `pipeline` job succeeded and only
+`report-items` and `report-items-push` were cancelled or skipped, a newer report build
+superseded them and the publish needs no retry. For other cancellations, reconcile and
+retry the exact pinned input.
 
 Production plans parse YAML and enforce the supported queue policy before producing a diff.
 actionlint 1.7.12 rejects the new queue key; it cannot certify this workflow. The G5 runbook
@@ -162,8 +169,8 @@ workflow registration/enablement belong to subsequent phases.
 
 ## Pipeline template (P1-C)
 
-`template/.github/workflows/pipeline.yml` and `template/.publisher/` are installation
-artifacts, not active workflows in this editor repository. No installation is performed here.
+`template/.github/workflows/pipeline.yml`, `template/.github/workflows/publisher-run.yml`, and
+`template/.publisher/` are installation artifacts for the data repository.
 Pushes changing only `exports/**`, `glossary/**`, `snippets/**`, or `config/marks.json`
 do not trigger the editor-data pipeline.
 The plain Node 24 runtime includes packages/core and has no runtime npm dependencies.
@@ -171,8 +178,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `e55b240d1d91079811ecbf0cf113c06d292b827a` (v2).
-Runtime SHA-256: `1abbede1ec66f19f38a9672a6b09170c65af5ec69e910fdce738cec0b60d5d4c`.
+Current template source: `5fadd6063208461671563883d30c9f92be69ae0b` (v2).
+Runtime SHA-256: `8c10e9f55ddd2f248b4869b641c95a5d5d297a1e8c994f441fadc79d00ed442b`.
 
 The `exoticTags` capability declares lowering of `<exotic … />` to the compatible
 `yellow` consumer style, including comment-split keywords. While publishing is enabled,
@@ -219,8 +226,8 @@ The shared intermediate keeps dots; decimal formatting belongs to the downstream
 Two consecutive builds and a clean checkout build must reproduce that digest.
 
 At enable step E, first wait for or cancel every in-flight bundle.yml run: its old concurrency
-group and force-push could overwrite the first pipeline bundle. Then replace bundle.yml with pipeline.yml
-in the SAME commit and copy .publisher. Fill config.json from config.example.json with the
+group and force-push could overwrite the first pipeline bundle. Replace bundle.yml with pipeline.yml
+and publisher-run.yml in the same commit as .publisher. Fill config.json from config.example.json with the
 trusted Worker /publish/key URL and independently verified SPKI fingerprint, PIN.sourceSha,
 verified generator commit and its facts/aliases. Empty example facts are not production inputs.
 Set runUrl to the installed workflow run URL when preparing config. No private key belongs here.
@@ -235,11 +242,13 @@ writers control workflows and .publisher; the neighboring PIN detects corruption
 
 The installed command is:
 `node .publisher/publisher.mjs --pipeline-dry-run . .publisher/config.json <artifact directory>`.
-It fetches latest remote branch heads after getting the serialized slot, publishes the real data
-bundle with an explicit lease, simulates at most 20 operations/20 minutes in a no-remote bare copy,
+The workflow checks out one commit. The runtime restores full history and fetches current
+branch heads after getting the serialized slot. It publishes the real data bundle with an
+explicit lease, simulates at most 20 operations/20 minutes in a no-remote bare copy,
 then unconditionally fetches again and catches the real bundle up. Prior sourceCommit must be
-an ancestor; already-current bundles are skipped. A bundle lease race fails closed and is repaired
-on the next run. Source and live branches, candidate refs, requests, logs and pushed markers are
+an ancestor. Ref reads still check the remote and skip object fetches for a matching cached head.
+Bundle writes retry confirmed forward races twice against the winning base. Source and live branches,
+candidate refs, requests, logs, and pushed markers are
 NEVER pushed by this transport. The simulation's bundle is artifact-only. Public-key fetches are
 HTTPS, forbid redirects, have a 15-second timeout and require the independent fingerprint.
 A failed key fetch/drain still gets a real bundle catch-up and result/summary artifacts.
@@ -253,14 +262,15 @@ prerequisites to inspect the simulated heads.
 The publisher owns only bundle.json on editor-data-bundle. Every bundle push, dry-run included,
 carries every other file of the previous bundle forward byte-identical, so the report catalogs
 (report-items.json and report-items.worker.json, read by web Reports and the Worker's /reports)
-survive it. The same workflow run then rebuilds them in two jobs that replace bundle.yml's catalog
-step with its inputs (generator v2, editor 0acd005c). `report-items` (read-only token, after the
-pipeline job unless the run was cancelled) builds both catalogs for the bundle head it read;
-`report-items-push` (separate runner, contents:write) checks that the head has not moved, that the
+survive it. Two jobs outside the publish concurrency group rebuild them with the original inputs
+(generator v2, editor 0acd005c). `report-items` uses a read-only token and reads the latest bundle
+after entering its own queue. Running builds finish, and a newer pending build can replace an older one.
+`report-items-push` uses a separate runner with contents:write and queues per bundle head.
+It checks that the head has not moved, that the
 artifact holds exactly the two catalogs, and that each is v1 for that bundle's sourceCommit. It then
 pushes one fast-forward commit leased on that head (never --force), or does nothing when the
-catalogs are already current. A moved head fails the job and leaves the branch untouched; the next
-run rebuilds the catalogs. The workflow's concurrency group serializes all three jobs.
+catalogs are already current. A moved head is a successful no-op. A later report build reads the
+latest head, including after a burst of publications, and replaces any catalogs from older bundles.
 
 All editor-data pushes (requests, kicks, saves) start the pipeline. GITHUB_TOKEN bundle pushes
 suppress downstream workflows; no workflow_dispatch/schedule is registered on production live.

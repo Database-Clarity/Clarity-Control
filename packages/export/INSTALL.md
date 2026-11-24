@@ -11,7 +11,7 @@ Nothing here is installed by this repository. Each step is a production change t
 | `scripts/publisher/template/.github/workflows/build-outputs.yml`                                          | `converter`   | `.github/workflows/build-outputs.yml`                                                  |
 | `packages/export/workflows/converter/.github/workflows/main.yml`                                          | `converter`   | `.github/workflows/main.yml` (replaces today's)                                        |
 | `packages/export/workflows/editor-data/.github/workflows/exports.yml`                                     | `editor-data` | `.github/workflows/exports.yml`                                                        |
-| explicit output of `scripts/publisher/install.mjs` (`--target=test` or owner-gated `--target=production`) | `editor-data` | `.github/workflows/pipeline.yml`, at publisher enable step E                           |
+| explicit output of `scripts/publisher/install.mjs` (`--target=test` or owner-gated `--target=production`) | `editor-data` | `.github/workflows/pipeline.yml` and `.github/workflows/publisher-run.yml`, at publisher enable step E |
 
 - `.exports/` is built from a committed tree (the script refuses uncommitted changes in
   packages/export) and `PIN` names that source SHA; the script prints each file's sha256 for the

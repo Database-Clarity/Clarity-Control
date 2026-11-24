@@ -43,8 +43,8 @@ Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the ma
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.
 No installation, activation, or external data write is authorized by generating this template.
 
-Template source PIN: `e55b240d1d91079811ecbf0cf113c06d292b827a`.
-Expected publisher.mjs SHA-256: `1abbede1ec66f19f38a9672a6b09170c65af5ec69e910fdce738cec0b60d5d4c`.
+Template source PIN: `5fadd6063208461671563883d30c9f92be69ae0b`.
+Expected publisher.mjs SHA-256: `8c10e9f55ddd2f248b4869b641c95a5d5d297a1e8c994f441fadc79d00ed442b`.
 Verify both against `.publisher/PIN` before installation; this v2 runtime includes the current
 set-bonus, name-relink, category, alias-group, and optional export-partner schemas. Rebuild from
 the pinned source in a clean checkout to reproduce the digest. A future source change requires
@@ -68,10 +68,10 @@ Its bundle pushes carry the report catalogs forward; the pipeline's report-items
    This also writes `.publisher/installed.json` (version, configOid, and generatorSha).
    Commit it with the exact `.publisher/config.json` bytes from that same installer run;
    missing or stale metadata makes globals reads refuse until the installation is complete.
-   This only changes local files: retire bundle.yml, add pipeline.yml and .publisher together.
-   Inspect `git -C <checkout> diff`, run actionlint on the installed workflow and inspect PIN.
-   The operator then commits and normally pushes ONLY editor-data after review. Neither script
-   commits nor pushes. No workflow files are installed on production branches or this editor repo.
+   Inspect the diff and lint both workflows. In one editor-data commit retire bundle.yml and
+   install `.github/workflows/pipeline.yml`, `.github/workflows/publisher-run.yml`, and the pinned
+   `.publisher/` files with their public config and installed.json. Run the installer with
+   `--verify` and the same config and target on that clean HEAD before the operator pushes.
 5. Observe pipeline artifact result.json: dryRun:true, publishWritesEnabled:false, no errors.
    Check the run's report-items and report-items-push jobs are green and editor-data-bundle
    still holds report-items.json and report-items.worker.json, both with the bundle's
@@ -81,10 +81,10 @@ Its bundle pushes carry the report catalogs forward; the pipeline's report-items
    Confirm data/live/candidate refs have no simulated commits; requests remain pending by design.
    Request/kick/save starts catch-up; no unattended cron in P1. Resume saves.
 
-Rollback installation: drain/cancel pipeline runs, revert the installation commit on editor-data
-with a normal forward push (never reset/force-push), then restore bundle.yml service. Do not run
-both workflows concurrently. Keep requests/receipts/logs intact. Bundle sourceCommit can reference
-installation history safely. Record resulting heads and retain dry-run artifacts.
+Rollback installation by draining publisher, output, and report jobs, then reverting the one
+installation commit on editor-data via a normal forward push. The revert restores the prior
+workflow files, runtime, PIN, and public config together. Retain requests, receipts, logs, and dry-run
+artifacts.
 Rollback future switch release: first stop/drain any future write-capable publisher, confirm no
 unrecorded candidate/receipt, restore enabled:false and rebuild/release BOTH Worker and web from
 one commit before allowing legacy writes. Never overlap two writers. No rollback is executed here.
@@ -114,8 +114,9 @@ holds closed until the independently reviewed S1-compatible release candidate is
    Ordinary non-publisher descendants need no publisher handoff. Test publication never calls it.
    Site configs are read from current editor-data under the data-site deployment slot; the
    immutable RECORD proof is checked out separately. Retry retains newer config saves.
-   Test installs contain no production reusable-workflow call; the explicit production plan
-   alone appends production-job.yml after the G5 workflow input upgrade is installed.
+   Test installs call the local publisher workflow without downstream outputs. The explicit
+   production plan appends production-job.yml to publisher-run.yml after the G5 workflow input
+   upgrade is installed. The calling pipeline job holds the publish slot through both outputs.
    The exact reusable patch intentionally converts the baseline workflow's CRLF bytes to LF;
    retain the original blob alongside the semantic review diff so this conversion is explicit.
 3. G4/G5 operator gate, not execution here: pause intake, drain running pipeline jobs, and
@@ -152,9 +153,10 @@ G8 queue audit, after each controlled publish batch and whenever cancellation is
 fetch every page of Actions runs for the complete reviewed time window (GitHub API
 `actions/runs?created=...&per_page=100`, `gh api --paginate --slurp`), save the JSON, and run
 `node .publisher/check-queue.mjs <runs.json>`. Incomplete capture or any cancelled run exits
-nonzero with a G8 signal. The 101st pending job can be cancelled: reconcile its original event
-SHA/publication artifact and current output pin, then manually retry that exact input when the
-queue has space. Do not silently rely on another push, and never substitute the current head.
+nonzero with a G8 signal. Check the cancelled run's jobs. When the `pipeline` job succeeded
+and only `report-items` and `report-items-push` were cancelled or skipped, a newer report build
+superseded them and the publish needs no retry. For any other cancellation, reconcile the
+original event SHA, publication artifact, and current output pin before retrying the exact input.
 
 Stop/recover (G8): stop intake and drain/reconcile before restoring approved artifacts.
 Keep receipts, request credits, and append-only export pins. Forward-revert data and workflow

@@ -28077,40 +28077,8 @@ function changes(input2, ids, names) {
     }));
   });
 }
-function impacts(input2, store, ids, scans, withdrawals) {
+function impacts(input2, store, ids, scans) {
   const beforeGlobals = projectGlobals(input2.published), afterGlobals = projectGlobals(store);
-  const alternativeGlobals = /* @__PURE__ */ new Map();
-  const fallbackAlternatives = (before, singleton) => {
-    return new Map(
-      ids.map((id) => {
-        const key = `${singleton}:${id}`;
-        if (!alternativeGlobals.has(key)) {
-          try {
-            alternativeGlobals.set(
-              key,
-              projectGlobals(
-                composeGlobalRelease(
-                  input2.published,
-                  input2.saved,
-                  singleton ? [id] : ids.filter((candidate) => candidate !== id)
-                )
-              )
-            );
-          } catch {
-            alternativeGlobals.set(key, void 0);
-          }
-        }
-        const globals = alternativeGlobals.get(key);
-        return [
-          id,
-          globals && scans.resolve({
-            ...before,
-            tooltips: { ...before.tooltips, ...globals }
-          })
-        ];
-      })
-    );
-  };
   const afterLive = Object.fromEntries(
     Object.entries({ ...input2.live.tooltips, ...input2.authored.tooltips, ...afterGlobals }).filter(
       ([, document]) => resolveAlias(document.hash, input2.authored.aliases) === document.hash
@@ -28176,25 +28144,17 @@ function impacts(input2, store, ids, scans, withdrawals) {
       );
     }
     if (!result.complete) throw new Error("Sync pending: resolver closure is incomplete");
-    if (withdrawals?.size)
-      for (const row of result.rows)
-        for (const { globalId } of row.causes) {
-          const removed = withdrawals.get(globalId);
-          if (removed === null || removed?.includes(row.consumer.lang) || removed?.includes("en"))
-            throw new Error("Sync pending: a removed global dependency is still referenced");
-        }
     return expandReleaseDependencies(
       input2,
       observedBefore,
       after,
       result,
       changes(input2, ids, names).map((change) => change.cause),
-      scans,
-      withdrawals && ids.length > 1 ? (singleton) => fallbackAlternatives(observedBefore, singleton) : void 0
+      scans
     );
   });
 }
-function expandReleaseDependencies(input2, before, after, impact, causes, scans, counterfactuals) {
+function expandReleaseDependencies(input2, before, after, impact, causes, scans) {
   const probe = [
     { kind: "titles", beforeName: "Release", afterName: "Release", cause: causes[0] }
   ];
@@ -28221,37 +28181,15 @@ function expandReleaseDependencies(input2, before, after, impact, causes, scans,
     scans
   );
   if (!globalOnly.complete) throw new Error("Sync pending: global fallback closure is incomplete");
-  let omissions;
-  let singletons;
   for (const row of globalOnly.rows)
     if (row.before?.rendered !== row.after?.rendered && !rows.has(key(row))) {
       const actual = census.rows.find((candidate) => key(candidate) === key(row));
-      if (!actual) continue;
-      omissions ??= counterfactuals?.(false);
-      const matching = (candidates) => candidates && [...candidates.values()].every((scan) => scan?.blockers.size === 0) ? new Set(
-        [...candidates].filter(
-          ([, scan]) => scan?.cells.get(key(row))?.result.rendered === row.after?.rendered
-        ).map(([id]) => id)
-      ) : void 0;
-      const unchangedWithout = matching(omissions);
-      let attributable = causes.filter(({ globalId }) => !unchangedWithout?.has(globalId));
-      if (!attributable.length) {
-        singletons ??= counterfactuals?.(true);
-        const unchangedWithOnly = matching(singletons);
-        attributable = causes.filter(({ globalId }) => unchangedWithOnly?.has(globalId));
-      }
-      rows.set(key(actual), {
-        ...actual,
-        reason: "variable-read",
-        causes: [
-          ...new Map(
-            (attributable.length ? attributable : causes).map((cause) => [
-              stableStringify(cause),
-              cause
-            ])
-          ).values()
-        ]
-      });
+      if (actual)
+        rows.set(key(actual), {
+          ...actual,
+          reason: "variable-read",
+          causes: [...new Map(causes.map((cause) => [stableStringify(cause), cause])).values()]
+        });
     }
   const dependencies = /* @__PURE__ */ new Map();
   let progress = true;
@@ -28358,17 +28296,7 @@ async function planGlobalRelease(input2) {
   for (const group of groups) {
     const ids = [...group].sort();
     const store = composeGlobalRelease(input2.published, input2.saved, ids);
-    const withdrawals = /* @__PURE__ */ new Map();
-    for (const entry of store.entries) {
-      if (!group.has(entry.id)) continue;
-      const previous = input2.published.entries.find(({ id }) => id === entry.id);
-      const removed = Object.keys(previous?.definitions ?? {}).filter(
-        (lang) => !entry.definitions[lang]
-      );
-      if (entry.tombstone || removed.length)
-        withdrawals.set(entry.id, entry.tombstone ? null : removed);
-    }
-    const contexts = impacts(input2, store, ids, scans, withdrawals);
+    const contexts = impacts(input2, store, ids, scans);
     const rows = /* @__PURE__ */ new Map();
     for (const impact of contexts)
       for (const view of impact.rows) {
@@ -31075,12 +31003,25 @@ var GlobalsPublisher = class _GlobalsPublisher {
         names: Object.fromEntries(beforeStore.entries.map((entry) => [entry.id, entry.name]))
       });
     }
-    return planGlobalRelease({
+    const result = await planGlobalRelease({
       ...captured,
       causes,
       priorAuthored: [...prior.values()],
       destination: this.options.liveBranch
     });
+    for (const component of result)
+      for (const id of component.ids) {
+        const entry = captured.saved.entries.find((entry2) => entry2.id === id);
+        const previous = captured.published.entries.find((entry2) => entry2.id === id);
+        const removed = Object.keys(previous?.definitions ?? {}).filter(
+          (lang) => !entry.definitions[lang]
+        );
+        if (component.rows.some(
+          (row) => row.view.causes.some((cause) => cause.globalId === id) && (entry.tombstone || removed.includes(row.view.consumer.lang) || removed.includes("en"))
+        ))
+          throw new Error("Sync pending: a removed global dependency is still referenced");
+      }
+    return result;
   }
   async validateCauses(tree, head) {
     const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
@@ -31375,7 +31316,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
           }
         });
         this.write(tree, path, value2, limits.entryBytes);
-        for (const id of new Set(row.view.causes.map(({ globalId }) => globalId)))
+        for (const id of component.ids)
           rowsByEntry.set(id, [...rowsByEntry.get(id) ?? [], row.id]);
       }
     for (const entry of store.entries) {
@@ -34811,7 +34752,21 @@ var Publisher = class _Publisher {
     return { landedAt, landedAtSource: land.source, recordedAt };
   }
   bundle() {
-    const h = this.head(this.options.dataBranch), t = this.git.tree(h), ref = dataRef("editor-data-bundle"), old = this.git.head(ref), oldTree = old ? this.git.tree(old) : {};
+    const ref = dataRef("editor-data-bundle");
+    let old = this.git.head(ref);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return this.bundleAt(ref, old);
+      } catch (error62) {
+        if (!(error62 instanceof RefRace) || attempt === 2) throw error62;
+        const current = this.git.head(ref);
+        if (!current || current === old || old && !this.git.ancestor(old, current)) throw error62;
+        old = current;
+      }
+    }
+  }
+  bundleAt(ref, old) {
+    const h = this.head(this.options.dataBranch), t = this.git.tree(h), oldTree = old ? this.git.tree(old) : {};
     const prior = old ? this.read(oldTree, "bundle.json") : void 0;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
@@ -34978,6 +34933,10 @@ var RemoteRepository = class extends LocalRepository {
       this.git(["update-ref", "-d", ref]);
       return void 0;
     }
+    const [advertisedOid] = advertised.split("	");
+    if (!/^[0-9a-f]{40}$/.test(advertisedOid) || advertised !== `${advertisedOid}	${ref}`)
+      throw new TransportUnresolved("Invalid remote ref advertisement");
+    if (super.head(ref) === advertisedOid) return advertisedOid;
     this.remoteGit(["fetch", "--no-tags", this.remote, ref]);
     const oid4 = this.git(["rev-parse", "--verify", "FETCH_HEAD"]).trim();
     this.git(["update-ref", ref, oid4]);
@@ -35128,7 +35087,17 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
   const publications = [];
   let handoff2;
   function snapshot(label) {
-    gitAt(cwd, ["fetch", "--prune", "--no-tags", "origin", "+refs/heads/*:refs/remotes/origin/*"]);
+    const shallow = gitAt(cwd, ["rev-parse", "--is-shallow-repository"]).trim() === "true";
+    gitAt(cwd, [
+      "fetch",
+      "--prune",
+      "--no-tags",
+      ...shallow ? ["--unshallow"] : [],
+      "origin",
+      "+refs/heads/*:refs/remotes/origin/*"
+    ]);
+    if (shallow && gitAt(cwd, ["rev-parse", "--is-shallow-repository"]).trim() !== "false")
+      throw new Error("Publisher snapshot requires complete Git history");
     const repo = join3(temp, label + ".git");
     gitAt(cwd, ["clone", "--bare", "--no-hardlinks", "--", cwd, repo]);
     const command = (args) => gitAt(repo, args);
@@ -35156,17 +35125,30 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
     }) : new LocalRepository(repo);
   }
   function publishBundle(repo, options2) {
-    const pub = new Publisher(repo, options2), old = repo.head(bundleRef);
-    pub.bundle();
-    const next = repo.head(bundleRef);
-    if (next !== old && !(repo instanceof RemoteRepository)) {
+    const pub = new Publisher(repo, options2);
+    let next;
+    for (let attempt = 0; ; attempt++) {
+      const old = repo.head(bundleRef);
+      pub.bundle();
+      next = repo.head(bundleRef);
+      if (next === old || repo instanceof RemoteRepository) break;
       gitAt(cwd, ["fetch", "--no-tags", repo.path, `+${bundleRef}:refs/publisher/bundle`]);
-      gitAt(cwd, [
-        "push",
-        `--force-with-lease=${bundleRef}:${old ?? ""}`,
-        "origin",
-        `${next}:${bundleRef}`
-      ]);
+      try {
+        gitAt(cwd, [
+          "push",
+          `--force-with-lease=${bundleRef}:${old ?? ""}`,
+          "origin",
+          `${next}:${bundleRef}`
+        ]);
+        break;
+      } catch (error62) {
+        if (attempt === 2) throw error62;
+        gitAt(cwd, ["fetch", "--no-tags", "origin", `+${bundleRef}:refs/publisher/bundle-base`]);
+        gitAt(repo.path, ["fetch", "--no-tags", cwd, "refs/publisher/bundle-base"]);
+        const current = repo.git(["rev-parse", "--verify", "FETCH_HEAD"]).trim();
+        if (current === old || old && !repo.ancestor(old, current)) throw error62;
+        repo.cas(bundleRef, next, current);
+      }
     }
     const queue = pub.queue(pub.head(options2.dataBranch));
     reports.push({
