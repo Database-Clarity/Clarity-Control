@@ -257,9 +257,10 @@ it('publishes globals by id and digest next to the tooltips', async () => {
   expect(create).toHaveBeenLastCalledWith(
     [expect.objectContaining({ hash: 12 })],
     [{ id: ids.refill, expected: digest(1), name: 'G_refill' }],
+    true,
   );
   expect(await queuePublish([], chosen.slice(1), data, () => true)).toBe(true);
-  expect(create).toHaveBeenLastCalledWith([], [expect.objectContaining({ id: ids.refill })]);
+  expect(create).toHaveBeenLastCalledWith([], [expect.objectContaining({ id: ids.refill })], true);
 });
 
 it('clears a published global until the bundle caught up or holds another definition', async () => {
