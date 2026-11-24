@@ -32597,15 +32597,18 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
   for (const entry of selected) {
     const to = entry.name;
     const old = previous.get(entry.id);
-    if (entry.kind !== "variables" || entry.tombstone || old && !old.tombstone && old.name === to)
-      continue;
-    const name2 = /* @__PURE__ */ new Set([to]);
+    if (entry.tombstone || old && !old.tombstone && old.name === to) continue;
+    const variable = entry.kind === "variables";
     const rename = old && !old.tombstone;
+    if (!variable && (entry.kind !== "titles" || !rename)) continue;
+    const name2 = /* @__PURE__ */ new Set([to]);
     const conflicts = (source3) => {
-      if (inPlaceLabelVariable(source3, name2, to) !== void 0) return true;
+      if (variable && inPlaceLabelVariable(source3, name2, to) !== void 0) return true;
       if (!rename) return false;
       const text = removeMarkupComments(source3);
       if (!text.includes(to)) return false;
+      if (!variable)
+        return Object.hasOwn(extractBlocks(text, "title"), to) || globalReferenceSpans(source3, "titles").some(({ name: name3 }) => name3 === to);
       return Object.hasOwn(extractVariables(text), to) || variableReferences(text).some(({ name: name3 }) => name3 === to);
     };
     const reason = rename ? `already uses or declares ${to}. Choose a different name.` : `already uses #${to} inside a title or link. Choose a different name.`;
