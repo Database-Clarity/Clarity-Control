@@ -963,3 +963,88 @@ it('keeps newer batch German visible while French is drafted and saved', async (
     await page.dispose();
   }
 });
+
+it('shows the needs-updating banner from the Current draft, and from the batch draft in a batch', async () => {
+  vi.stubEnv('VITE_SCHEDULED_ENABLED', '1');
+  const day = (n: number) => new Date(Date.parse(stamp.updatedAt) + n * 86_400_000).toISOString();
+  const german = {
+    ...current[10],
+    text: {
+      ...current[10].text,
+      de: { text: 'Deutsch 10', ...stamp, sourceUpdatedAt: day(-100) },
+    },
+  };
+  fixture.setCurrent(10, german);
+  const { batch } = await call('/batches', { name: 'December patch' });
+  const future = { text: 'Upcoming 10', updatedAt: day(1), updatedBy: 'a' };
+  await call(`/batches/${batch.id}/save`, {
+    revision: batch.revision,
+    changes: [
+      { hash: 10, base: german, next: { ...german, text: { ...german.text, en: future } } },
+    ],
+  });
+  const visit = await batchQueueFor(batch, 10);
+  const page = await mount('translator', '/t/10?lang=de');
+  const { useDataStore } = await import('../../stores/data');
+  const { useDraftStore } = await import('../../stores/drafts');
+  const { useBatchDraftStore } = await import('../../services/scheduled/batchDrafts');
+  const row = () => page.host.querySelector<HTMLElement>('[data-translation-row]');
+  const text = () => row()!.querySelector('p span')?.textContent ?? null;
+  const type = async (value: string) => {
+    await act(async () => editorProps.current!.onChange(value));
+    await page.settle();
+  };
+  const behind = (days: number) =>
+    `Published in English until this is updated: the translation is ${days} days behind`;
+  try {
+    const saved = (tooltip: Tooltip) =>
+      act(async () =>
+        useDataStore.setState({
+          data: {
+            ...data,
+            bundle: { ...data.bundle, tooltips: { ...current, 10: tooltip } },
+          } as never,
+        }),
+      );
+    await saved(german);
+    await page.settle(() => editorProps.current?.value === 'Deutsch 10');
+    expect(text()).toBe(behind(100));
+    await type('Neues Deutsch 10');
+    expect(text()).toBeNull();
+    await type('Deutsch 10'); // Undo to the stored text.
+    expect(text()).toBe(behind(100));
+    await type('Neues Deutsch 10');
+    await act(async () => useDraftStore.getState().discard(10));
+    await page.settle();
+    expect(text()).toBe(behind(100));
+
+    // Queue mode with the batch as its destination: the batch's English and drafts decide.
+    await act(async () =>
+      page.router.navigate((visit.first.detail as { path: string }).path, { state: visit.state }),
+    );
+    await page.settle(
+      () => editorProps.current?.sourceText === 'Upcoming 10' && !editorProps.current.readOnly,
+    );
+    expect(text()).toBe(behind(101));
+    await type('Stapel-Deutsch 10');
+    expect(text()).toBeNull();
+    await act(async () => useBatchDraftStore.setState({ drafts: {} }));
+    await page.settle();
+    expect(text()).toBe(behind(101));
+
+    // English has no such line; its line is kept, empty, for a current translation.
+    await act(async () => page.router.navigate('/t/10?lang=en'));
+    await page.settle();
+    expect(row()).toBeNull();
+    await saved({
+      ...german,
+      text: { ...german.text, de: { ...german.text.de, sourceUpdatedAt: stamp.updatedAt } },
+    });
+    await act(async () => page.router.navigate('/t/10?lang=de'));
+    await page.settle();
+    expect(row()).not.toBeNull();
+    expect(text()).toBeNull();
+  } finally {
+    await page.dispose();
+  }
+});

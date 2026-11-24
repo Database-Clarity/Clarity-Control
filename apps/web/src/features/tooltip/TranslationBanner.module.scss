@@ -21,8 +21,10 @@
   }
   @include theme.mobile {
     // The editor box under it runs edge to edge (TooltipPage .panel).
+    height: calc(var(--tap-sm) + 0.25rem);
     margin: 0 calc(-1 * var(--page-x));
     > button {
+      align-self: flex-start;
       margin-left: var(--page-x);
     }
   }
