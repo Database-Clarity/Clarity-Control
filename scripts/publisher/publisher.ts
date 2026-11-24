@@ -1494,7 +1494,16 @@ export class Publisher {
     let rebases = 0;
     for (let attempt = 0; attempt < 6; attempt++) {
       candidate = this.candidate(opId, blob);
-      if (!candidate) throw new Error('Candidate disappeared');
+      if (!candidate) {
+        const landed = this.receipt(this.head(this.options.liveBranch), opId);
+        if (
+          landed?.opId === opId &&
+          landed.requestBlob === blob &&
+          this.git.tree(this.head(this.options.dataBranch))[p.log]
+        )
+          return;
+        throw new Error('Candidate disappeared');
+      }
       const { c, r } = candidate,
         l = this.head(this.options.liveBranch);
       const found = this.receipt(l, opId);

@@ -1722,6 +1722,48 @@ describe('dependency-safe global release', () => {
     expect(f.git.additions(f.git.head(D)!, paths(A).log)).toHaveLength(1);
     expect(f.git.head(paths(A).candidate)).toBeUndefined();
   });
+
+  it.each([true, false])(
+    'reconciles a candidate removed after observation only if recorded (recorded=%s)',
+    async (recorded) => {
+      const f = await fixture();
+      await f.globals.drain();
+      await f.request([42]);
+      f.pub.record = async () => {
+        throw new RefRace('Runner interrupted');
+      };
+      await expect(f.pub.operation(A)).rejects.toThrow('Runner interrupted');
+      expect(f.git.head(paths(A).candidate)).toBeDefined();
+      f.change({ 'tooltips/41.json': tooltip(41, 'Saved before recovery') });
+      const pending = new Map(f.git.refs);
+
+      await new Publisher(f.git, f.options).operation(A);
+      const completed = new Map(f.git.refs);
+      expect(f.read(paths(A).log).candidateCommit).toBe(completed.get(L));
+      f.git.refs = pending;
+
+      const runner = new Publisher(f.git, f.options);
+      const readCandidate = runner.candidate.bind(runner);
+      vi.spyOn(runner, 'candidate').mockImplementationOnce((...args) => {
+        const observed = readCandidate(...args);
+        expect(observed).toBeDefined();
+        if (recorded) f.git.refs = completed;
+        else f.git.refs.delete(paths(A).candidate);
+        return observed;
+      });
+      if (recorded) {
+        await expect(runner.operation(A)).resolves.toBeUndefined();
+        expect(f.git.head(D)).toBe(completed.get(D));
+        expect(f.git.head(L)).toBe(completed.get(L));
+        expect(f.git.additions(f.git.head(D)!, paths(A).log)).toHaveLength(1);
+      } else {
+        await expect(runner.operation(A)).rejects.toThrow('Candidate disappeared');
+        expect(f.current()[paths(A).request]).toBeDefined();
+        expect(f.current()[paths(A).log]).toBeUndefined();
+      }
+    },
+  );
+
   it.each(['100755', undefined])(
     'rejects a retry kick with mode %s from a mode-aware adapter',
     async (mode) => {
