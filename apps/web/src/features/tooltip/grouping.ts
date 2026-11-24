@@ -145,7 +145,7 @@ export interface EntryRow {
   /** Set when the row opens this entry; otherwise `unattached` says why it does not. */
   perk?: GroupedPerk;
   unattached?: UnattachedPerk;
-  /** The text's home ("Text is here"), or a version that does not share the text. */
+  /** The text's home ("Text is here"), or a version with text of its own. */
   mark?: string;
   /** How it joined, or the other version using it, when its block does not already say so. */
   joined?: string;
@@ -175,11 +175,18 @@ function kindOf(perk: GroupedPerk, data: EditorData | null): EntryRow['kind'] {
   return !item && data?.bundle.tooltips[perk.hash]?.custom ? 'Custom tooltip' : 'Item';
 }
 
-function markOf(perk: GroupedPerk, canonical: number, data: EditorData | null) {
-  if (perk.reason === 'canonical') return 'Text is here';
-  if (!data || (perk.reason !== 'enhanced' && perk.reason !== 'variant')) return undefined;
-  if (variantForm(canonical, perk.hash, data) === 'derived') return undefined;
-  return isBlankCopy(canonical, perk.hash, data) ? 'Has no text' : 'Has its own text';
+function markOf(
+  perk: GroupedPerk,
+  canonical: number,
+  data: EditorData | null,
+): Pick<EntryRow, 'mark' | 'joined'> {
+  if (perk.reason === 'canonical') return { mark: 'Text is here' };
+  if (!data || (perk.reason !== 'enhanced' && perk.reason !== 'variant'))
+    return { joined: joinedLabel[perk.reason] };
+  if (variantForm(canonical, perk.hash, data) === 'derived') return {};
+  return isBlankCopy(canonical, perk.hash, data)
+    ? { joined: 'Has no text' }
+    : { mark: 'Has its own text' };
 }
 
 type Side = 'base' | 'enhanced' | 'other';
@@ -247,11 +254,9 @@ export function entryView(perks: readonly GroupedPerk[], data: EditorData | null
       hash: perk.hash,
       kind: kindOf(perk, data),
       perk,
-      mark: markOf(perk, canonical, data),
-      joined:
-        perk.reason === 'sandbox' && listedBy.get(perk.hash)?.has(other)
-          ? `Also used by ${other}`
-          : joinedLabel[perk.reason],
+      ...(perk.reason === 'sandbox' && listedBy.get(perk.hash)?.has(other)
+        ? { joined: `Also used by ${other}` }
+        : markOf(perk, canonical, data)),
     });
   }
   const members = new Set(perks.map((perk) => perk.hash));

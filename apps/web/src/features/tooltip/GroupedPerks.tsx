@@ -67,30 +67,28 @@ export function GroupedPerks({
                 <span className={styles.text}>
                   <span data-name>{nameOf(row)}</span>
                   <Notes row={row} />
+                  {row.perk && row.perk.reason !== 'sandbox' && (
+                    <GroupRemoveControl
+                      hash={row.hash}
+                      name={row.perk.name}
+                      className={pageStyles.ghost}
+                    />
+                  )}
                 </span>
-                {row.perk && (
+                {row.perk && currentHash !== undefined && row.hash !== currentHash && (
                   <span className={styles.actions}>
-                    {row.perk.reason !== 'sandbox' && (
-                      <GroupRemoveControl
-                        hash={row.hash}
-                        name={row.perk.name}
-                        className={pageStyles.ghost}
-                      />
-                    )}
-                    {currentHash !== undefined && row.hash !== currentHash && (
-                      <InactiveMoveControl
-                        hash={row.hash}
-                        name={
-                          row.perk.name ||
-                          (sandbox && sandboxPerkName(row.hash, sandbox)) ||
-                          `Tooltip ${row.hash}`
-                        }
-                        moves={moves}
-                        onSaved={applyInactiveMoves}
-                        className={pageStyles.ghost}
-                        compact
-                      />
-                    )}
+                    <InactiveMoveControl
+                      hash={row.hash}
+                      name={
+                        row.perk.name ||
+                        (sandbox && sandboxPerkName(row.hash, sandbox)) ||
+                        `Tooltip ${row.hash}`
+                      }
+                      moves={moves}
+                      onSaved={applyInactiveMoves}
+                      className={pageStyles.ghost}
+                      compact
+                    />
                   </span>
                 )}
               </li>
@@ -107,10 +105,10 @@ function Notes({ row: { hash, perk, mark, joined, unattached } }: { row: EntryRo
   return (
     <>
       {mark && <strong>{mark}</strong>}
-      {joined && <small>{joined}</small>}
-      {shared && <small>Shared by {shared}</small>}
+      {joined && <span>{joined}</span>}
+      {shared && <span>Shared by {shared}</span>}
       {unattached && (
-        <small title={unattached.others}>
+        <span title={unattached.others}>
           {unattached.why}
           {unattached.review && (
             <>
@@ -123,7 +121,7 @@ function Notes({ row: { hash, perk, mark, joined, unattached } }: { row: EntryRo
               </Link>
             </>
           )}
-        </small>
+        </span>
       )}
     </>
   );

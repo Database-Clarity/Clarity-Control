@@ -22,7 +22,7 @@
       'kind hash text actions' minmax(1.5rem, auto) / 4.75rem 5.75rem minmax(0, 1fr)
       auto;
     align-items: center;
-    gap: 0 0.75rem;
+    gap: 0 0.5rem;
     padding: 0.125rem 0;
     border-top: 1px solid var(--line);
   }
@@ -48,7 +48,7 @@
   grid-area: text;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 0 0.75rem;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -56,27 +56,45 @@
     color: var(--accent-ink);
     font-size: 0.75rem;
   }
-  small {
+  // Notes, and why an item cannot leave its group.
+  > span:not([data-name]) {
     color: var(--text2);
     font-size: 0.75rem;
   }
 }
+.text > button {
+  margin-inline-start: auto;
+}
 .actions {
   grid-area: actions;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--text2);
-  font-size: 0.75rem;
+  justify-self: end;
 }
 // Too narrow for one line: the name and its notes first, then kind, hash, and actions.
 @container (max-width: 28rem) {
   .grouped li {
     grid-template:
-      'text text text' auto
-      'kind hash actions' minmax(1.25rem, auto) / auto auto minmax(0, 1fr);
+      'text text actions' auto
+      'kind hash actions' auto / auto minmax(0, 1fr) auto;
     padding: 0.1875rem 0;
+  }
+  // A Remove button shares the second line.
+  .grouped li:has(.text > button) {
+    display: flex;
+    flex-wrap: wrap;
+    &::before {
+      order: 1;
+      width: 100%;
+      content: '';
+    }
+    .text {
+      display: contents;
+    }
+    .kind,
+    .hash,
+    .text > button,
+    .actions {
+      order: 1;
+    }
   }
 }
 // What is not attached stays visible but quiet.

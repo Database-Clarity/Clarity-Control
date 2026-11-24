@@ -69,6 +69,7 @@ export function EditorMore({
       className={styles.trigger}
       flush
       contain
+      width={grouped && scaledPx(640)}
       triggerLabel="More editor tools"
       triggerTitle="More editor tools"
       trigger={<span className={styles.dots} aria-hidden="true" />}
