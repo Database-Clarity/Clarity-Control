@@ -27,6 +27,8 @@ export interface PublishOp {
   expected: Record<string, string>;
   /** Globals published by this request, with the reviewed definition; the name is for display. */
   globals?: { id: string; expected: string; name: string }[];
+  /** Use the shared-definition publish contract on every attempt, even after reload. */
+  switched?: true;
   /** Globals a finished request left out; the rest of it went live. */
   refusedGlobals?: { id: string; name: string; error: string }[];
   /** The pushed marker each hash had when confirmed (null = none), for the acknowledgment overlay. */
@@ -223,6 +225,7 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
     hashes: current.hashes,
     expected: current.expected,
     globals: current.globals,
+    switched: current.switched,
     previous: current.previous,
   };
   if (isTerminal(current.status) && next.status !== current.status) {

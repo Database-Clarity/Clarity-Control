@@ -168,7 +168,7 @@ export async function queuePublish(
       globals.some(({ id }) => heldGlobals.has(id))
     )
       throw new Error(publishingAlready);
-    await publishDriver.create(reviewed, globals);
+    await publishDriver.create(reviewed, globals, !!data.bundle.globalsPending);
     return true;
   } catch (reason) {
     useReviewSession.setState({ error: `${errorMessage(reason).replace(/[.!?]*$/, '.')}` });

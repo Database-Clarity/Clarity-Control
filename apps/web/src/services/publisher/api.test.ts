@@ -1,9 +1,34 @@
-import { publicationSyncPendingCode } from '@clarity/core';
+import { globalsInPlacePublishContract, publicationSyncPendingCode } from '@clarity/core';
 import { expect, it, vi } from 'vitest';
 import { apiRequest } from '../api';
 import { postPublish } from './api';
 
 vi.mock('../api', () => ({ apiRequest: vi.fn() }));
+
+it('keeps the switched contract on a tooltip-only request and checks its response identity', async () => {
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ opId: 'other', status: 'pending' }, { status: 202 }),
+  );
+  const body = { opId: 'op', hashes: [10], expected: { 10: 'digest' } };
+  await expect(postPublish(body, true)).rejects.toMatchObject({ status: 502 });
+  expect(apiRequest).toHaveBeenLastCalledWith(
+    `/publish?contract=${globalsInPlacePublishContract}`,
+    expect.objectContaining({ body: JSON.stringify(body) }),
+  );
+});
+
+it('ignores receipt outcomes for a different selection', async () => {
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ opId: 'op', result: { status: 'done', globals: ['other'] } }),
+  );
+  const body = {
+    opId: 'op',
+    hashes: [],
+    expected: {},
+    globals: [{ id: 'selected', expected: 'digest' }],
+  };
+  await expect(postPublish(body)).resolves.toMatchObject({ status: 'done', globals: undefined });
+});
 
 it.each([
   ['ConsumerOutputRejected: Missing export Old', 'Missing export Old'],

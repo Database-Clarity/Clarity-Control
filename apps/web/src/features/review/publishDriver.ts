@@ -43,7 +43,7 @@ export const publishTiming = {
 } as const;
 
 export interface PublishApi {
-  post(body: PublishBody): Promise<PublishAnswer>;
+  post(body: PublishBody, switched?: true): Promise<PublishAnswer>;
   status(opId: string): Promise<RemoteStatus | 'unknown'>;
   kick(opId: string): Promise<void>;
 }
@@ -262,6 +262,7 @@ export class PublishDriver {
   async create(
     inputs: PublishInput[],
     globals: NonNullable<PublishOp['globals']> = [],
+    switched = false,
   ): Promise<PublishOp> {
     const userId = this.userId;
     const generation = this.generation;
@@ -291,6 +292,7 @@ export class PublishDriver {
         previous: Object.fromEntries(chunk.map((input) => [input.hash, input.previous ?? null])),
         // First, so the parts that use a new global find it published.
         ...(chunks.length === 0 && globals.length ? { globals } : {}),
+        ...(switched ? { switched: true as const } : {}),
         status: 'created',
         updatedAt: now,
       };
@@ -555,6 +557,7 @@ export class PublishDriver {
           expected: Object.assign({}, ...part.map((op) => op.expected)),
           previous: Object.assign({}, ...part.map((op) => op.previous)),
           ...(globals.length ? { globals } : {}),
+          ...(first.switched ? { switched: true as const } : {}),
           status: 'created',
           createdAt: now,
           groupCreatedAt: first.groupCreatedAt ?? first.createdAt,
@@ -683,7 +686,7 @@ export class PublishDriver {
       // The status projection omits the reason. Replaying the exact POST returns the terminal
       // receipt for this intent, with no new request or change to the original selection.
       try {
-        answer = await this.deps.api.post(publishBody(op));
+        answer = await this.post(op);
       } catch (reason) {
         if (generation !== this.generation) return;
         const status = reason instanceof PublishHttpError ? reason.status : 0;
@@ -732,7 +735,7 @@ export class PublishDriver {
     const generation = this.generation;
     if (!answer)
       try {
-        answer = await this.deps.api.post(publishBody(op));
+        answer = await this.post(op);
       } catch (reason) {
         if (generation !== this.generation) return 'later';
         const status = reason instanceof PublishHttpError ? reason.status : 0;
@@ -799,6 +802,11 @@ export class PublishDriver {
   }
 
   /** POST the stored body. Re-sending is always safe: the Worker is idempotent per opId. */
+  private post(op: PublishOp) {
+    const body = publishBody(op);
+    return op.switched ? this.deps.api.post(body, true) : this.deps.api.post(body);
+  }
+
   private async send(opId: string) {
     const op = this.current(opId);
     if (!op || this.inFlight.has(opId) || isTerminal(op.status)) return;
@@ -878,7 +886,7 @@ export class PublishDriver {
       if (generation !== this.generation) return;
       let result: Awaited<ReturnType<PublishApi['post']>>;
       try {
-        result = await this.deps.api.post(publishBody(op));
+        result = await this.post(op);
       } catch (reason) {
         if (generation === this.generation) await this.sendFailed(op, reason);
         return;

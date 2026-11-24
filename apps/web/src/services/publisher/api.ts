@@ -105,19 +105,22 @@ function globalResult(
  * Submits (or re-submits, byte-identical) one operation. 202 = queued; 200 = already finished, with the
  * terminal status recovered from the Worker's log. Anything else is a PublishHttpError.
  */
-export async function postPublish(body: PublishBody): Promise<PublishAnswer> {
-  const { status, value } = await send(`/publish?contract=${globalsInPlacePublishContract}`, {
+export async function postPublish(body: PublishBody, switched = false): Promise<PublishAnswer> {
+  const currentContract = switched || !!body.globals;
+  const path = currentContract ? `/publish?contract=${globalsInPlacePublishContract}` : '/publish';
+  const { status, value } = await send(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(publishBody(body)),
   });
   if (status === 202) {
-    if (acceptedSchema.safeParse(value).data?.opId !== body.opId)
+    const accepted = acceptedSchema.safeParse(value);
+    if (!accepted.success || (currentContract && accepted.data.opId !== body.opId))
       throw new PublishHttpError(502, 'Unexpected publish response');
     return { status: 'pending' };
   }
   const complete = completeSchema.safeParse(value);
-  if (!complete.success || complete.data.opId !== body.opId)
+  if (!complete.success || (currentContract && complete.data.opId !== body.opId))
     throw new PublishHttpError(502, 'Unexpected publish response');
   const result = z
     .object({ status: terminal, code: z.unknown().optional(), error: z.unknown().optional() })
