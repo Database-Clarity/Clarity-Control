@@ -162,11 +162,24 @@ export const standsIn = (
 ) => rows[language] === undefined || perk.editor[language]?.englishFallback === true;
 
 /** Globals of one language, built as the editor preview builds them (tooltipImports, variants.ts). */
-function globalsOf(lookup: ExpandedPerks, language: ExportLanguage) {
+export function globalsOf(lookup: ExpandedPerks, language: ExportLanguage) {
   const imports: Record<string, string> = Object.create(null);
   for (const [hash, perk] of Object.entries(lookup))
     imports[hash] = perk.editor[language]?.main ?? '';
   return { variables: imports[2] ?? '', titles: imports[3] ?? '', imports };
+}
+
+/** The format v2 reader's source-to-lines step, also used by the in-place publish proof. */
+export function readFormatV2Lines(
+  text: string,
+  globals: MarkupGlobals,
+  hash: string,
+  language: ExportLanguage,
+) {
+  const { lines, diagnostics } = parseMarkup(text, globals);
+  const error = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+  if (error) throw new Error(`Tooltip ${hash} (${language}): ${error.message}`);
+  return lines;
 }
 
 function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptions): Plan {
@@ -198,11 +211,7 @@ function compileStyle(input: LegacyInput, file: StyleFile, options: CompileOptio
         type: perk.type,
         lang: perk.editor[language]?.englishFallback ? 'en' : language,
       };
-      const { lines, diagnostics } = parseMarkup(text, markupGlobals);
-      // What the editor shows as an error (an unresolved or cyclic import, a malformed
-      // base/enhanced pair) is refused, so the file fails as a whole and is carried forward.
-      const error = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-      if (error) throw new Error(`Tooltip ${hash} (${language}): ${error.message}`);
+      const lines = readFormatV2Lines(text, markupGlobals, hash, language);
       if (lines.length) rows[language] = lines;
     }
     resolved.set(hash, rows);

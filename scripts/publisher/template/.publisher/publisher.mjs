@@ -26852,6 +26852,111 @@ function variableNameIssues(text, defined, native) {
 // packages/core/src/exportLegacy.ts
 init_map();
 init_numbers();
+
+// packages/core/src/globals/inPlace.ts
+init_braces();
+init_comments();
+init_lines();
+init_prepare();
+init_syntax();
+function effectiveSharedNotes(source2, globals, names) {
+  if (!names.size) return [];
+  const reads = /* @__PURE__ */ new Set();
+  const titles = new Proxy(/* @__PURE__ */ Object.create(null), {
+    get(_target, key) {
+      if (typeof key === "string" && names.has(key)) reads.add(key);
+      return void 0;
+    }
+  });
+  const variants = /* @__PURE__ */ new Set();
+  const observe = (type) => {
+    const { text } = prepareMarkup(source2, { ...globals, type }, [], (condition) => {
+      variants.add(condition);
+    });
+    parseLines(text, titles);
+  };
+  observe(globals.type);
+  if (globals.type === void 0) {
+    for (const [keyword, type] of markupConditions) if (variants.has(keyword)) observe(type);
+  }
+  return [...reads];
+}
+function resolveGlobalsInPlace(source2, language, { definitions, missingTranslation = "english" }) {
+  const lookup = (kind, name2, needed = true) => {
+    const entries = definitions[kind];
+    if (!entries || !Object.hasOwn(entries, name2)) return;
+    const entry = entries[name2];
+    const english = entry.en;
+    let selected = entry[language];
+    if (selected?.sourceUpdatedAt && english?.updatedAt && Date.parse(english.updatedAt) - Date.parse(selected.sourceUpdatedAt) > translationMaxAge)
+      selected = void 0;
+    if (!selected && missingTranslation === "english") selected = english;
+    if (!selected && needed) throw new Error(`Add or update the translation for shared ${name2}.`);
+    return selected?.body;
+  };
+  const active = /* @__PURE__ */ new Set();
+  const expand = (text2) => text2.replace(/^import ([A-z0-9 ]+?) from global *$/gm, (_line, rawName) => {
+    const name2 = rawName.trim();
+    if (active.has(name2)) throw new Error(`Remove the cycle in shared export ${name2}.`);
+    const body2 = lookup("exports", name2);
+    if (body2 === void 0) throw new Error(`Choose an existing shared export for ${name2}.`);
+    active.add(name2);
+    const expanded2 = expand(body2);
+    active.delete(name2);
+    return expanded2;
+  });
+  const fill = (text2) => {
+    let result = "";
+    let at = 0;
+    for (const { name: name2, from, to } of variableReferences(text2)) {
+      if (name2 === "e") continue;
+      const body2 = lookup("variables", name2)?.trim();
+      if (body2 === void 0) continue;
+      result += text2.slice(at, from) + (body2 === "empty" ? "" : body2);
+      at = to;
+    }
+    return at ? result + text2.slice(at) : text2;
+  };
+  const expanded = source2.includes("import ") ? expand(source2) : source2;
+  const text = fill(expanded);
+  const names = new Set(Object.keys(definitions.titles ?? {}));
+  if (!names.size || !source2) return text;
+  const variables = Object.keys(definitions.variables ?? {}).flatMap((name2) => {
+    const body2 = lookup("variables", name2, false);
+    return name2 !== "e" && body2 !== void 0 ? [`var ${name2} = ${body2.trim() || "empty"}`] : [];
+  });
+  const noteBlock = (name2, body2) => `title ${name2} (
+${body2}
+)`;
+  const titles = [...names].flatMap((name2) => {
+    const body2 = lookup("titles", name2, false);
+    return body2 === void 0 ? [] : [noteBlock(name2, body2)];
+  });
+  const reads = effectiveSharedNotes(
+    lowerConsumerMarkup(expanded),
+    {
+      variables: lowerConsumerMarkup([globalsInPlaceLibraryText(2), ...variables].join("\n")),
+      titles: lowerConsumerMarkup(titles.join("\n")),
+      lang: language
+    },
+    names
+  );
+  const local = extractBlocks(text.replace(/\r/g, ""), "title");
+  const blocks = reads.flatMap((name2) => {
+    if (Object.hasOwn(local, name2)) return [];
+    const body2 = lookup("titles", name2);
+    const filled = removeMarkupComments(fill(body2)).replace(/<enhanced\/>|#\{e\}|#e(?![A-Za-z0-9])/g, "\u{1F845}").trim();
+    return [noteBlock(name2, filled)];
+  });
+  return blocks.length ? `${blocks.join("\n")}
+${text}` : text;
+}
+function globalsInPlaceLibraryText(hash2) {
+  if (hash2 === 1 || hash2 === 3) return "";
+  if (hash2 === 2) return "var e = \u{1F845}";
+}
+
+// packages/core/src/exportLegacy.ts
 function exportFacts(facts) {
   if (!facts) return {};
   return {
@@ -26943,7 +27048,7 @@ function mergeLivePerks(live, entries, picks, groups, removed) {
   }
   return merged;
 }
-function exportLegacy(tooltips, now, catalog, aliases = {}) {
+function exportLegacy(tooltips, now, catalog, aliases = {}, options) {
   if (!Number.isFinite(now) || now < 0 || !Number.isInteger(now)) {
     throw new TypeError("now must be nonnegative integer epoch milliseconds");
   }
@@ -26968,6 +27073,8 @@ function exportLegacy(tooltips, now, catalog, aliases = {}) {
     if (canonical[tooltip.hash]) throw new Error(`Duplicate tooltip hash: ${tooltip.hash}`);
     const english = tooltip.text.en;
     const editor = {};
+    const globals = options?.globalsInPlace;
+    const libraryText = globals ? globalsInPlaceLibraryText(tooltip.hash) : void 0;
     const descriptions = {
       ...tooltip.legacy?.updateTracker?.descriptions
     };
@@ -26977,18 +27084,33 @@ function exportLegacy(tooltips, now, catalog, aliases = {}) {
       const englishFallback = usesEnglishFallback(tooltip, language);
       const exported = englishFallback && english ? english : translation;
       const resolved = exported.text.includes("#{=") && english ? resolveNumberTokens(exported.text, numberValues(english, language)) : exported.text;
-      const text = lowerConsumerMarkup(resolved);
-      editor[language] = {
-        main: text,
-        secondary: text,
-        ...englishFallback ? { englishFallback: true } : {}
-      };
+      if (libraryText === void 0) {
+        let source2 = resolved;
+        if (globals) {
+          try {
+            source2 = resolveGlobalsInPlace(resolved, language, globals);
+            if (source2.includes("{{")) throw new Error(baseEnhancedPublishMessage);
+          } catch (cause) {
+            const message = cause instanceof Error ? cause.message : String(cause);
+            throw new Error(`Tooltip ${tooltip.hash} (${language}): ${message}`, { cause });
+          }
+        }
+        const text = lowerConsumerMarkup(source2);
+        editor[language] = {
+          main: text,
+          secondary: text,
+          ...englishFallback ? { englishFallback: true } : {}
+        };
+      } else if (libraryText) {
+        editor[language] = { main: libraryText, secondary: "" };
+      }
       const old = tooltip.legacy?.updateTracker?.descriptions[language];
       descriptions[language] = {
         lastUpdate: Date.parse(exported.updatedAt),
         ...exported.updatedBy !== "" || old?.updatedBy !== void 0 ? { updatedBy: exported.updatedBy } : {}
       };
     }
+    if (libraryText && !editor.en) editor.en = { main: libraryText, secondary: "" };
     const facts = catalog?.[tooltip.hash] ?? (tooltip.custom ? { name: tooltip.custom.name, type: tooltip.custom.categoryId } : void 0);
     if (catalog && !facts) throw new Error(`Missing manifest facts for tooltip ${tooltip.hash}`);
     const associated = [
@@ -27296,18 +27418,22 @@ function activeAliases(aliases, moves) {
   snapshots.set(moves, active);
   return active;
 }
-function exportWithInactiveMoves(tooltips, now, catalog, aliases = {}, moves = {}) {
+function exportWithInactiveMoves(tooltips, now, catalog, aliases = {}, moves = {}, options) {
   if (!Object.keys(moves).some((hash2) => isMovedInactive(Number(hash2), moves)))
-    return exportLegacy(tooltips, now, catalog, aliases);
+    return exportLegacy(tooltips, now, catalog, aliases, options);
   for (const hash2 of [1, 2, 3])
     if (isMovedInactive(hash2, moves))
       throw new Error(
         `Global tooltip ${hash2} is a required output input; move it out of Inactive before publishing`
       );
   const kept = tooltips.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
+  const resolved = options?.globalsInPlace ? exportLegacy(kept, now, catalog, aliases, options) : void 0;
   for (const language of languages2) {
     const imports = Object.fromEntries(
       tooltips.map((tooltip) => {
+        const entry = resolved?.[tooltip.hash];
+        if (entry && !isLegacyAliasStub(entry))
+          return [tooltip.hash, entry.editor[language]?.main ?? ""];
         const text = usesEnglishFallback(tooltip, language) ? tooltip.text.en : tooltip.text[language];
         return [tooltip.hash, lowerConsumerMarkup(text?.text ?? "")];
       })
@@ -27337,7 +27463,7 @@ function exportWithInactiveMoves(tooltips, now, catalog, aliases = {}, moves = {
           throw new Error(`Tooltip ${tooltip.hash} imports inactive tooltip ${hash2} (${language})`);
     }
   }
-  const entries = exportLegacy(kept, now, catalog, aliases);
+  const entries = resolved ?? exportLegacy(kept, now, catalog, aliases);
   for (const hash2 of Object.keys(moves))
     if (isMovedInactive(Number(hash2), moves)) delete entries[hash2];
   return entries;

@@ -67,3 +67,4 @@ export { standsIn } from './v2/compile.js';
 
 // Vocabulary check (spec section 5): marker sets of an output file.
 export { markerChange, markerSet, outputTokens, type MarkerChange } from './v2/markers.js';
+export { provesInPlace, type InPlaceRefusal } from './provesInPlace.js';

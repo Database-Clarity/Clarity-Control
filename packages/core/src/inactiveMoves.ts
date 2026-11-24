@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { resolveAlias, type Aliases } from './aliases.js';
 import { stableStringify } from './contentHash.js';
-import { exportLegacy, usesEnglishFallback, type LegacyExportEntry } from './exportLegacy.js';
+import {
+  exportLegacy,
+  isLegacyAliasStub,
+  usesEnglishFallback,
+  type LegacyExportEntry,
+  type LegacyExportOptions,
+} from './exportLegacy.js';
 import { languages } from './languages.js';
 import type { LegacyCatalog } from './legacy.js';
 import { lowerConsumerMarkup } from './markup/braces.js';
@@ -123,18 +129,26 @@ export function exportWithInactiveMoves(
   catalog?: LegacyCatalog,
   aliases: Aliases = {},
   moves: InactiveMoves = {},
+  options?: LegacyExportOptions,
 ): Record<string, LegacyExportEntry> {
   if (!Object.keys(moves).some((hash) => isMovedInactive(Number(hash), moves)))
-    return exportLegacy(tooltips, now, catalog, aliases);
+    return exportLegacy(tooltips, now, catalog, aliases, options);
   for (const hash of [1, 2, 3])
     if (isMovedInactive(hash, moves))
       throw new Error(
         `Global tooltip ${hash} is a required output input; move it out of Inactive before publishing`,
       );
   const kept = tooltips.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
+  // Validate what consumers will read, including ordinary imports introduced by a global export.
+  const resolved = options?.globalsInPlace
+    ? exportLegacy(kept, now, catalog, aliases, options)
+    : undefined;
   for (const language of languages) {
     const imports = Object.fromEntries(
       tooltips.map((tooltip) => {
+        const entry = resolved?.[tooltip.hash];
+        if (entry && !isLegacyAliasStub(entry))
+          return [tooltip.hash, entry.editor[language]?.main ?? ''];
         const text = usesEnglishFallback(tooltip, language)
           ? tooltip.text.en
           : tooltip.text[language];
@@ -167,7 +181,7 @@ export function exportWithInactiveMoves(
     }
   }
   // Keep the original alias map for canonical identity checks, then suppress moved stubs.
-  const entries = exportLegacy(kept, now, catalog, aliases);
+  const entries = resolved ?? exportLegacy(kept, now, catalog, aliases);
   for (const hash of Object.keys(moves))
     if (isMovedInactive(Number(hash), moves)) delete entries[hash];
   return entries;
