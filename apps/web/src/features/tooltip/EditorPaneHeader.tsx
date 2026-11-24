@@ -10,7 +10,7 @@ import { DiscardConfirm, EditorMore, PhoneTools, type QueueBack, type ToolId } f
 import type { GroupedPerk } from './grouping';
 import { editLabel, type OverrideTarget } from './variants';
 import styles from './TooltipPage.module.scss';
-import { MarksControl } from '../marks/MarksControl';
+import { MarksControl, useMarksShown } from '../marks/MarksControl';
 
 /** "Read-only: sign in to edit." -> "Read-only". */
 export const shortReason = (reason: string) => reason.split(':')[0].trim();
@@ -132,7 +132,14 @@ export function EditorPaneHeader({
 }
 
 /** The desktop tools More can take, in the order they go there (the rarest first). */
-export const spillOrder = ['grouped', 'inactive', 'worklist', 'overrides'] as const;
+export const spillOrder = [
+  'grouped',
+  'inactive',
+  'worklist',
+  'overrides',
+  'marks',
+  'marksShort',
+] as const;
 export type SpillTool = (typeof spillOrder)[number];
 /** How many of the line's spare tools sit in More, and whether the line still wraps. */
 export interface RowFit {
@@ -145,7 +152,9 @@ export interface RowFit {
  * `need` is the line as laid out now (shrinkable text at its minimum) with `moved` tools in More,
  * `widths` each spare tool's inline width with its gap (in spill order), `more` More's own width
  * with its gap. As few tools go to More as the line needs, one at a time in spill order; a line
- * that still does not fit wraps as a last resort, so every action stays reachable.
+ * that still does not fit wraps as a last resort, so every action stays reachable. A tool comes
+ * back only with a pixel to spare: scrollWidth rounds, so at an exact fit the two layouts could
+ * each ask for the other forever.
  */
 export function nextFit(
   need: number,
@@ -158,7 +167,8 @@ export function nextFit(
   // The line with every tool inline: what is in More now comes back, More itself goes.
   const all = need + sum(moved) - (moved ? more : 0);
   for (let count = 0; count <= widths.length; count++)
-    if (all - sum(count) + (count ? more : 0) <= room + 0.5) return { moved: count, wrap: false };
+    if (all - sum(count) + (count ? more : 0) <= room + (count < moved ? -0.5 : 0.5))
+      return { moved: count, wrap: false };
   return { moved: widths.length, wrap: true };
 }
 
@@ -193,7 +203,8 @@ function lineNeed(header: HTMLElement, right: HTMLElement) {
   let need = -gap;
   for (const child of header.children as HTMLCollectionOf<HTMLElement>) {
     const style = getComputedStyle(child);
-    if (style.position === 'absolute') continue;
+    // Queue mode's control has a row of its own on a narrow line (its order says so).
+    if (style.position === 'absolute' || Number(style.order) > 0) continue;
     let width: number;
     if (child === right) width = Math.max(child.getBoundingClientRect().width, child.scrollWidth);
     // Counted even while hidden (the batch badge hides itself when it cannot fit), so the answer
@@ -308,7 +319,10 @@ function DesktopToolRow({
   reserveDraft: reserve = false,
 }: Parameters<typeof EditorPaneHeader>[0]) {
   // With a version open the line is at its fullest: the first edit must not move the text.
-  const reserveDraft = reserve || !!activeOverride;
+  const reserveDraft = reserve || (!!activeOverride && !reason);
+  const marksShown = useMarksShown(markHash);
+  // Beside an open version the marks are a count, so the line holds them at common widths.
+  const marksTool = activeOverride ? 'marksShort' : 'marks';
   const right = useRef<HTMLSpanElement>(null);
   const present: Record<SpillTool, boolean> = {
     grouped: !!grouped,
@@ -316,6 +330,8 @@ function DesktopToolRow({
     worklist: !!worklistControl,
     // Edit enhanced goes last; an open override's Back to base always stays on the line.
     overrides: !activeOverride && overrides.length > 0,
+    marks: marksShown && !activeOverride,
+    marksShort: marksShown && !!activeOverride,
   };
   const tools = spillOrder.filter((tool) => present[tool]);
   const fit = useRowFit(
@@ -335,6 +351,7 @@ function DesktopToolRow({
       Boolean(markup),
       Boolean(worklistControl),
       Boolean(inactiveControl),
+      marksShown,
     ].join('|'),
   );
   const inMore = new Set(tools.slice(0, fit.moved));
@@ -355,6 +372,9 @@ function DesktopToolRow({
     >
       <GroupedPerks perks={grouped} currentHash={inactiveHash} />
     </Popover>
+  );
+  const marksControl = marksShown && markHash !== undefined && (
+    <MarksControl hash={markHash} className={styles.ghost} compact={!!activeOverride} />
   );
   const markupTools = markup && (
     <button
@@ -428,7 +448,9 @@ function DesktopToolRow({
         {worklistControl && !inMore.has('worklist') && (
           <span data-spill="worklist">{worklistControl}</span>
         )}
-        {markHash !== undefined && <MarksControl hash={markHash} className={styles.ghost} />}
+        {marksControl && !inMore.has(marksTool) && (
+          <span data-spill={marksTool}>{marksControl}</span>
+        )}
         {inactiveControl && !inMore.has('inactive') && (
           <span data-spill="inactive">{inactiveControl}</span>
         )}
@@ -436,9 +458,7 @@ function DesktopToolRow({
           <span data-spill="grouped">{groupedControl}</span>
         )}
         {activeOverride ? (
-          <button type="button" className={styles.ghost} onClick={onBack}>
-            Back to base
-          </button>
+          <BackToBase onBack={onBack} />
         ) : (
           overrides.length > 0 &&
           !inMore.has('overrides') && (
@@ -475,8 +495,9 @@ function DesktopToolRow({
               ])
             }
             extra={
-              inMore.has('worklist') || inMore.has('inactive') ? (
+              inMore.has('worklist') || inMore.has('inactive') || inMore.has(marksTool) ? (
                 <>
+                  {inMore.has(marksTool) && marksControl}
                   {inMore.has('worklist') && worklistControl}
                   {inMore.has('inactive') && (inactiveMenuControl || inactiveControl)}
                 </>
@@ -506,6 +527,18 @@ function OverrideTag({ target, several }: { target: OverrideTarget; several: boo
   );
 }
 
+/** "Back to base"; "Back" where the line has no room for the rest. */
+function BackToBase({ onBack }: { onBack(): void }) {
+  return (
+    <button type="button" className={styles.ghost} aria-label="Back to base" onClick={onBack}>
+      {/* One flex item: the button's gap must not land between the words. */}
+      <span>
+        Back<span className={styles.backWords}> to base</span>
+      </span>
+    </button>
+  );
+}
+
 function LanguageSelect({ lang, onLanguage }: { lang: Lang; onLanguage(lang: Lang): void }) {
   return (
     <select
@@ -526,8 +559,9 @@ function LanguageSelect({ lang, onLanguage }: { lang: Lang; onLanguage(lang: Lan
 /**
  * The phone's tool row: language, the draft dot, the tools that fit inline, then the queue stepper
  * and More (only for two or more tools that do not fit) as one group on the right (it wraps to a
- * second line as a unit at a large interface scale). The read-only badge and an open override take
- * a second line of their own.
+ * second line as a unit at a large interface scale). The read-only badge takes a second line of its
+ * own. An open override shares the first (its tag and Back take the marks' place, and the tools that
+ * no longer fit go to More), so opening it does not move the text.
  */
 function PhoneToolRow({
   lang,
@@ -552,13 +586,25 @@ function PhoneToolRow({
   inactiveControl,
   inactiveHash,
   markHash,
-  reserveDraft,
+  reserveDraft: reserve = false,
 }: Parameters<typeof EditorPaneHeader>[0]) {
+  const reserveDraft = reserve || (!!activeOverride && !reason);
+  const marksShown = useMarksShown(markHash);
+  const marksControl = marksShown && markHash !== undefined && (
+    <MarksControl hash={markHash} className={styles.ghost} compact />
+  );
   return (
     <>
       <LanguageSelect lang={lang} onLanguage={onLanguage} />
       {destination}
-      {markHash !== undefined && <MarksControl hash={markHash} className={styles.ghost} compact />}
+      {activeOverride ? (
+        <>
+          <OverrideTag target={activeOverride} several={overrides.length > 1} />
+          <BackToBase onBack={onBack} />
+        </>
+      ) : (
+        marksControl
+      )}
       {draft && (
         <span className={styles.dot} role="img" aria-label="Unsaved draft" title="Unsaved draft" />
       )}
@@ -581,8 +627,9 @@ function PhoneToolRow({
         queue={queue}
         renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
         extra={
-          worklistControl || inactiveControl ? (
+          worklistControl || inactiveControl || (activeOverride && marksControl) ? (
             <>
+              {activeOverride && marksControl}
               {worklistControl}
               {inactiveControl}
             </>
@@ -597,14 +644,6 @@ function PhoneToolRow({
               Switch to {languageLabel(switchTo)}
             </button>
           )}
-        </span>
-      )}
-      {activeOverride && (
-        <span className={styles.overrideLine}>
-          <OverrideTag target={activeOverride} several={overrides.length > 1} />
-          <button type="button" className={styles.ghost} onClick={onBack}>
-            Back to base
-          </button>
         </span>
       )}
     </>
