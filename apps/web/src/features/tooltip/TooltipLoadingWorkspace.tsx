@@ -11,6 +11,7 @@ import { SkeletonBoundary } from '../../ui/Skeleton';
 import { RightPane, RightPaneHeader } from '../../ui/RightPane';
 import type { Lang } from '@clarity/core';
 import styles from './TooltipPage.module.scss';
+import bannerStyles from './TranslationBanner.module.scss';
 
 const noop = () => {};
 const globals = { variables: '', titles: '' };
@@ -75,6 +76,7 @@ export function loadingWorkspace({
       }
       editor={
         <section className={styles.editorSection} aria-label="Loading editor">
+          {lang !== 'en' && !readOnly && <div className={bannerStyles.row} data-translation-row />}
           <div className={styles.editorSlot}>
             <ClarityEditor
               value=""

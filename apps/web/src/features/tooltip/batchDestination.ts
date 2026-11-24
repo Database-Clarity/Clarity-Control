@@ -13,6 +13,8 @@ export interface BatchDestination {
 export interface BatchEditing {
   destination: BatchDestination;
   drafts: Drafts;
+  /** The batch moved under this tooltip's draft: saving it would report a conflict. */
+  conflicted(hash: number): boolean;
   reason: string | null;
   saveControl?: ReactNode;
   notice?: string;
@@ -102,6 +104,8 @@ export function useBatchEditing(
       runtime && state && eligible && state.owner === String(auth.user?.id)
         ? runtime.drafts(state.drafts, destination.batchId)
         : empty,
+    conflicted: (hash) =>
+      !!runtime && !!state && runtime.conflicted(state.drafts, destination.batchId, hash),
     reason,
     edit(base, lang, text, author) {
       if (reason || !runtime || load?.state !== 'ready') return;

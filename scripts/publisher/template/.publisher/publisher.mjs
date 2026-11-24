@@ -27296,13 +27296,13 @@ function protectCommentedGlobalImports(source2) {
   );
 }
 function resolveGlobalsInPlace(source2, language, { definitions, unavailable }) {
+  const requirePublished = (kind, name2) => {
+    if (unavailable?.[kind]?.has(name2) && !Object.hasOwn(definitions[kind] ?? {}, name2))
+      throw new Error(`Publish the shared change for ${name2} first.`);
+  };
   const lookup = (kind, name2, needed = true) => {
     const entries = definitions[kind];
-    if (!entries || !Object.hasOwn(entries, name2)) {
-      if (needed && unavailable?.[kind]?.has(name2))
-        throw new Error(`Publish the shared change for ${name2} first.`);
-      return;
-    }
+    if (!entries || !Object.hasOwn(entries, name2)) return;
     const entry = entries[name2];
     const selected = globalsInPlaceDefinition(entry, language);
     if (!selected && needed)
@@ -27315,27 +27315,32 @@ function resolveGlobalsInPlace(source2, language, { definitions, unavailable }) 
     return selected?.body;
   };
   const active = /* @__PURE__ */ new Set();
-  const expand = (text2) => protectCommentedGlobalImports(text2).replace(
+  const expand = (text2, authored) => protectCommentedGlobalImports(text2).replace(
     /^import ([A-z0-9 ]+?) from global *$/gm,
     (_line, rawName) => {
       const name2 = rawName.trim();
       if (active.has(name2)) throw new Error(`Remove the cycle in shared export ${name2}.`);
+      if (authored) requirePublished("exports", name2);
       const body2 = lookup("exports", name2);
       if (body2 === void 0) throw new Error(`Choose an existing shared export for ${name2}.`);
       active.add(name2);
-      const expanded2 = expand(body2);
+      const expanded2 = expand(body2, false);
       active.delete(name2);
       return expanded2;
     }
   );
-  const fill = (text2) => {
+  const variableUses = (text2) => {
     const refs = variableReferences(text2);
-    if (!refs.length) return text2;
+    if (!refs.length) return refs;
     const comments = text2.includes("//") || text2.includes("/*") ? markupCommentContext(text2).comments : [];
+    return refs.filter(
+      ({ name: name2, from }) => name2 !== "e" && !comments.some((span2) => span2.from <= from && from < span2.to)
+    );
+  };
+  const fill = (text2) => {
     let result = "";
     let at = 0;
-    for (const { name: name2, from, to } of refs) {
-      if (name2 === "e" || comments.some((span2) => span2.from <= from && from < span2.to)) continue;
+    for (const { name: name2, from, to } of variableUses(text2)) {
       const body2 = lookup("variables", name2)?.trim();
       if (body2 === void 0) continue;
       result += text2.slice(at, from) + (body2 === "empty" ? "" : body2);
@@ -27343,10 +27348,12 @@ function resolveGlobalsInPlace(source2, language, { definitions, unavailable }) 
     }
     return at ? result + text2.slice(at) : text2;
   };
-  const expanded = source2.includes("import ") ? expand(source2) : source2;
+  if (unavailable?.variables?.size)
+    for (const { name: name2 } of variableUses(source2)) requirePublished("variables", name2);
+  const expanded = source2.includes("import ") ? expand(source2, true) : source2;
   const text = fill(expanded);
-  const names = /* @__PURE__ */ new Set([...Object.keys(definitions.titles ?? {}), ...unavailable?.titles ?? []]);
-  if (!names.size || !source2) return text;
+  const names = new Set(Object.keys(definitions.titles ?? {}));
+  if (!names.size && !unavailable?.titles?.size || !source2) return text;
   const variables = Object.keys(definitions.variables ?? {}).flatMap((name2) => {
     const body2 = lookup("variables", name2, false);
     return name2 !== "e" && body2 !== void 0 ? [`var ${name2} = ${body2.trim() || "empty"}`] : [];
@@ -27358,16 +27365,21 @@ ${body2}
     const body2 = lookup("titles", name2, false);
     return body2 === void 0 ? [] : [noteBlock(name2, body2)];
   });
-  const reads = effectiveSharedNotes(
-    lowerConsumerMarkup(expanded),
-    {
-      variables: lowerConsumerMarkup([globalsInPlaceLibraryText(2), ...variables].join("\n")),
-      titles: lowerConsumerMarkup(titles.join("\n")),
-      lang: language
-    },
-    names
-  );
+  const globals = {
+    variables: lowerConsumerMarkup([globalsInPlaceLibraryText(2), ...variables].join("\n")),
+    titles: lowerConsumerMarkup(titles.join("\n")),
+    lang: language
+  };
   const local = extractBlocks(text.replace(/\r/g, ""), "title");
+  if (unavailable?.titles?.size) {
+    for (const name2 of effectiveSharedNotes(
+      lowerConsumerMarkup(source2),
+      globals,
+      unavailable.titles
+    ))
+      if (!Object.hasOwn(local, name2)) requirePublished("titles", name2);
+  }
+  const reads = effectiveSharedNotes(lowerConsumerMarkup(expanded), globals, names);
   const blocks = reads.flatMap((name2) => {
     if (Object.hasOwn(local, name2)) return [];
     const body2 = lookup("titles", name2);
@@ -31215,6 +31227,8 @@ init_model();
 
 // scripts/publisher/globalsInPlace.ts
 init_prepare();
+init_braces();
+init_comments();
 
 // packages/export/src/v2/vocabulary.ts
 var configurableFormatVersion = 2;
@@ -31475,6 +31489,10 @@ function globalsOf(lookup, language) {
     imports[hash2] = perk.editor[language]?.main ?? "";
   return { variables: imports[2] ?? "", titles: imports[3] ?? "", imports };
 }
+function globalsForCell(globals, language, englishFallback) {
+  const lang = englishFallback ? "en" : language;
+  return { ...globals.get(language), imports: globals.get(lang).imports, lang };
+}
 function readFormatV2Lines(text, globals, hash2, language) {
   const { lines: lines2, diagnostics } = parseMarkup(text, globals);
   const error62 = diagnostics.find((diagnostic) => diagnostic.severity === "error");
@@ -31490,21 +31508,25 @@ function compileStyle(input2, file2, options) {
   const languages3 = exportLanguages.filter((language) => data.languages.includes(language));
   const perLanguage = isPerLanguage(file2);
   const resolving = perLanguage ? exportLanguages.filter((language) => language === "en" || languages3.includes(language)) : languages3;
-  const globals = new Map(resolving.map((language) => [language, globalsOf(lookup, language)]));
+  const globals = new Map(
+    [.../* @__PURE__ */ new Set(["en", ...resolving])].map((language) => [
+      language,
+      globalsOf(lookup, language)
+    ])
+  );
   const resolved = /* @__PURE__ */ new Map();
   const resolve4 = (hash2, perk) => {
     let rows = resolved.get(hash2);
     if (rows) return rows;
     rows = {};
     for (const language of resolving) {
-      const text = perk.editor[language]?.main;
-      if (text === void 0) continue;
+      const cell = perk.editor[language];
+      if (cell === void 0) continue;
       const markupGlobals = {
-        ...globals.get(language),
-        type: perk.type,
-        lang: perk.editor[language]?.englishFallback ? "en" : language
+        ...globalsForCell(globals, language, cell.englishFallback),
+        type: perk.type
       };
-      const lines2 = readFormatV2Lines(text, markupGlobals, hash2, language);
+      const lines2 = readFormatV2Lines(cell.main, markupGlobals, hash2, language);
       if (lines2.length) rows[language] = lines2;
     }
     resolved.set(hash2, rows);
@@ -31809,9 +31831,8 @@ function formatV2Lines(input2, hash2, language) {
   return readFormatV2Lines(
     cell.main,
     {
-      ...input2.globals.get(language),
-      type: row.type,
-      lang: cell.englishFallback ? "en" : language
+      ...globalsForCell(input2.globals, language, cell.englishFallback),
+      type: row.type
     },
     hash2,
     language
@@ -32063,7 +32084,7 @@ ${body2}
   }
   return rows;
 }
-function affectedRows(before, after, roots, lang) {
+function affectedRows(before, after, roots) {
   const affected = new Set(roots.map(String));
   const parents = /* @__PURE__ */ new Map();
   const link = (from, to) => {
@@ -32074,7 +32095,7 @@ function affectedRows(before, after, roots, lang) {
     for (const [hash2, row] of Object.entries(perks)) {
       if ("aliasOf" in row) link(hash2, String(row.aliasOf));
       else
-        for (const { main: main2, secondary } of lang ? [row.editor[lang]].filter((cell) => cell !== void 0) : Object.values(row.editor))
+        for (const { main: main2, secondary } of Object.values(row.editor))
           for (const cell of [main2, secondary]) {
             if (!cell.includes("import ")) continue;
             for (const match of cell.matchAll(/^import [A-z0-9 ]+? from (\d+) *\r?$/gm))
@@ -32087,65 +32108,61 @@ function affectedRows(before, after, roots, lang) {
 function provePublication(pub, tree, live, documents, aliases, moves, now, exported, options) {
   assertInPlaceLibraries(live);
   const hashes = documents.map(({ hash: hash2 }) => hash2);
+  const publishedOnly = { definitions: options.definitions };
   for (const entry of Object.values(exported)) {
     if (isLegacyAliasStub(entry)) continue;
     for (const [lang, cell] of Object.entries(entry.editor))
       for (const value2 of /* @__PURE__ */ new Set([cell.main, cell.secondary]))
-        if (resolveGlobalsInPlace(value2, cell.englishFallback ? "en" : lang, options) !== value2)
+        if (resolveGlobalsInPlace(
+          value2,
+          cell.englishFallback ? "en" : lang,
+          publishedOnly
+        ) !== value2)
           throw new Error(
             `Tooltip ${entry.name || entry.hash} (${lang}) still reads shared text after export.`
           );
   }
-  const { raw, fallbacks } = exportGlobalsProof(
-    documents,
-    now,
-    pub.options.facts,
-    aliases,
-    moves,
-    options
-  );
+  const raw = exportGlobalsProof(documents, now, pub.options.facts, aliases, moves, options);
   const merge2 = (entries) => pub.mergePublicationPerks(tree, live.perks, entries, hashes);
   proveInPlaceInputs(
     live,
     { ...live, perks: merge2(raw) },
     { ...live, perks: merge2(exported) },
     options,
-    hashes,
-    fallbacks
+    hashes
   );
 }
 function exportGlobalsProof(documents, now, facts, aliases, moves, globalsInPlace) {
-  const fallbacks = /* @__PURE__ */ new Map();
-  const raw = exportWithInactiveMoves(documents, now, facts, aliases, moves, {
+  return exportWithInactiveMoves(documents, now, facts, aliases, moves, {
     globalsInPlace,
-    preserveGlobalReferencesForProof: true,
-    onGlobalsFallback(hash2, { language }) {
-      let langs = fallbacks.get(hash2);
-      if (!langs) fallbacks.set(hash2, langs = /* @__PURE__ */ new Set());
-      langs.add(language);
-    }
+    preserveGlobalReferencesForProof: true
   });
-  return { raw, fallbacks };
 }
-function proveInPlaceInputs(live, raw, after, options, hashes, fallbacks) {
+function proveInPlaceInputs(live, raw, after, options, hashes) {
   const before = { ...raw, perks: { ...raw.perks, ...proofLibraries(live, options) } };
   assertInPlaceLibraries(after);
   const affected = affectedRows(before, after, hashes);
   const english = /* @__PURE__ */ new Set();
+  const fallbacks = /* @__PURE__ */ new Map();
   const fallbackBefore = { ...after, perks: { ...after.perks } };
-  for (const [hash2, langs] of fallbacks) {
+  for (const hash2 of affected) {
     const localized = before.perks[hash2];
     const filled = after.perks[hash2];
-    if (!localized || !filled || !("editor" in localized) || !("editor" in filled))
-      throw new Error(`Missing English fallback proof input for tooltip ${hash2}.`);
+    if (!localized || !filled || !("editor" in localized) || !("editor" in filled)) continue;
     const localizedEditor = { ...localized.editor };
-    const fallbackEditor = { ...filled.editor };
-    for (const lang of langs) {
+    const fallbackEditor = { ...filled.editor, en: localized.editor.en };
+    const flagged = /* @__PURE__ */ new Set();
+    for (const lang of languages2) {
+      if (!filled.editor[lang]?.englishFallback) continue;
       english.add(lang);
+      flagged.add(lang);
       localizedEditor[lang] = filled.editor[lang];
       fallbackEditor[lang] = localized.editor[lang];
     }
-    before.perks[hash2] = { ...localized, editor: localizedEditor };
+    if (flagged.size) {
+      fallbacks.set(hash2, flagged);
+      before.perks[hash2] = { ...localized, editor: localizedEditor };
+    }
     fallbackBefore.perks[hash2] = { ...filled, editor: fallbackEditor };
   }
   const prove = (baseline, includes) => {
@@ -32161,22 +32178,24 @@ function proveInPlaceInputs(live, raw, after, options, hashes, fallbacks) {
       hash2 = String(row.aliasOf);
       row = after.perks[hash2];
     }
-    return Number(hash2);
+    return hash2;
   };
-  prove(before, (hash2, lang) => !fallbacks.get(aliasSource(hash2))?.has(lang));
-  const fallbackScope = new Map(
-    [...english].map((lang) => [
-      lang,
-      affectedRows(
-        raw,
-        after,
-        [...fallbacks].flatMap(([hash2, langs]) => langs.has(lang) ? [hash2] : []),
-        lang
-      )
-    ])
-  );
+  const fallsBack = (hash2, lang) => fallbacks.get(aliasSource(hash2))?.has(lang) ?? false;
+  prove(before, (hash2, lang) => !fallsBack(hash2, lang));
   Object.assign(fallbackBefore.perks, proofLibraries(live, options, english));
-  prove(fallbackBefore, (hash2, lang) => fallbackScope.get(lang)?.has(hash2) ?? false);
+  prove(fallbackBefore, fallsBack);
+}
+function sharedVariableLabelIssue(source2, names) {
+  if (!names.size || !source2.includes("#") || !source2.includes("<")) return;
+  for (const [, label] of removeMarkupComments(source2).matchAll(
+    /<(?:title|link) ([^\n]*?) \[[^\]\n]+\] \/>/g
+  ))
+    for (const { name: name2 } of variableReferences(label))
+      if (name2 !== "e" && names.has(name2))
+        return `Shared variables can't be used inside a title or link label: #${name2}.`;
+}
+function sharedVariableNames({ definitions, unavailable }) {
+  return /* @__PURE__ */ new Set([...Object.keys(definitions.variables ?? {}), ...unavailable?.variables ?? []]);
 }
 function assertInPlaceDocuments(documents, options) {
   assertInPlaceRoots(documents.map(({ hash: hash2 }) => hash2));
@@ -32184,9 +32203,10 @@ function assertInPlaceDocuments(documents, options) {
     ...Object.keys(options.definitions.titles ?? {}),
     ...options.unavailable?.titles ?? []
   ]);
+  const variableNames = sharedVariableNames(options);
   for (const tooltip of documents)
     for (const [lang, cell] of Object.entries(tooltip.text)) {
-      const issue2 = globalsInPlaceSaveIssue(cell.text, titleNames);
+      const issue2 = sharedVariableLabelIssue(cell.text, variableNames) ?? globalsInPlaceSaveIssue(cell.text, titleNames);
       if (issue2)
         throw new Error(`Tooltip ${tooltip.custom?.name || tooltip.hash} (${lang}): ${issue2}`);
     }
@@ -32446,6 +32466,22 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
     selected.map(({ id }) => id)
   );
   const options = releaseOptions(next, saved);
+  const variableNames = sharedVariableNames(options);
+  for (const entry of selected) {
+    if (entry.tombstone) continue;
+    for (const [lang, { body: body2 }] of Object.entries(entry.definitions)) {
+      const issue2 = sharedVariableLabelIssue(body2, variableNames);
+      if (issue2) throw new Error(`${entry.name} (${lang}): ${issue2}`);
+      for (const kind of ["exports", "variables", "titles"]) {
+        const unavailable = options.unavailable?.[kind];
+        if (!unavailable?.size) continue;
+        const reference = globalReferenceSpans(body2, kind).find(
+          ({ name: name2 }) => unavailable.has(name2)
+        );
+        if (reference) throw new Error(`Publish the shared change for ${reference.name} first.`);
+      }
+    }
+  }
   const rewritten = /* @__PURE__ */ new Map();
   const updatedDocs = liveDocs.map((prior) => {
     const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
@@ -32502,7 +32538,7 @@ function refillPublishedDocuments(live, withAuthoredRows, documents, oldOptions,
     const [drift] = provesInPlace(live, expectedBefore, affectedRows(live, expectedBefore, hashes));
     if (drift) throw new Error(drift.message);
     assertInPlaceDocuments(affected, publishedOptions);
-    const { raw, fallbacks } = exportGlobalsProof(affected, 0, void 0, {}, {}, publishedOptions);
+    const raw = exportGlobalsProof(affected, 0, void 0, {}, {}, publishedOptions);
     const rawPerks = { ...withAuthoredRows.perks };
     for (const { hash: hash2 } of affected) {
       const existing2 = rawPerks[hash2], source2 = raw[hash2];
@@ -32512,11 +32548,6 @@ function refillPublishedDocuments(live, withAuthoredRows, documents, oldOptions,
       const editor = { ...existing2.editor };
       for (const lang of changed)
         editor[lang] = refillLanguage(existing2.editor[lang], source2.editor[lang]);
-      const fallback = fallbacks.get(hash2);
-      if (fallback) {
-        for (const lang of fallback) if (!changed.includes(lang)) fallback.delete(lang);
-        if (!fallback.size) fallbacks.delete(hash2);
-      }
       rawPerks[hash2] = { ...existing2, editor };
     }
     proveInPlaceInputs(
@@ -32527,8 +32558,7 @@ function refillPublishedDocuments(live, withAuthoredRows, documents, oldOptions,
         perks: { ...withAuthoredRows.perks, ...refills }
       },
       publishedOptions,
-      hashes,
-      fallbacks
+      hashes
     );
   }
   return refills;
@@ -32587,16 +32617,21 @@ function planInPlaceRelease(pub, tree, live, selection2, maintainer, hasTooltipS
     if (selection2.length < 2 && !hasTooltipSelection) throw error62;
     const accepted = [];
     let result = plan(accepted);
-    for (const item of [...selection2].sort((a, b) => a.id.localeCompare(b.id))) {
-      try {
-        result = plan([...accepted, item]);
-        accepted.push(item);
-      } catch (refusal2) {
-        refusals.push({
-          id: item.id,
-          error: refusalMessage(refusal2)
-        });
+    let pending = [...selection2].sort((a, b) => a.id.localeCompare(b.id));
+    while (pending.length) {
+      const retry = [];
+      refusals.length = 0;
+      for (const item of pending) {
+        try {
+          result = plan([...accepted, item]);
+          accepted.push(item);
+        } catch (refusal2) {
+          retry.push(item);
+          refusals.push({ id: item.id, error: refusalMessage(refusal2) });
+        }
       }
+      if (retry.length === pending.length) break;
+      pending = retry;
     }
     if (!accepted.length && !hasTooltipSelection) throw error62;
     return { ...result, globals: accepted.map(({ id }) => id), refusals };
@@ -38028,12 +38063,40 @@ async function dryRunGlobalsMigration(pub, inputs, checkpoint) {
   let hold = source2;
   const legacyLive = journal?.legacyLive ?? pub.head(pub.options.liveBranch);
   const legacyData = journal?.legacyData ?? source2;
-  const { published } = new GlobalsPublisher(pub).capture(
+  const { saved, published, authored, live } = new GlobalsPublisher(pub).capture(
     git.tree(legacyData),
     legacyData,
     legacyLive
   );
   const before = liveGlobalsInput(pub, legacyLive);
+  const entries = [...published.entries, ...saved.entries].filter(({ tombstone }) => !tombstone);
+  const variableNames = new Set(
+    entries.filter(({ kind }) => kind === "variables").map(({ name: name2 }) => name2)
+  );
+  const checkLabel = (text, context) => {
+    const issue2 = sharedVariableLabelIssue(text, variableNames);
+    if (issue2) throw new Error(`${context}: ${issue2}`);
+  };
+  for (const entry of entries)
+    for (const [lang, cell] of Object.entries(entry.definitions))
+      checkLabel(cell.body, `${entry.name} (${lang})`);
+  for (const snapshot of [authored, live])
+    for (const tooltip of Object.values(snapshot.tooltips))
+      for (const [lang, cell] of Object.entries(tooltip.text))
+        checkLabel(cell.text, `Tooltip ${tooltip.hash} (${lang})`);
+  for (const row of Object.values(before.perks)) {
+    if (!("editor" in row)) continue;
+    for (const [lang, cell] of Object.entries(row.editor))
+      for (const text of [cell.main, cell.secondary])
+        checkLabel(text, `LIVE tooltip ${row.hash} (${lang})`);
+  }
+  for (const hash2 of [1, 2, 3]) {
+    const library = before.perks[hash2];
+    if (!library || !("editor" in library)) continue;
+    for (const [lang, cell] of Object.entries(library.editor))
+      if (cell.englishFallback)
+        throw new Error(`Legacy LIVE library ${hash2} (${lang}) falls back to English.`);
+  }
   const definitions = (perks) => legacyGlobalsInPlaceDefinitions(perks);
   const liveDefinitions = definitions(before.perks);
   const projected = exportLegacy(Object.values(projectGlobals(published)), 0, pub.options.facts);

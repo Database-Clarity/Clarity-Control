@@ -355,6 +355,7 @@ function ActiveControl({
       role="group"
       aria-label={name}
       data-queue
+      data-action={panel ? '' : undefined}
       data-finished={finished}
     >
       {back(queue.destination?.batchName ?? source.label)}

@@ -194,7 +194,7 @@ const merge = (entries: typeof exported): LegacyInput =>
       };
 const merged = merge(exported);
 if (globalsInPlace && publishable.length) {
-  const { raw, fallbacks } = exportGlobalsProof(
+  const raw = exportGlobalsProof(
     publishable,
     receipt.now,
     config.facts,
@@ -208,7 +208,6 @@ if (globalsInPlace && publishable.length) {
     merged,
     globalsInPlace,
     publishable.map(({ hash }) => hash),
-    fallbacks,
   );
 }
 const expected = JSON.stringify(merged, null, 2) + '\n';

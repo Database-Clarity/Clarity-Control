@@ -12,6 +12,7 @@ import {
   observeGlobalSources,
 } from '../../packages/core/src/globalsRelease/index.js';
 import { exportLegacy, usesEnglishFallback } from '../../packages/core/src/exportLegacy.js';
+import { compile, newStyleFile } from '../../packages/export/src/index.js';
 import { buildLegacy, type LegacyInput } from '../../packages/export/src/legacy.js';
 import { descriptionConverter, expandAliases } from '../../packages/export/src/converter/index.js';
 import { languages } from '../../packages/core/src/languages.js';
@@ -367,6 +368,29 @@ describe('in-place shared text publication', () => {
   const selection = (row: GlobalsPending[number]) => [{ id: row.id, expected: row.digest }];
   const live = (f: Awaited<ReturnType<typeof inPlaceFixture>>) =>
     f.pub.read<LegacyInput>(f.git.tree(f.pub.head(f.options.liveBranch)), 'liveDescriptions.json')!;
+  const formatV2Text = (
+    input: LegacyInput,
+    hash: number,
+    language: 'en' | 'de',
+    languageFiles: 'combined' | 'perLanguage' = 'combined',
+  ) => {
+    const file = newStyleFile('reader', 'structured', {
+      categories: ['Weapon Perk'],
+      sandboxPerks: [],
+      frameAliases: true,
+      languages: [language],
+      keys: ['name'],
+      languageFiles,
+      bungieIdentical: true,
+    });
+    const output = compile(input, file, {
+      catalog: {
+        items: { [hash]: { categoryId: 'Weapon Perk' } },
+        categories: [{ id: 'Weapon Perk' }],
+      },
+    });
+    return Buffer.from(output.bytes).toString('utf8');
+  };
 
   it('refills published text only, preserves upload stamps and markers, and restores a translation', async () => {
     const f = await inPlaceFixture();
@@ -680,6 +704,81 @@ describe('in-place shared text publication', () => {
     expect(live(f).perks[140]).toEqual(before);
   });
 
+  it('publishes a tooltip edit when a published note contains a saved-only name', async () => {
+    const f = await inPlaceFixture('title Help (\nValue #Extra\n)');
+    const original = tooltip(141, 'See <title Details [Help] />');
+    f.change({ 'tooltips/141.json': original });
+    await f.request([141]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+
+    const pendingExtra = { ...structuredClone(f.entry), id: 'g_extraoriginal1', name: 'Extra' };
+    f.change({
+      [`globals/entries/${pendingExtra.id}.json`]: pendingExtra,
+      'tooltips/141.json': tooltip(141, 'Open <title Details [Help] />'),
+    });
+    const next = A.replace(/1$/, '2');
+    await f.request([141], next);
+    await f.pub.run(false);
+    expect(f.read(paths(next).log).result).toMatchObject({ status: 'done' });
+    expect(live(f).perks[141]).toMatchObject({
+      editor: { en: { main: 'title Help (\nValue #Extra\n)\nOpen <title Details [Help] />' } },
+    });
+  });
+
+  it.each([
+    ['published', 'Beta', '<title Up to #Beta [Local] />\ntitle Local (\nNote\n)'],
+    ['saved', 'Newvar', '<link Up to #{Newvar} [https://example.com] />'],
+  ])('refuses a %s variable in a tooltip label', async (state, name, text) => {
+    const f = await inPlaceFixture();
+    const saved = { ...structuredClone(f.entry), id: 'g_savedlabelcase00', name: 'Newvar' };
+    f.change({
+      [`globals/entries/${saved.id}.json`]: saved,
+      'tooltips/142.json': tooltip(142, text),
+    });
+    const before = f.git.head(L);
+    await f.request([142]);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      error: expect.stringContaining(
+        `Shared variables can't be used inside a title or link label: #${name}.`,
+      ),
+    });
+    expect(f.git.head(L)).toBe(before);
+    if (state === 'published') {
+      f.change({
+        'tooltips/142.json': tooltip(
+          142,
+          'var LocalValue = 10\n<link Up to #LocalValue [https://example.com] />\n// <link #Beta [https://example.com] />',
+        ),
+      });
+      const next = A.replace(/1$/, '2');
+      await f.request([142], next);
+      await f.pub.run(false);
+      expect(f.read(paths(next).log).result.status).toBe('done');
+    }
+  });
+
+  it.each([
+    ['titles', '<title Up to #Beta [Local] />'],
+    ['exports', '<link Up to #{Beta} [https://example.com] />'],
+  ])('refuses a shared variable in an approved %s label', async (kind, body) => {
+    const f = await inPlaceFixture('title Help (\nRead\n)', kind === 'exports');
+    const entry = structuredClone(f.published.entries.find((record) => record.kind === kind)!);
+    entry.definitions.en!.body = body;
+    f.change({ [`globals/entries/${entry.id}.json`]: entry });
+    const changed = pending(f).find(({ id }) => id === entry.id)!;
+    expect(changed.refusal).toContain(
+      "Shared variables can't be used inside a title or link label: #Beta.",
+    );
+    const before = f.git.head(L);
+    await f.request([], A, selection(changed));
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result.status).toBe('rejected');
+    expect(f.git.head(L)).toBe(before);
+  });
+
   it.each(['import self', 'Independent older text'])(
     'preserves the LIVE secondary %s in a refill',
     async (secondary) => {
@@ -718,6 +817,66 @@ describe('in-place shared text publication', () => {
     await f.pub.run(false);
     expect(f.read(paths(A).log).result.status).toBe('rejected');
   });
+
+  it.each(['note', 'export', 'rename'] as const)(
+    'waits for the unpublished shared name in an approved %s definition',
+    async (kind) => {
+      const isExport = kind === 'export';
+      const f = await inPlaceFixture(isExport ? '' : 'title Help (\nValue #Beta\n)', isExport);
+      if (!isExport) {
+        f.change({ 'tooltips/141.json': tooltip(141, 'See <title Details [Help] />') });
+        await f.request([141], A);
+        await f.pub.run(false);
+        expect(f.read(paths(A).log).result.status).toBe('done');
+      }
+      const approved = structuredClone(
+        f.published.entries.find((entry) =>
+          isExport ? entry.kind === 'exports' : entry.name === 'Help',
+        )!,
+      );
+      const name = kind === 'rename' ? 'Magnitude' : 'Newvar';
+      const dependency =
+        kind === 'rename'
+          ? { ...structuredClone(f.published.entries.find(({ id }) => id === f.entry.id)!), name }
+          : { ...structuredClone(f.entry), id: 'g_zznewvarfixture0', name };
+      approved.definitions.en!.body = `Changed value #${name}`;
+      approved.revision = approved.definitions.en!.revision = 'new-shared-reference';
+      f.change({
+        [`globals/entries/${approved.id}.json`]: approved,
+        [`globals/entries/${dependency.id}.json`]: dependency,
+      });
+      const before = f.git.head(L);
+      const rows = pending(f);
+      const changed = rows.find(({ id }) => id === approved.id)!;
+      expect(changed.refusal).toContain(`Publish the shared change for ${name} first.`);
+      const blocked = A.replace(/1$/, '2');
+      await f.request([], blocked, selection(changed));
+      await f.pub.run(false);
+      expect(f.read(paths(blocked).log).result).toMatchObject({ status: 'rejected' });
+      expect(f.git.head(L)).toBe(before);
+      const selected = A.replace(/1$/, '3');
+      await f.request([], selected, [
+        ...selection(changed),
+        ...selection(rows.find(({ id }) => id === dependency.id)!),
+        ...(kind === 'note' ? [{ id: f.entry.id, expected: '0'.repeat(64) }] : []),
+      ]);
+      await f.pub.run(false);
+      const result = f.read(paths(selected).log).result;
+      expect(result).toMatchObject({
+        status: 'done',
+        globals: expect.arrayContaining([approved.id, dependency.id]),
+      });
+      if (kind === 'note')
+        expect(result.globalRefusals).toEqual([
+          { id: f.entry.id, error: expect.stringContaining('changed. Review it again.') },
+        ]);
+      const filled = `Changed value ${dependency.definitions.en!.body}`;
+      expect(Buffer.from(buildLegacy(live(f), isExport ? 'dim' : 'clarity')).toString()).toContain(
+        filled,
+      );
+      expect(formatV2Text(live(f), isExport ? 140 : 141, 'en')).toContain(filled);
+    },
+  );
 
   it('keeps independent publication available with a missing published snapshot and a pending rename', async () => {
     const f = await inPlaceFixture();
@@ -785,6 +944,11 @@ describe('in-place shared text publication', () => {
     });
     expect(renderedGerman()).toContain('English details');
     expect(renderedGerman()).not.toContain('Deutsche Details');
+    for (const languageFiles of ['combined', 'perLanguage'] as const) {
+      const text = formatV2Text(live(f), 142, 'de', languageFiles);
+      expect(text).toContain('English details');
+      expect(text).not.toContain('Deutsche Details');
+    }
 
     reader.text.en!.text = `Updated English introduction${imports}`;
     f.change({ 'tooltips/142.json': reader });
@@ -840,6 +1004,72 @@ describe('in-place shared text publication', () => {
     expect(f.read('live/pushed.json')[142]).toBe(marker);
     expect(f.read('live/tooltips/142.json')).toEqual(authored);
   });
+
+  it.each(['main', 'named'] as const)(
+    'publishes English changes through a %s import after fallback',
+    async (kind) => {
+      const f = await inPlaceFixture();
+      const withdrawn = structuredClone(f.published.entries.find(({ id }) => id === f.entry.id)!);
+      delete withdrawn.definitions.de;
+      f.change({ [f.entryPath]: withdrawn });
+      const publish = async (
+        number: string,
+        hashes: number[],
+        globals?: ReturnType<typeof selection>,
+      ) => {
+        const op = A.replace(/1$/, number);
+        await f.request(hashes, op, globals);
+        await f.pub.run(false);
+        expect(f.read(paths(op).log).result).toMatchObject({ status: 'done' });
+      };
+      await publish('1', [], selection(pending(f).find(({ id }) => id === withdrawn.id)!));
+      const source = (english: string, german: string) => {
+        const text = (body: string) =>
+          kind === 'named' ? `Source\nexport Info (\n${body}\n)` : body;
+        const doc = tooltip(140, text(english));
+        doc.text.de = cell(text(german));
+        return doc;
+      };
+      const imported = kind === 'named' ? 'Info' : 'main';
+      const reader = tooltip(142, `English introduction\nimport ${imported} from 140`);
+      reader.text.de = cell(`Deutsche Einleitung\nimport ${imported} from 140`);
+      f.change({
+        'tooltips/140.json': source('English info', 'Deutsche Info'),
+        'tooltips/142.json': reader,
+      });
+      await publish('2', [140, 142]);
+      f.change({ 'tooltips/140.json': source('English info #Beta', 'Deutsche Info #Beta') });
+      await publish('3', [140]);
+      expect(live(f).perks[142]).toMatchObject({ editor: { de: { englishFallback: true } } });
+      f.change({
+        'tooltips/140.json': source('Updated English info #Beta', 'Deutsche Info #Beta'),
+      });
+      await publish('4', [140]);
+      withdrawn.definitions.en!.body = '25';
+      withdrawn.revision = withdrawn.definitions.en!.revision = 'beta-25';
+      f.change({ [f.entryPath]: withdrawn });
+      await publish('5', [], selection(pending(f).find(({ id }) => id === withdrawn.id)!));
+      const database = expandAliases(live(f).perks);
+      const rendered = descriptionConverter({
+        database,
+        hash: 142,
+        language: 'de',
+        editorType: 'main',
+        descriptionString: database[142].editor.de!.main,
+      });
+      expect(JSON.stringify(rendered)).toContain('Updated English info 25');
+      expect(formatV2Text(live(f), 142, 'de')).toContain('Updated English info 25');
+      if (kind === 'main') {
+        const prior = f.git.head(L);
+        f.change({ 'tooltips/140.json': source('import main from 999', 'Deutsche Info #Beta') });
+        const refused = A.replace(/1$/, '6');
+        await f.request([140], refused);
+        await f.pub.run(false);
+        expect(f.read(paths(refused).log).result).toMatchObject({ status: 'rejected' });
+        expect(f.git.head(L)).toBe(prior);
+      }
+    },
+  );
 
   it('validates inactive removal without reading its discarded markup', async () => {
     const f = await inPlaceFixture();
@@ -1051,12 +1281,99 @@ describe('in-place shared text publication', () => {
     expect(git.head(D)).toBe(staleCatalogue);
     expect(git.head(L)).toBe(currentLive);
 
-    git.cas(D, staleCatalogue, aligned);
+    const staleAggregate = structuredClone(f.published);
+    staleAggregate.aggregates.find(
+      ({ document }) => document.hash === 2,
+    )!.languages.en!.metadata.updatedAt = '2026-06-01T00:00:00Z';
+    const projected = projectGlobals(staleAggregate);
+    const fallbackLibrary = exportLegacy(Object.values(projected), 0, f.options.facts)[2];
+    expect(fallbackLibrary).toMatchObject({ editor: { de: { englishFallback: true } } });
+    const fallbackLive = git.commit(
+      currentLive,
+      {
+        ...git.tree(currentLive),
+        'liveDescriptions.json': git.writeBlob(
+          encode({
+            ...legacy,
+            perks: { ...legacy.perks, 2: fallbackLibrary },
+          }),
+        ),
+      },
+      'Fallback for the whole German variable library',
+    );
+    const fallbackCatalogue = git.commit(
+      aligned,
+      {
+        ...git.tree(aligned),
+        'globals/layout.json': git.writeBlob(
+          encode({ version: 1, aggregates: staleAggregate.aggregates }),
+        ),
+        'live/tooltips/2.json': git.writeBlob(encode(projected[2])),
+        'tooltips/2.json': git.writeBlob(encode(projected[2])),
+        'globals/live/converter-v2-test.json': git.writeBlob(
+          encode({
+            version: 1,
+            destination: f.options.liveBranch,
+            store: staleAggregate,
+          }),
+        ),
+      },
+      'Catalogue with current German definitions but an older aggregate',
+    );
+    git.cas(D, staleCatalogue, fallbackCatalogue);
+    git.cas(L, currentLive, fallbackLive);
     const migrationInputs = {
       catalog: { items: { 140: { categoryId: 'perk' } }, categories: [{ id: 'perk' }] },
       inventoryItems: { 140: { displayProperties: { description: 'Fixture game text' } } },
       sandboxPerks: {},
     };
+    await expect(dryRunGlobalsMigration(publisher, migrationInputs)).rejects.toThrow(
+      /library 2.*de.*falls back/i,
+    );
+    expect(git.head(D)).toBe(fallbackCatalogue);
+    expect(git.head(L)).toBe(fallbackLive);
+    git.cas(D, fallbackCatalogue, aligned);
+    git.cas(L, fallbackLive, currentLive);
+    const label = '<link Up to #{Beta} [https://example.com] />';
+    const labelledDraft = git.commit(
+      aligned,
+      {
+        ...git.tree(aligned),
+        'tooltips/142.json': git.writeBlob(encode(tooltip(142, label))),
+      },
+      'Keep a legacy shared variable label in an authored draft',
+    );
+    git.cas(D, aligned, labelledDraft);
+    await expect(dryRunGlobalsMigration(publisher, migrationInputs)).rejects.toThrow(
+      "Tooltip 142 (en): Shared variables can't be used inside a title or link label: #Beta.",
+    );
+    expect(git.head(D)).toBe(labelledDraft);
+    expect(git.head(L)).toBe(currentLive);
+    git.cas(D, labelledDraft, aligned);
+
+    const labelledLive = publisher.read<LegacyInput>(
+      git.tree(currentLive),
+      'liveDescriptions.json',
+    )!;
+    const row = labelledLive.perks[142];
+    if (!('editor' in row) || !row.editor.en) throw new Error('Missing fixture tooltip');
+    row.editor.en.secondary = label;
+    const labelledSecondary = git.commit(
+      currentLive,
+      {
+        ...git.tree(currentLive),
+        'liveDescriptions.json': git.writeBlob(encode(labelledLive)),
+      },
+      'Keep a legacy shared variable label in a historical secondary',
+    );
+    git.cas(L, currentLive, labelledSecondary);
+    await expect(dryRunGlobalsMigration(publisher, migrationInputs)).rejects.toThrow(
+      "LIVE tooltip 142 (en): Shared variables can't be used inside a title or link label: #Beta.",
+    );
+    expect(git.head(D)).toBe(aligned);
+    expect(git.head(L)).toBe(labelledSecondary);
+    git.cas(L, labelledSecondary, currentLive);
+
     for (const step of ['hold', 'live', 'record'] as const) {
       await expect(
         dryRunGlobalsMigration(publisher, migrationInputs, (checkpoint) => {

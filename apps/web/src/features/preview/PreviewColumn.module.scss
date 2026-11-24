@@ -81,7 +81,10 @@
 }
 
 .versions {
+  // Takes the room the switch leaves: a long name ellipsises inside the strip.
+  flex: 0 1 auto;
   min-width: 0;
+  text-overflow: ellipsis;
   max-width: 9rem;
   // The switch's height beside it.
   height: 1.5rem;
@@ -120,6 +123,25 @@
   }
 }
 
+// Beside the versions select a narrow strip has no room for the count; in the narrowest columns
+// the select takes a line of its own instead of being cut off.
+@media (min-width: 701px) {
+  .bar:has(> .versions) {
+    flex-wrap: wrap;
+    row-gap: 0.1875rem;
+    height: auto;
+    min-height: 1.75rem;
+    padding-block: 1px;
+  }
+  .versions + .summary {
+    flex-basis: 0;
+  }
+  @container (max-width: 22rem) {
+    .versions + .summary {
+      display: none;
+    }
+  }
+}
 // A narrow strip keeps the count and drops " vs Base".
 @container (max-width: 279px) {
   .vsBase {

@@ -3,6 +3,7 @@ import { gunzipSync } from 'node:zlib';
 import { parseMarkup, type MarkupLine } from '@clarity/core/markup/parse';
 import { describe, expect, test } from 'vitest';
 import {
+  buildLegacy,
   bungieIdentical,
   type InventoryItems,
   compile,
@@ -689,6 +690,44 @@ describe('format v2 keys, header, and language files', () => {
     expect(standsIn(perk, 'de', { en: [] })).toBe(true);
     expect(standsIn(perk, 'fr', rows)).toBe(true);
     expect(standsIn(perk, 'ja', rows)).toBe(true);
+  });
+
+  test('whole-English fallback reads English numeric imports in both export formats', () => {
+    const intro = 'English introduction\nimport main from 400';
+    const cell = (value: string) => ({ main: value, secondary: value });
+    const render = (fallback: boolean) => {
+      const input = {
+        perks: {
+          ...globalsRows,
+          100: perk(100, intro, {
+            type: 'Armor Trait Exotic',
+            editor: {
+              en: cell(intro),
+              de: { ...cell(intro), ...(fallback ? { englishFallback: true } : {}) },
+            },
+          }),
+          400: perk(400, 'English source', {
+            editor: { en: cell('English source'), de: cell('Deutsche Quelle') },
+          }),
+        },
+      } as unknown as LegacyInput;
+      const legacy = json(buildLegacy(input, 'clarity'))[100].descriptions.de;
+      const v2 = compile(
+        input,
+        file({ categories: ['armor-trait-exotic'], languages: ['de'], keys: ['name'] }),
+        { catalog },
+      ).expanded![100].descriptions.de;
+      return { legacy, v2 };
+    };
+    const expected = (source: string) => {
+      const lines = ['English introduction', source].map((text) => [{ text }]);
+      return {
+        legacy: lines.map((linesContent) => ({ linesContent })),
+        v2: lines.map((parts) => ({ parts })),
+      };
+    };
+    expect(render(false)).toEqual(expected('Deutsche Quelle'));
+    expect(render(true)).toEqual(expected('English source'));
   });
 
   test('URLs: one per file, or one per language in a folder; legacy files hold every language', () => {

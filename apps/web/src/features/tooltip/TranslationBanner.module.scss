@@ -1,0 +1,86 @@
+@use '../../data/variables' as theme;
+
+// Translate mode's line above the editor: the needs-updating banner, or "Start from English" while
+// the translation is empty. It keeps its height when it holds neither, so no text moves.
+.row {
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: stretch;
+  height: 1.5rem;
+  margin-bottom: 2px;
+  container: translation-row / inline-size;
+  > button {
+    align-self: center;
+  }
+  @include theme.mobile-or-coarse {
+    height: var(--tap-sm);
+    > button {
+      min-height: var(--tap-sm);
+    }
+  }
+  @include theme.mobile {
+    // The editor box under it runs edge to edge (TooltipPage .panel).
+    height: calc(var(--tap-sm) + 0.25rem);
+    margin: 0 calc(-1 * var(--page-x));
+    > button {
+      align-self: flex-start;
+      margin-left: var(--page-x);
+    }
+  }
+}
+
+.status {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0;
+  padding: 0 0.5rem;
+  overflow: hidden;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  &[data-level='published'] {
+    background: var(--warn-bg);
+    border-color: var(--warn-edge);
+  }
+  @include theme.mobile {
+    padding-inline: var(--page-x);
+    // The editor's own top border closes it.
+    border-width: 1px 0 0;
+    border-radius: 0;
+  }
+}
+
+// The whole sentence where the pane holds it; else its short form (never both, never cut).
+.short {
+  display: none;
+}
+@container translation-row (max-width: 20rem) {
+  .banner .full {
+    display: none;
+  }
+  .banner .short {
+    display: inline;
+  }
+}
+@container translation-row (max-width: 30rem) {
+  .banner[data-level='published'] {
+    .full {
+      display: none;
+    }
+    .short {
+      display: inline;
+    }
+  }
+}
