@@ -87,27 +87,28 @@ function impacts(
   const beforeGlobals = projectGlobals(input.published),
     afterGlobals = projectGlobals(store);
   const alternativeGlobals = new Map<string, Record<number, Tooltip> | undefined>();
-  const fallbackAlternatives = (before: GlobalImpactSnapshot) => {
+  const fallbackAlternatives = (before: GlobalImpactSnapshot, singleton: boolean) => {
     return new Map(
       ids.map((id) => {
-        if (!alternativeGlobals.has(id)) {
+        const key = `${singleton}:${id}`;
+        if (!alternativeGlobals.has(key)) {
           try {
             alternativeGlobals.set(
-              id,
+              key,
               projectGlobals(
                 composeGlobalRelease(
                   input.published,
                   input.saved,
-                  ids.filter((candidate) => candidate !== id),
+                  singleton ? [id] : ids.filter((candidate) => candidate !== id),
                 ),
               ),
             );
           } catch {
-            // Keep the cause when omitting this edit would make the store invalid.
-            alternativeGlobals.set(id, undefined);
+            // An invalid candidate cannot prove a cause's role in fallback.
+            alternativeGlobals.set(key, undefined);
           }
         }
-        const globals = alternativeGlobals.get(id);
+        const globals = alternativeGlobals.get(key);
         return [
           id,
           globals &&
@@ -208,7 +209,9 @@ function impacts(
       result,
       changes(input, ids, names).map((change) => change.cause),
       scans,
-      withdrawals && ids.length > 1 ? () => fallbackAlternatives(observedBefore) : undefined,
+      withdrawals && ids.length > 1
+        ? (singleton) => fallbackAlternatives(observedBefore, singleton)
+        : undefined,
     );
   });
 }
@@ -223,10 +226,9 @@ function expandReleaseDependencies(
   impact: GlobalImpact,
   causes: GlobalCause[],
   scans: GlobalSnapshotScans,
-  counterfactuals?: () => ReadonlyMap<
-    string,
-    ReturnType<GlobalSnapshotScans['resolve']> | undefined
-  >,
+  counterfactuals?: (
+    singleton: boolean,
+  ) => ReadonlyMap<string, ReturnType<GlobalSnapshotScans['resolve']> | undefined>,
 ): GlobalImpact {
   const probe = [
     { kind: 'titles' as const, beforeName: 'Release', afterName: 'Release', cause: causes[0] },
@@ -256,22 +258,34 @@ function expandReleaseDependencies(
     scans,
   );
   if (!globalOnly.complete) throw new Error('Sync pending: global fallback closure is incomplete');
-  let alternatives: ReturnType<NonNullable<typeof counterfactuals>> | undefined;
+  let omissions: ReturnType<NonNullable<typeof counterfactuals>> | undefined;
+  let singletons: typeof omissions;
   for (const row of globalOnly.rows)
     if (row.before?.rendered !== row.after?.rendered && !rows.has(key(row))) {
       const actual = census.rows.find((candidate) => key(candidate) === key(row));
       if (!actual) continue;
       // Attribute fallback in the final release to edits needed to reproduce it,
       // including when a withdrawn cell never appeared in the published store.
-      alternatives ??= counterfactuals?.();
-      const attributable = causes.filter(({ globalId }) => {
-        const alternative = alternatives?.get(globalId);
-        return (
-          !alternative ||
-          alternative.blockers.size > 0 ||
-          alternative.cells.get(key(row))?.result.rendered !== row.after?.rendered
-        );
-      });
+      omissions ??= counterfactuals?.(false);
+      const matching = (candidates: typeof omissions) =>
+        candidates && [...candidates.values()].every((scan) => scan?.blockers.size === 0)
+          ? new Set(
+              [...candidates]
+                .filter(
+                  ([, scan]) => scan?.cells.get(key(row))?.result.rendered === row.after?.rendered,
+                )
+                .map(([id]) => id),
+            )
+          : undefined;
+      const unchangedWithout = matching(omissions);
+      let attributable = causes.filter(({ globalId }) => !unchangedWithout?.has(globalId));
+      if (!attributable.length) {
+        // Redundant edits can each produce the same fallback. A proven
+        // singleton identifies those edits when no one edit is necessary.
+        singletons ??= counterfactuals?.(true);
+        const unchangedWithOnly = matching(singletons);
+        attributable = causes.filter(({ globalId }) => unchangedWithOnly?.has(globalId));
+      }
       rows.set(key(actual), {
         ...actual,
         reason: 'variable-read',
