@@ -510,6 +510,11 @@
     margin-bottom: 0.25rem;
   }
 
+  // A pending global has no saver line above its text.
+  &[data-global] {
+    margin-top: 0.75rem;
+  }
+
   // A removed word and its replacement sit apart, so "2" then "3" never reads as "23".
   :global(del + ins) {
     margin-inline-start: 2px;

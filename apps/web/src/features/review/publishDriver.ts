@@ -60,8 +60,6 @@ export interface DriverDeps {
   broadcast(): void;
   /** A publish finished with `done`/`unchanged`: mark its hashes pushed in the review overlay. */
   acknowledge(op: PublishOp): void;
-  /** What a status line calls a tooltip (its hash without this). */
-  name?(hash: number): string;
 }
 
 export interface PublishState {
@@ -304,15 +302,13 @@ export class PublishDriver {
     let busy = false;
     try {
       // A publish stored since Review listed these rows (or one still recovering) holds them.
-      const stored = await this.deps.store.list(userId);
-      const held = activeHashes(stored);
-      const heldGlobals = activeGlobals(stored);
-      busy =
-        inputs.some(({ hash }) => held.has(hash)) || globals.some(({ id }) => heldGlobals.has(id));
-      if (!busy) {
-        if (chunks.length === 1) await this.deps.store.add(chunks[0]!);
-        else await this.deps.store.addMany(chunks);
-      }
+      busy = !(await this.deps.store.addMany(chunks, (stored) => {
+        const held = activeHashes(stored);
+        const heldGlobals = activeGlobals(stored);
+        return (
+          inputs.some(({ hash }) => held.has(hash)) || globals.some(({ id }) => heldGlobals.has(id))
+        );
+      }));
     } catch (reason) {
       const detail = reason instanceof Error ? reason.message : 'unknown error';
       throw new Error(
@@ -659,26 +655,20 @@ export class PublishDriver {
   private async adopt(opId: string, remote: RemoteStatus, answer?: PublishAnswer) {
     const op = this.current(opId);
     if (!op) return;
-    const finished = remote === 'done' || remote === 'unchanged';
-    // The status says that the request finished, not which of several changes it left out.
-    if (finished && op.globals && op.globals.length + op.hashes.length > 1 && !answer?.globals) {
-      const generation = this.generation;
-      try {
-        answer = await this.deps.api.post(publishBody(op));
-      } catch (reason) {
-        if (generation !== this.generation) return;
-        const status = reason instanceof PublishHttpError ? reason.status : 0;
-        if (status === 401) {
-          this.paused.add(opId);
-          this.note(opId, 'Sign in again to continue; nothing is lost.');
-          return;
-        }
-        if (status !== 403 && status !== 409)
-          return this.note(opId, 'Checking which globals went live.');
-      }
-      if (generation !== this.generation) return;
+    let refusedGlobals: NonNullable<PublishOp['refusedGlobals']> = [];
+    if (op.globals && (remote === 'done' || remote === 'unchanged')) {
+      // Finished says nothing about single globals: only the receipt's own outcomes do.
+      const outcome = await this.globalOutcome(op, answer);
+      if (outcome === 'later') return;
+      if (outcome === 'unreadable')
+        return this.settle(opId, {
+          status: 'failed',
+          acceptedAt: op.acceptedAt ?? this.deps.now(),
+          error:
+            'The publish finished, but which changes went live could not be read. Check live status before publishing these again.',
+        });
+      refusedGlobals = outcome;
     }
-    const refusedGlobals = finished && answer?.globals ? leftOut(op, answer.globals) : [];
     if (remote === 'rejected' && !answer) {
       const generation = this.generation;
       if (op.status !== 'rejected') {
@@ -734,11 +724,42 @@ export class PublishDriver {
     });
   }
 
+  /** The globals a finished request left out, from its receipt; 'later' asks again. */
+  private async globalOutcome(
+    op: PublishOp,
+    answer: PublishAnswer | undefined,
+  ): Promise<NonNullable<PublishOp['refusedGlobals']> | 'later' | 'unreadable'> {
+    const generation = this.generation;
+    if (!answer)
+      try {
+        answer = await this.deps.api.post(publishBody(op));
+      } catch (reason) {
+        if (generation !== this.generation) return 'later';
+        const status = reason instanceof PublishHttpError ? reason.status : 0;
+        if (status === 403 || status === 409) return 'unreadable';
+        if (status === 401) this.paused.add(op.opId);
+        this.note(
+          op.opId,
+          status === 401
+            ? 'Sign in again to continue; nothing is lost.'
+            : 'Checking which globals went live.',
+        );
+        return 'later';
+      }
+    if (generation !== this.generation || answer.status === 'pending') return 'later';
+    const { live = [], refused = [] } = answer.globals ?? {};
+    const outcomes = op.globals!.map(({ id, name }) => {
+      const error = refused.find((entry) => entry.id === id)?.error;
+      return live.includes(id) ? null : error === undefined ? undefined : { id, name, error };
+    });
+    return outcomes.includes(undefined)
+      ? 'unreadable'
+      : outcomes.filter((entry) => entry !== null && entry !== undefined);
+  }
+
   /** "tooltips 10, 20", or with the globals of the request first. */
   private subject(op: PublishOp, tooltipsWord = 'tooltips') {
-    const tooltips = op.hashes.length
-      ? [`${tooltipsWord} ${hashList(op.hashes, this.deps.name)}`]
-      : [];
+    const tooltips = op.hashes.length ? [`${tooltipsWord} ${hashList(op.hashes)}`] : [];
     return new Intl.ListFormat('en').format([
       ...(op.globals?.map(({ name }) => name) ?? []),
       ...tooltips,
@@ -1059,24 +1080,11 @@ export class PublishDriver {
   }
 }
 
-function leftOut(op: PublishOp, { live, refused }: NonNullable<PublishAnswer['globals']>) {
-  return (op.globals ?? []).flatMap(({ id, name }) =>
-    live.includes(id)
-      ? []
-      : [{ id, name, error: refused.find((entry) => entry.id === id)?.error ?? '' }],
-  );
-}
-
 /** Names up to ten tooltips, then "and N more", so the reason after the list is never lost. */
-export function hashList(
-  hashes: readonly number[],
-  name: (hash: number) => string = String,
-): string {
-  const named = hashes
-    .slice(0, 10)
-    .map((hash) => name(hash))
-    .join(', ');
-  return hashes.length <= 10 ? named : `${named} and ${hashes.length - 10} more`;
+export function hashList(hashes: readonly number[]): string {
+  return hashes.length <= 10
+    ? hashes.join(', ')
+    : `${hashes.slice(0, 10).join(', ')} and ${hashes.length - 10} more`;
 }
 
 function byAge(a: PublishOp, b: PublishOp) {

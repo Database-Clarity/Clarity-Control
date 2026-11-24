@@ -41,6 +41,9 @@ function changeNames({ hashes, globals = [] }: PublishOp): string {
   ]);
 }
 
+const notPublished = (globals: NonNullable<PublishOp['refusedGlobals']>) =>
+  `Not published: ${globals.map(({ name, error }) => `${name} (${error.replace(/[.]$/, '')})`).join('; ')}.`;
+
 /**
  * The one place statuses become words. Wording keeps "nothing went live" explicit when true.
  * `combining`: every part has finished and the group is reading receipts or combining refusals, so
@@ -65,16 +68,8 @@ export function describeOp(
         : `${tooltipCount} · ${when(startedAt)}`;
   const base = { opId: op.opId, lead, waiting: false, finished: isTerminal(op.status) };
   // What a finished request left out waits in Review; the rest is live.
-  const refused = op.refusedGlobals ?? [];
-  if (refused.length && (op.status === 'done' || op.status === 'unchanged'))
-    return {
-      ...base,
-      tone: 'warn',
-      chip: 'Partly live',
-      detail: `Not published: ${refused
-        .map(({ name, error }) => `${name}${error && ` (${error.replace(/[.]$/, '')})`}`)
-        .join('; ')}.`,
-    };
+  if (op.refusedGlobals?.length && (op.status === 'done' || op.status === 'unchanged'))
+    return { ...base, tone: 'warn', chip: 'Partly live', detail: notPublished(op.refusedGlobals) };
   switch (op.status) {
     case 'created':
       return {
@@ -205,7 +200,7 @@ export function groupPublishes(
     );
     const successful = members
       .filter((op) => op.status === 'done' || op.status === 'unchanged')
-      .reduce((count, op) => count + changeCount(op), 0);
+      .reduce((count, op) => count + changeCount(op) - (op.refusedGlobals?.length ?? 0), 0);
     return {
       members,
       liveCount: first.groupId ? successful : undefined,
@@ -245,7 +240,7 @@ export function groupPublishes(
                   : failed.error
                     ? ` First failed part (${failed.hashes.length} tooltips): ${failed.error}`
                     : ''
-              } Check live status before publishing again.`
+              }${refusedGlobals.length ? ` ${notPublished(refusedGlobals)}` : ''} Check live status before publishing again.`
             : undefined,
       },
     };

@@ -52,10 +52,12 @@ export interface PublishOp {
 
 export interface OpStore {
   list(userId: string): Promise<PublishOp[]>;
-  /** Insert-only: an existing opId is never replaced. */
-  add(op: PublishOp): Promise<void>;
-  /** All chunks commit atomically before any send. */
-  addMany(ops: PublishOp[]): Promise<void>;
+  /**
+   * All chunks commit atomically before any send, and only when `busy` (given this account's
+   * stored operations in the same transaction) says no; resolves with whether they did. Insert-only:
+   * an existing opId is never replaced.
+   */
+  addMany(ops: PublishOp[], busy?: (stored: PublishOp[]) => boolean): Promise<boolean>;
   /** Compare and replace the exact terminal requests in one transaction across tabs. */
   replaceRefused(refused: PublishOp[], replacements: PublishOp[]): Promise<boolean>;
   /**
@@ -132,14 +134,18 @@ export function createIndexedDbOpStore(): OpStore {
             ),
           );
       }),
-    add: (op) =>
-      run<void>('readwrite', (store) => {
-        // add() fails (ConstraintError, aborting the transaction) rather than replacing an opId.
-        store.add(op);
-      }),
-    addMany: (ops) =>
-      run<void>('readwrite', (store) => {
-        for (const op of ops) store.add(op);
+    addMany: (ops, busy) =>
+      run<boolean>('readwrite', (store, done) => {
+        const found = store.getAll();
+        found.onsuccess = () => {
+          const stored = (found.result as StoredRecord[])
+            .filter(isPublishOp)
+            .filter(({ userId }) => userId === ops[0]?.userId);
+          if (busy?.(stored)) return done(false);
+          // add() fails (ConstraintError, aborting the transaction) rather than replacing an opId.
+          for (const op of ops) store.add(op);
+          done(true);
+        };
       }),
     replaceRefused: (refused, replacements) =>
       run<boolean>('readwrite', (store, done) => {
@@ -250,11 +256,9 @@ export function createMemoryOpStore(): OpStore & { records: Map<string, PublishO
         .filter((op) => op.userId === userId)
         .map((op) => structuredClone(op));
     },
-    async add(op) {
-      if (records.has(op.opId)) throw new Error('Operation already exists');
-      records.set(op.opId, structuredClone(op));
-    },
-    async addMany(ops) {
+    async addMany(ops, busy) {
+      if (busy?.([...records.values()].filter(({ userId }) => userId === ops[0]?.userId)))
+        return false;
       if (
         new Set(ops.map((op) => op.opId)).size !== ops.length ||
         ops.some((op) => records.has(op.opId))
@@ -262,6 +266,7 @@ export function createMemoryOpStore(): OpStore & { records: Map<string, PublishO
         throw new Error('Operation already exists');
       const copies = structuredClone(ops);
       for (const op of copies) records.set(op.opId, op);
+      return true;
     },
     async replaceRefused(refused, replacements) {
       if (!sameRefusals(refused, records)) return false;

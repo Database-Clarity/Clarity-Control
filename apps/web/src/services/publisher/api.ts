@@ -7,7 +7,7 @@ export interface PublishAnswer {
   status: RemoteStatus;
   refusal?: string;
   regroupable?: false;
-  /** A finished request with globals: the ids that went live, and why the others did not. */
+  /** A finished request with globals, when its receipt says which went live and why others did not. */
   globals?: { live: string[]; refused: { id: string; error: string }[] };
 }
 export const terminalStatuses = ['done', 'unchanged', 'stale', 'rejected', 'failed'] as const;
@@ -76,15 +76,18 @@ async function send(path: string, init?: RequestInit): Promise<{ status: number;
   return { status: response.status, value };
 }
 
-const globalResult = (result: unknown): NonNullable<PublishAnswer['globals']> => {
+/** Undefined when the receipt names no outcome: nothing is then known about its globals. */
+function globalResult(result: unknown): PublishAnswer['globals'] {
   const parsed = z
     .object({
       globals: z.array(z.string()).optional(),
       globalRefusals: z.array(z.object({ id: z.string(), error: z.string() })).optional(),
     })
     .safeParse(result).data;
-  return { live: parsed?.globals ?? [], refused: parsed?.globalRefusals ?? [] };
-};
+  return parsed && (parsed.globals || parsed.globalRefusals)
+    ? { live: parsed.globals ?? [], refused: parsed.globalRefusals ?? [] }
+    : undefined;
+}
 
 /**
  * Submits (or re-submits, byte-identical) one operation. 202 = queued; 200 = already finished, with the

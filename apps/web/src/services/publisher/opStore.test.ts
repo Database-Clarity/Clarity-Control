@@ -35,11 +35,22 @@ for (const [name, make] of [
   });
 
   it(`${name}: chunks are inserted atomically, including duplicate failures`, async () => {
-    await store.add(op('existing'));
+    await store.addMany([op('existing')]);
     await expect(store.addMany([op('new'), op('existing')])).rejects.toThrow();
     expect((await store.list('1')).map((entry) => entry.opId)).toEqual(['existing']);
     await store.addMany([op('A', { groupId: 'A' }), op('B', { groupId: 'A' })]);
     expect(await store.list('1')).toHaveLength(3);
+  });
+
+  it(`${name}: two tabs cannot store the same selection`, async () => {
+    const busy = (stored: PublishOp[]) => stored.some(({ hashes }) => hashes.includes(10));
+    const won = await Promise.all([
+      store.addMany([op('A')], busy),
+      store.addMany([op('B')], busy),
+      store.addMany([op('C', { userId: '2' })], busy),
+    ]);
+    expect(won).toEqual([true, false, true]);
+    expect((await store.list('1')).map(({ opId }) => opId)).toEqual(['A']);
   });
 
   it(`${name}: two recovery claims can replace the same refused round only once`, async () => {
@@ -60,16 +71,16 @@ for (const [name, make] of [
   });
 
   it(`${name}: persists per account and never replaces an opId`, async () => {
-    await store.add(op('A'));
-    await store.add(op('B', { userId: '2' }));
+    await store.addMany([op('A')]);
+    await store.addMany([op('B', { userId: '2' })]);
     expect((await store.list('1')).map((o) => o.opId)).toEqual(['A']);
     expect((await store.list('2')).map((o) => o.opId)).toEqual(['B']);
-    await expect(store.add(op('A', { hashes: [99] }))).rejects.toThrow();
+    await expect(store.addMany([op('A', { hashes: [99] })])).rejects.toThrow();
     expect((await store.list('1'))[0]!.hashes).toEqual([10]);
   });
 
   it(`${name}: update is atomic, keeps identity fields and sticks to a terminal status`, async () => {
-    await store.add(op('A'));
+    await store.addMany([op('A')]);
     const first = await store.update('A', (o) => ({
       ...o,
       status: 'done' as const,
@@ -105,7 +116,7 @@ for (const [name, make] of [
   });
 
   it(`${name}: the kick claim sees the newest bundle without listing it as an operation`, async () => {
-    await store.add(op('A', { status: 'pending' }));
+    await store.addMany([op('A', { status: 'pending' })]);
     await store.observeBundle(300, 350);
     const reloaded = name === 'IndexedDB' ? make() : store;
     await reloaded.observeBundle(100, 380);

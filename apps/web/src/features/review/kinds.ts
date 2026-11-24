@@ -2,7 +2,7 @@ import { languages, type Lang, type Tooltip } from '@clarity/core';
 import { create } from 'zustand';
 import type { EditorData } from '../../stores/data';
 import { diffGlobals } from '../history/RenderedWordDiff';
-import { publishedGlobals } from './globalsPending';
+import { publishedGlobals, publishedText } from './globalsPending';
 import { classifyRendered } from '../history/useRenderedDiff';
 import { publishedOf, rowKey, usesOthers, type RowKey } from './globalRows';
 import type { PendingTooltip } from './model';
@@ -66,7 +66,7 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
 /** What a row's text renders with: a tooltip's published globals, a global's saved ones. */
 export function reviewGlobals(data: EditorData | null, lang: Lang, hash: number) {
   const globals = diffGlobals(data, {}, lang, hash, 'live');
-  return hash < 0 ? globals : publishedGlobals(globals, data?.bundle.globalsPending, lang);
+  return hash < 0 ? globals : publishedGlobals(globals, data, lang);
 }
 
 /** Languages whose saved source or exported text differs. */
@@ -239,8 +239,8 @@ export function classifyRows(
     void Promise.all(
       changed.map((lang) =>
         classifyRendered(
-          exportedText(before, lang),
-          exportedText(saved, lang),
+          publishedText(data, before, lang, 'live'),
+          publishedText(data, saved, lang, 'next'),
           reviewGlobals(data, lang, saved.hash),
         ),
       ),

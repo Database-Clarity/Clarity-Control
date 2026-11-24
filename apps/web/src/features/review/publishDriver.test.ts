@@ -51,9 +51,9 @@ function harness(store = createMemoryOpStore()): Harness {
       const tracked: OpStore = {
         ...store,
         list: (userId) => store.list(userId),
-        add: async (op) => {
+        addMany: async (ops, busy) => {
           log.push('store.add');
-          return store.add(op);
+          return store.addMany(ops, busy);
         },
       };
       const deps: DriverDeps = {
@@ -200,7 +200,9 @@ it.each([false, true])(
     h.api.post.mockImplementation(async (body) =>
       refused.some(({ opId }) => opId === body.opId)
         ? { status: 'rejected', refusal: 'Missing import' }
-        : { status: 'pending' },
+        : body.globals
+          ? { status: 'done', globals: { live: ['g_refill-0001'], refused: [] } }
+          : { status: 'pending' },
     );
     vi.setSystemTime(Date.now() + 10_000);
     await resumed.start('1');
@@ -272,6 +274,7 @@ it('reads which globals a finished request left out, and says so', async () => {
     globals: { live: ['g_a0000000'], refused: [{ id: 'g_b0000000', error: 'Tooltip 10: no.' }] },
   });
   await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) * 3);
+  await vi.advanceTimersByTimeAsync(0);
   expect(op()).toMatchObject({
     status: 'done',
     refusedGlobals: [{ id: 'g_b0000000', name: 'b', error: 'Tooltip 10: no.' }],
@@ -283,6 +286,62 @@ it('reads which globals a finished request left out, and says so', async () => {
     finished: true,
   });
   driver.stop();
+});
+
+it.each([
+  ['a lone global without a readable receipt', [], undefined],
+  ['a refused receipt read', [inputs[0]!], 409],
+  ['an outcome that skips a global', [inputs[0]!], 'other'],
+] as const)('calls nothing live after %s', async (_name, tooltips, answer) => {
+  const h = harness();
+  const driver = h.make();
+  await driver.start('1');
+  await driver.create([...tooltips], [{ id: 'g_a0000000', expected: digest(3), name: 'a' }]);
+  await settle();
+  h.api.status.mockResolvedValue('done');
+  if (answer === 409) h.api.post.mockRejectedValue(new PublishHttpError(409, 'conflict', true));
+  else
+    h.api.post.mockResolvedValue({
+      status: 'done',
+      ...(answer ? { globals: { live: [answer], refused: [] } } : {}),
+    });
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 100);
+  expect(op()).toMatchObject({ status: 'failed' });
+  expect(op().error).toContain('could not be read');
+  expect(h.acked).toEqual([]);
+  driver.stop();
+});
+
+it('counts and names only what is live when a later part of a group fails', () => {
+  const part = (index: number, values: object) =>
+    ({
+      opId: `p${index}`,
+      groupId: 'p0',
+      groupSize: 2,
+      groupIndex: index,
+      groupHashCount: 2,
+      consumers: 1,
+      userId: '1',
+      createdAt: 0,
+      hashes: [10 + index],
+      expected: {},
+      previous: {},
+      status: 'done',
+      updatedAt: 0,
+      ...values,
+    }) as ReturnType<typeof ops>[number];
+  const [group] = groupPublishes([
+    part(0, {
+      globals: [
+        { id: 'a', expected: '', name: 'a' },
+        { id: 'b', expected: '', name: 'b' },
+      ],
+      refusedGlobals: [{ id: 'b', name: 'b', error: 'Tooltip 10: no.' }],
+    }),
+    part(1, { status: 'failed', error: 'The run failed.' }),
+  ]);
+  expect(group!.op.error).toContain('2 of 4 changes confirmed live');
+  expect(group!.op.error).toContain('Not published: b (Tooltip 10: no).');
 });
 
 it('shows a named changed row without resending its part after another part succeeds', async () => {
@@ -1022,7 +1081,7 @@ it('an old unconfirmed operation stays unresolved while the status lookup fails,
 
 it('refuses to publish, and sends nothing, when the local record cannot be stored', async () => {
   const h = harness();
-  h.store.add = async () => {
+  h.store.addMany = async () => {
     throw new Error('QuotaExceededError');
   };
   const driver = h.make();

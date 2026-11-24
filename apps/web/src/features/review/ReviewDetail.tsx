@@ -27,10 +27,10 @@ import { CompendiumChanges, FieldChanges } from '../history/TooltipDiff';
 import { useRenderedDiff } from '../history/useRenderedDiff';
 import { itemFor, listName } from '../navigation/catalog';
 import { globalUsers, unitName, type GlobalPart } from './globalRows';
-import { publishedGlobals, type PendingGlobal } from './globalsPending';
+import { publishedGlobals, publishedText, type PendingGlobal } from './globalsPending';
 import { reviewGlobals, textLanguages, type Classification } from './kinds';
 import type { PendingTooltip } from './model';
-import { exportedText, type Published } from './published';
+import type { Published } from './published';
 import { useDelayed } from './useDelayed';
 import styles from './Review.module.scss';
 
@@ -245,6 +245,8 @@ function UpdatedTooltips({ pending }: { pending: PendingGlobal }) {
     [tooltips[index - 1], tooltips[index + 1]].some(
       (other) => other?.name === tooltips[index]!.name,
     );
+  // A refused global's tooltips were not worked out.
+  if (!tooltips.length && pending.refusal !== undefined) return null;
   if (!tooltips.length)
     return <p className={styles.note}>No published tooltip uses it: none is updated.</p>;
   return (
@@ -279,43 +281,13 @@ function GlobalNote({ entry, part }: { entry: PendingTooltip; part: GlobalPart }
   );
 }
 
-/** Who saved a pending global last; a removed one is no longer in the catalogue. */
-function GlobalSaver({ pending }: { pending: PendingGlobal }) {
-  const entries = useDataStore((state) => state.data?.bundle.globals?.entries);
-  const last = Object.values(
-    entries?.find(({ id, tombstone }) => id === pending.id && !tombstone)?.definitions ?? {},
-  ).reduce<{ updatedAt: string; updatedBy: string } | undefined>(
-    (latest, value) =>
-      !latest || Date.parse(value.updatedAt) > Date.parse(latest.updatedAt) ? value : latest,
-    undefined,
-  );
-  return (
-    <p className={styles.savedBy}>
-      {last && (
-        <>
-          Saved by{' '}
-          <CommitAuthor
-            entry={{
-              commit: '',
-              author: null,
-              message: '',
-              login: last.updatedBy,
-              date: last.updatedAt,
-            }}
-          />
-        </>
-      )}
-    </p>
-  );
-}
-
 /** Rendered text, plain (New, Removed, Restored), 12 lines then "Show all". */
 function PlainText({ text, lang, hash }: { text: string; lang: Lang; hash: number }) {
   const data = useDataStore((state) => state.data);
   const [all, setAll] = useState(false);
   const { base, enhanced } = useMemo(() => {
     const saved = diffGlobals(data, {}, lang, hash);
-    const globals = hash < 0 ? saved : publishedGlobals(saved, data?.bundle.globalsPending, lang);
+    const globals = hash < 0 ? saved : publishedGlobals(saved, data, lang);
     const render = (variant: boolean) => parseMarkup(text, variantGlobals(globals, variant)).lines;
     const base = render(false),
       enhanced = render(true);
@@ -576,17 +548,16 @@ export const ReviewDetail = memo(function ReviewDetail({
   }, [entry.tooltip.hash, pending, user]);
   const live = published?.status === 'ready' ? published.tooltip : undefined;
   const kind = classification?.kind;
-  const saverLine = pending ? (
-    <GlobalSaver pending={pending} />
-  ) : user?.role ? (
-    <p className={styles.savedBy}>
-      {saved && (
-        <>
-          Saved by <CommitAuthor entry={saved} />
-        </>
-      )}
-    </p>
-  ) : null;
+  const saverLine =
+    user?.role && !pending ? (
+      <p className={styles.savedBy}>
+        {saved && (
+          <>
+            Saved by <CommitAuthor entry={saved} />
+          </>
+        )}
+      </p>
+    ) : null;
   // The text a reader judges when there is no comparison: the saved text, plain.
   const savedText = (tooltip: Tooltip) =>
     Object.keys(tooltip.text).length
@@ -600,14 +571,14 @@ export const ReviewDetail = memo(function ReviewDetail({
           ))
       : null;
   let evidence: ReactNode = null;
-  if ((kind === 'Text changed' || kind === 'Renamed') && live) {
+  if ((kind === 'Text changed' || kind === 'Renamed' || (kind === 'On hold' && pending)) && live) {
     const changed = classification!.languages ?? textLanguages(live, entry.tooltip);
     evidence = changed.map((lang) => (
       <section key={lang} lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
         {(changed.length > 1 || lang !== 'en') && <h4>{languageLabel(lang)}</h4>}
         <TextChange
-          before={exportedText(live, lang)}
-          after={exportedText(entry.tooltip, lang)}
+          before={publishedText(data, live, lang, 'live')}
+          after={publishedText(data, entry.tooltip, lang, 'next')}
           lang={lang}
           hash={entry.tooltip.hash}
           classification={classification}
@@ -671,7 +642,9 @@ export const ReviewDetail = memo(function ReviewDetail({
           {entry.inactiveAliases.join(', ')}.
         </p>
       ) : null}
-      <div className={styles.evidence}>{evidence}</div>
+      <div className={styles.evidence} data-global={pending ? '' : undefined}>
+        {evidence}
+      </div>
       {raw && live && rawLanguages.length > 0 && (
         <div className={styles.rawBlock} aria-label="Raw markup">
           {rawLanguages.map((lang) => (

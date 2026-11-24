@@ -1523,7 +1523,7 @@ function GlobalActions({
             <p>
               {removing
                 ? withdrawable && action === 'remove-language'
-                  ? `Remove the ${languageLabel(lang)} definition? Tooltips that use it then show English in ${languageLabel(lang)}.`
+                  ? `Remove the ${languageLabel(lang)} definition? Once that is published, tooltips that use it show English in ${languageLabel(lang)}.`
                   : `Remove ${action === 'remove-language' ? `the ${languageLabel(lang)} definition` : 'this unused global in every language'}? The server checks saved, live, and upcoming references.`
                 : action === 'rename'
                   ? 'Rename the stable entry and rewrite exact reference tokens in one transaction.'

@@ -5,7 +5,13 @@ import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { clearSavedOverlay, rememberSavedGlobal } from '../../stores/savedOverlay';
 import { editorPath, publishedOf, reviewRows, rowKey } from './globalRows';
-import { globalKey, neededGlobals, publishedGlobals, rowIdentity } from './globalsPending';
+import {
+  globalKey,
+  neededGlobals,
+  publishedGlobals,
+  publishedText,
+  rowIdentity,
+} from './globalsPending';
 import { localKind } from './kinds';
 import { pendingTooltips, publishableHashes, publishSelection } from './model';
 import { planReviewedPublish, queuePublish, withNeededGlobals } from './publishAction';
@@ -264,16 +270,101 @@ it('holds a global saved after its row was built', async () => {
   expect(entries.find(({ name }) => name === 'Fresh')?.unpublishable).toBeUndefined();
 });
 
-it('renders tooltips with the published globals, whatever is pending', () => {
+it('follows published globals to a new one, and takes a renamed one along', async () => {
+  const data = await state();
+  const { entries } = data.bundle.globals!;
+  const define = (id: string, kind: string, name: string, body: string) =>
+    entries.push({
+      ...structuredClone(entries[0]!),
+      id,
+      kind,
+      name,
+      definitions: { en: { ...entries[0]!.definitions.en!, body } },
+    } as never);
+  // Published "Selector" names the new title: the text never spells it out.
+  define('g_select-001', 'variables', 'Selector', 'Detail');
+  define('g_detail-001', 'titles', 'Detail', 'A new note');
+  define(ids.scaling, 'variables', 'Scaling', 'x');
+  data.bundle.globalsPending!.push(
+    row('g_detail-001', 'titles', 'Detail', 'new', null, 'A new note'),
+  );
+  data.bundle.tooltips[12] = make(12, '<title Details [#Selector] />');
+  data.bundle.tooltips[13] = make(13, 'Scales with #Scaling');
+  const listed = await pendingTooltips(data);
+  const needs = (name: string) =>
+    neededGlobals(
+      listed.filter((entry) => entry.name === name),
+      listed,
+      data,
+    ).map(({ global }) => global.name);
+  expect(needs('Perk 12')).toEqual(['Detail']);
+  expect(needs('Perk 13')).toEqual(['Scaling']);
+});
+
+it('shows tooltips with the published globals, whatever is pending', async () => {
+  const data = await state([
+    row(ids.refill, 'titles', 'G_refill', 'changed', 'Old note', 'New note'),
+    row(ids.gone, 'exports', 'gone', 'removed', 'Old export', null),
+    {
+      ...row(ids.moved, 'variables', 'Moved', 'renamed', 'old text', 'new text'),
+      languages: {
+        en: { before: 'old text', after: 'new text' },
+        de: { before: null, after: 'neuer Text' },
+      },
+    },
+    row(ids.fresh, 'variables', 'Fresh', 'new', null, 'Brand new'),
+  ]);
+  const base = data.bundle.globals!.entries[0]!;
+  data.bundle.globals!.entries.push({
+    ...base,
+    id: ids.moved,
+    kind: 'variables',
+    name: 'Moved',
+    definitions: {
+      en: { ...base.definitions.en!, body: 'new text' },
+      de: { ...base.definitions.en!, body: 'neuer Text' },
+    },
+    nameHistory: [{ name: 'Was', revision: 'r0' }],
+  } as never);
+  const shown = (text: Record<string, string>, lang: 'en' | 'de', side: 'live' | 'next') =>
+    publishedText(
+      data,
+      {
+        ...make(12, ''),
+        text: Object.fromEntries(
+          Object.entries(text).map(([key, value]) => [
+            key,
+            { text: value, updatedAt: at, updatedBy: '' },
+          ]),
+        ),
+      },
+      lang,
+      side,
+    );
+  expect(shown({ en: '<title a [G_refill] />' }, 'en', 'next')).toContain('Old note');
+  expect(shown({ en: 'import gone from global' }, 'en', 'live')).toBe('Old export');
+  // The published name of a renamed global; no published German means English as a whole.
+  const translated = { en: 'English #Was', de: 'Deutsch #Was' };
+  expect(shown(translated, 'de', 'live')).toBe('English old text');
+  expect(shown(translated, 'en', 'live')).toBe('English old text');
+  // A new global shows only on the side that publishes along with it.
+  expect(shown({ en: '#Fresh' }, 'en', 'next')).toBe('Brand new');
+  expect(shown({ en: '#Fresh' }, 'en', 'live')).toBe('#Fresh');
   const imports = new Proxy<Record<string, string>>(
     {},
     { get: (_, key) => `import ${String(key)}` },
   );
-  const globals = { variables: 'var Moved = b', titles: 'title G_refill (\nNew note\n)', imports };
-  const result = publishedGlobals(globals, pending(), 'en');
-  expect(result.variables).toBe('var Moved = b\nvar Moved = a');
-  expect(result.titles).toContain('title G_refill (\nOld note\n)');
-  expect(result.imports!['global']).toContain('export gone (\nOld export\n)');
-  expect(result.imports!['42']).toBe('import 42');
-  expect(publishedGlobals(globals, [], 'en')).toBe(globals);
+  const globals = {
+    variables: 'var Moved = new text',
+    titles: 'title G_refill (\nNew note\n)',
+    imports,
+  };
+  const library = publishedGlobals(globals, data, 'de');
+  expect(library.variables).not.toContain('neuer Text\nvar Was');
+  expect(library.variables).toContain('var Was = old text');
+  expect(library.titles).toContain('Old note');
+  expect(library.imports!['global']).toContain('Old export');
+  expect(library.imports!['42']).toBe('import 42');
+  const none = await state([]);
+  expect(publishedGlobals(globals, none, 'en')).toBe(globals);
 });

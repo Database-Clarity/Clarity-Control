@@ -4,7 +4,6 @@ import { publisherEnabled } from '../../services/publisher/flag';
 import { createIndexedDbOpStore } from '../../services/publisher/opStore';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
-import { globalTypes } from '../globals/model';
 import { canPush } from './model';
 import { PublishDriver } from './publishDriver';
 import { useReviewSession } from './session';
@@ -21,7 +20,6 @@ export const publishDriver = new PublishDriver({
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
   broadcast: () => channel?.postMessage('changed'),
-  name: publishName,
   acknowledge(op) {
     useReviewSession.setState((state) => ({
       ...(op.globals
@@ -48,15 +46,6 @@ export const publishDriver = new PublishDriver({
     }));
   },
 });
-
-/** By name once globals have no files; a stored request may predate that. */
-function publishName(hash: number): string {
-  const data = useDataStore.getState().data;
-  if (!data?.bundle.globalsPending) return String(hash);
-  const file = globalTypes.find((type) => type.hash === hash);
-  if (file) return `global ${file.kind}`;
-  return data.items[hash]?.name ?? data.bundle.tooltips[hash]?.custom?.name ?? `Tooltip ${hash}`;
-}
 
 let channel: BroadcastChannel | undefined;
 let started = false;
