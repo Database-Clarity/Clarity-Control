@@ -4,13 +4,9 @@ import {
   globalConfigIdentity,
   globalSourcePaths,
   globalsConfigWithoutMarks,
-  langSchema,
   globalsReleasePaths,
   observeGlobalSources,
   permissionsSchema,
-  publicationSourcesPath,
-  publicationSyncPendingCode,
-  type GlobalPublicationRead,
   type GlobalSources,
   type Permissions,
 } from '@clarity/core';
@@ -29,8 +25,7 @@ import type { Identity } from './types.js';
 
 /**
  * Global entries stay INACTIVE until the owner-gated G1 bootstrap, G2 install, and G3
- * activation. Off: every /globals route is 503 before authentication, and publish() gets
- * no proof reader, so a repository WITH global metadata refuses publication (fail closed).
+ * activation. Off: every /globals route is 503 before authentication.
  */
 export const globalsSwitch = { enabled: (): boolean => true };
 export const isGlobalsPath = (path: string) => path === '/globals' || path.startsWith('/globals/');
@@ -263,64 +258,4 @@ export async function globalsRoute(
     }
   }
   return globalsHandler(request, () => context(github, user));
-}
-
-/** Most consumer certificates read per publish while global entries are active. */
-export const maxPublicationConsumers = 500;
-const consumerSchema = z
-  .object({
-    hash: z.number().int().nonnegative(),
-    lang: langSchema,
-    destination: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
-  })
-  .strict();
-
-/**
- * publish()'s proof port: independently observed sources at the SAME head, the sync state,
- * and one certificate (or null) per consumer, in order. Never built from HTTP input.
- */
-export function globalPublicationRead(github: GitHub): GlobalPublicationRead {
-  return async (head, consumers) => {
-    if (consumers.length > maxPublicationConsumers)
-      throw new HttpError(
-        422,
-        `Publish at most ${maxPublicationConsumers} tooltip languages at once while global entries are active`,
-      );
-    const observed = await observeGlobals(github);
-    if (observed.head !== head)
-      throw new HttpError(409, 'Sync pending: source head changed', {
-        code: publicationSyncPendingCode,
-      });
-    const paths = [
-      globalsReleasePaths.sync,
-      publicationSourcesPath(globalDestinations(github)[0]!),
-      ...consumers.map((consumer) => {
-        const parsed = consumerSchema.safeParse(consumer);
-        if (!parsed.success || !globalDestinations(github).includes(parsed.data.destination))
-          throw new HttpError(409, 'Sync pending: complete publication proof required');
-        return `globals/proofs/publication/${parsed.data.destination}/${parsed.data.hash}-${parsed.data.lang}.json`;
-      }),
-    ];
-    const files = [];
-    for (let start = 0; start < paths.length; start += 100) {
-      const chunk = paths.slice(start, start + 100);
-      try {
-        files.push(
-          ...(await github.globalBlobs(
-            chunk,
-            head,
-            limits.entryBytes,
-            Math.min(chunk.length * limits.entryBytes, 1_048_576),
-          )),
-        );
-      } catch {
-        throw rawReadFailure();
-      }
-    }
-    const [sync, materializedSources, ...certificates] = files.map((file) =>
-      file ? parseRaw(file.bytes) : null,
-    );
-    if (sync === null) throw incomplete();
-    return { sources: observed.sources, sync, materializedSources, certificates };
-  };
 }

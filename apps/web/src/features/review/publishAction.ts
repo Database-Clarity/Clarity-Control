@@ -1,9 +1,7 @@
 import { inactivePublishableHash, isMovedInactive, type Tooltip } from '@clarity/core';
-import { globalsEnabled } from '../../services/globalsFlag';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
-import { unitNames } from './globalRows';
 import { neededGlobals } from './globalsPending';
 import { canPush, type PendingTooltip } from './model';
 import { publishDependencies } from './publishDependencies';
@@ -93,13 +91,12 @@ export function planReviewedPublish(
     aliases,
     new Set(pendingByHash.keys()),
     entries.map((entry) => entry.tooltip),
-    { moves: bundle.inactiveMoves, globals: globalsEnabled, published },
+    { moves: bundle.inactiveMoves, published },
   );
   const missing = new Set([...dependencies.values()].flat());
   for (const { tooltip } of entries) missing.delete(tooltip.hash);
   if (missing.size) {
-    const unitName = unitNames(pending, byHash);
-    const names = [...missing].map((hash) => unitName.get(hash)!);
+    const names = [...missing].map((hash) => pendingByHash.get(hash)!.name);
     throw new Error(`Include ${new Intl.ListFormat('en').format(names)} before publishing.`);
   }
   const planned = inputs.map((input) => ({
@@ -110,7 +107,7 @@ export function planReviewedPublish(
     publishChunks(planned);
   } catch (reason) {
     if (reason instanceof PublishClosureLimitError) {
-      const names = unitNames(entries, byHash);
+      const names = new Map(entries.map(({ tooltip, name }) => [tooltip.hash, name]));
       const format = new Intl.ListFormat('en');
       const groups = reason.groups.map(
         ({ hashes, consumers }) =>

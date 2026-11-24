@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { publishMonth } from '@clarity/core';
+import { globalsInPlaceCapability, globalsInPlacePath, publishMonth } from '@clarity/core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   batchSchema,
@@ -292,50 +292,22 @@ describe('durable asynchronous admission', () => {
     expect(f.commits).toHaveLength(1);
     expect(f.subrequests).toBeLessThan(50);
   });
-  it.each(['scheduledGlobalsV1', 'globalsRelease', 'globalsExportsV1', 'schedulePreparationV1'])(
-    'requires the %s floor when globals exist',
-    async (missing) => {
-      f.moveData({
-        'globals/sync.json': { version: 1 },
-        '.publisher/PIN': {
-          capabilities: [
-            'scheduledBatches',
-            'schedulePreparationV1',
-            'globalsRelease',
-            'globalsExportsV1',
-            'scheduledGlobalsV1',
-          ].filter((capability) => capability !== missing),
-        },
-      });
-      const head = f.dataHead;
-      expect((await call('schedule', scheduleBody())).status).toBe(422);
-      expect(f.dataHead).toBe(head);
-    },
-  );
-  it('admits globals schedules and Retry with all installed capabilities', async () => {
-    const capabilities = [
-      ...pin.capabilities,
-      'globalsRelease',
-      'globalsExportsV1',
-      'scheduledGlobalsV1',
-    ];
-    f.moveData({ 'globals/sync.json': { version: 1 }, '.publisher/PIN': { capabilities } });
+  it('admits schedules and Retry with only the active shared text capability', async () => {
+    const fence = {
+      destination: f.env.LIVE_BRANCH,
+      legacyData: oid,
+      legacyLive: oid,
+      migratedLive: oid,
+      state: 'active',
+    };
+    f.moveData({ 'globals/sync.json': { version: 1 }, [globalsInPlacePath]: fence });
+    const head = f.dataHead;
+    expect((await call('schedule', scheduleBody())).status).toBe(409);
+    expect(f.dataHead).toBe(head);
+    f.moveData({ '.publisher/PIN': { capabilities: [...pin.capabilities, globalsInPlaceCapability] } });
     expect((await call('schedule', scheduleBody())).status).toBe(202);
     expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
     expect(f.kicks.size).toBe(1);
-  });
-  it('requires the globals capability for draft and scheduled saves', async () => {
-    f.moveData({ 'globals/sync.json': { version: 1 } });
-    expect((await call('save', saveBody())).status).toBe(422);
-    const capabilities = [
-      ...pin.capabilities,
-      'globalsRelease',
-      'globalsExportsV1',
-      'scheduledGlobalsV1',
-    ];
-    f.moveData({ '.publisher/PIN': { capabilities } });
-    scheduled();
-    expect((await call('save', saveBody())).status).toBe(202);
   });
   it.each(['request', 'log'])(
     'refuses a schedule requestId already used by a publication %s',
@@ -912,25 +884,13 @@ describe('preparation cancellation, retry, and claim fences', () => {
       const strip = <T extends { requestId: string }>({ requestId, ...rest }: T) =>
         preparation ? { requestId, ...rest } : rest;
       const refused = await call('schedule', strip(scheduleBody()));
-      expect(refused.status).toBe(preparation ? 422 : 409);
+      expect(refused.status).toBe(409);
       expect(refused.body.error).toBe(
         preparation
-          ? 'The installed publisher does not support scheduled globals yet'
+          ? 'Complete the shared text migration before scheduling.'
           : 'Scheduling is not available while global entries exist',
       );
       expect(f.dataHead).toBe(head);
-      // Draft edits stay available once the globals-capable runtime is installed.
-      if (preparation)
-        f.moveData({
-          '.publisher/PIN': {
-            capabilities: [
-              ...pin.capabilities,
-              'globalsRelease',
-              'globalsExportsV1',
-              'scheduledGlobalsV1',
-            ],
-          },
-        });
       // A sync save merges against the member's proposal, so base it on that proposal.
       const edit = {
         hash: 123,
@@ -956,8 +916,8 @@ describe('preparation cancellation, retry, and claim fences', () => {
     f.moveData({ 'globals/sync.json': { version: 1 } });
     const pending = await call('retry', { revision: 3, requestId: RID });
     expect([pending.status, pending.body.error]).toEqual([
-      422,
-      'The installed publisher does not support scheduled globals yet',
+      409,
+      'Complete the shared text migration before scheduling.',
     ]);
     expect(f.kicks.size).toBe(0);
     f.moveData({
@@ -970,7 +930,7 @@ describe('preparation cancellation, retry, and claim fences', () => {
       'schedule/due.json': { entries: [] },
     });
     const head = f.dataHead;
-    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(422);
+    expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(409);
     expect(f.dataHead).toBe(head);
     expect(f.current()['schedule/due.json']).toEqual({ entries: [] });
   });

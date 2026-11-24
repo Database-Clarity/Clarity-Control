@@ -12,7 +12,7 @@ import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { flushSync } from 'react-dom';
 import { useHref, useLocation, useNavigate } from 'react-router-dom';
 import styles from './ReviewQueue.module.scss';
-import { editorLabel, editorPath, rowKey, unitName } from './globalRows';
+import { editorLabel, editorPath, rowKey } from './globalRows';
 import { rowIdentity } from './globalsPending';
 import type { Kind } from './kinds';
 import {
@@ -57,8 +57,6 @@ const QueueRow = memo(function QueueRow({
   const identity = rowIdentity(entry);
   const path = editorPath(entry);
   const label = editorLabel(entry);
-  const together =
-    entry.part && entry.part.names.length > 1 ? `Ticked together: ${unitName(entry)}` : undefined;
   return (
     <div className={styles.row} data-current={current || undefined}>
       <label className={styles.check}>
@@ -67,9 +65,9 @@ const QueueRow = memo(function QueueRow({
           checked={checked}
           readOnly
           disabled={!!locked}
-          title={locked ?? together}
+          title={locked}
           data-review-toggle={hash}
-          aria-label={`Include ${entry.name}, ${entry.category}, ${identity}${together ? `. ${together}` : ''}`}
+          aria-label={`Include ${entry.name}, ${entry.category}, ${identity}`}
         />
       </label>
       <a
@@ -150,14 +148,11 @@ const GroupHeader = memo(function GroupHeader({
         title={
           marker
             ? 'Saved text already matches live; listed only because of the alias migration.'
-            : group.note
+            : undefined
         }
       >
         <span className={styles.chevron} aria-hidden="true" />
-        <span className={styles.groupName}>
-          {group.label}
-          {group.note && <small className={styles.identity}> · {group.note}</small>}
-        </span>
+        <span className={styles.groupName}>{group.label}</span>
         <span className={styles.groupCount}>{countFormat.format(group.count)}</span>
       </button>
     </div>

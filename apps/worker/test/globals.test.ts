@@ -6,7 +6,7 @@ import {
   publicGlobalSync,
   type GlobalsContext,
 } from '../src/globals/handlers.js';
-import { assertGlobalsPublication, assertNoRawGlobalMutation } from '../src/globals/guards.js';
+import { assertNoRawGlobalMutation } from '../src/globals/guards.js';
 import { limits, paths, syncSchema, type Mutation, type Sources } from '../src/globals/model.js';
 import type { GlobalRecord } from '../../../packages/core/src/globals/model.js';
 import { readGlobalFiles, type GlobalsStorage } from '../src/globals/storage.js';
@@ -27,7 +27,6 @@ const sources: Sources = {
   fallback: digest,
   resolver: digest,
 };
-const consumer = { hash: 42, lang: 'de' as const, destination: 'live' };
 const entry: GlobalRecord = {
   version: 1,
   id,
@@ -56,15 +55,6 @@ const entry: GlobalRecord = {
   },
 };
 const edit: Mutation = { operation: 'edit', id, revision: 'r1', lang: 'en', body: 'new' };
-const ack: Mutation = {
-  operation: 'acknowledge',
-  id,
-  consumerId: 'review1',
-  contentDigest: digest,
-  dependencyDigest: digest,
-  impactDigest: digest,
-  decision: 'no-text-change',
-};
 const current = {
   version: 1,
   status: 'current',
@@ -123,34 +113,6 @@ async function fixture() {
     return locations;
   };
   await admit();
-  const row = () => {
-    const causes = [{ globalId: id, beforeRevision: 'r0', afterRevision: 'r1' }];
-    return {
-      ...proof,
-      id: 'review1',
-      projected: false,
-      impactDigest: digest,
-      review: { version: 1, consumer, causes, contentDigest: digest, dependencyDigest: digest },
-      view: {
-        consumer,
-        causes,
-        reason: 'variable-read',
-        before: null,
-        after: null,
-        variant: 42,
-        name: 'Consumer',
-        category: 'test',
-        line: null,
-        path: null,
-        direct: null,
-        archived: true,
-        beforeSource: '',
-        afterSource: '',
-      },
-    };
-  };
-  files.set(paths.row('review1'), row());
-  files.set(`globals/review-pages/${id}/p0.json`, { ...proof, ids: ['review1'], nextCursor: null });
   const call = async (
     mutation: Mutation = edit,
     overrides: Record<string, unknown> = {},
@@ -170,7 +132,7 @@ async function fixture() {
     );
     return { status: response.status, data: await response.json() };
   };
-  return { ctx, files, admit, call, row };
+  return { ctx, files, admit, call };
 }
 
 describe('bounded global admission and durable Sync pending', () => {
@@ -506,9 +468,7 @@ describe('bounded global admission and durable Sync pending', () => {
     expect((await f.call({ operation: 'rename', id, revision: 'r1', name: 'Other' })).status).toBe(
       403,
     );
-    expect((await f.call(ack)).status).toBe(409); // Pending blocks even a previously saved row.
     f.files.set(paths.sync, current);
-    expect((await f.call(ack)).status).toBe(403);
   });
 
   it('requires maintainer and fresh exhaustive zero-reference removal evidence, per language', async () => {
@@ -578,140 +538,16 @@ describe('bounded global admission and durable Sync pending', () => {
   });
 });
 
-describe('authoritative saved review acknowledgement and read', () => {
-  it('stores a separate audited no-text-change decision with all three digests', async () => {
-    const f = await fixture();
-    const result = await f.call(ack);
-    expect(result.status).toBe(200);
-    expect(result.data.value.review.acknowledgement).toMatchObject({
-      by: 'editor',
-      contentDigest: digest,
-      dependencyDigest: digest,
-      impactDigest: digest,
-      decision: 'no-text-change',
-    });
-    expect(vi.mocked(f.ctx.storage.commit).mock.calls[0][1]).toEqual({
-      [paths.row('review1')]: expect.any(Object),
-    });
-  });
-
-  it.each(['contentDigest', 'dependencyDigest', 'impactDigest'] as const)(
-    'refuses stale %s',
-    async (field) => {
-      const f = await fixture();
-      expect((await f.call({ ...ack, [field]: 'c'.repeat(64) })).status).toBe(409);
-      expect(f.ctx.storage.commit).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each(['sync-pending', 'sync-failed'])('refuses %s rows', async (status) => {
-    const f = await fixture();
-    f.files.set(paths.sync, {
-      version: 1,
-      status,
-      causeIds: ['cause1'],
-      causeEntries: { cause1: id },
-      lastFailure: 'Failed',
-    });
-    expect((await f.call(ack)).status).toBe(409);
-  });
-
-  it('refuses stale sources, incomplete/projected rows, and mismatched cause/consumer manifests', async () => {
-    const f = await fixture();
-    for (const row of [
-      { ...f.row(), complete: false },
-      { ...f.row(), projected: true },
-      { ...f.row(), sources: { ...sources, live: 'd'.repeat(40) } },
-      { ...f.row(), view: { ...f.row().view, consumer: { ...consumer, hash: 99 } } },
-      {
-        ...f.row(),
-        review: {
-          ...f.row().review,
-          causes: [{ globalId: 'g_other123', beforeRevision: null, afterRevision: 'r1' }],
-        },
-      },
-    ]) {
-      f.files.set(paths.row('review1'), row);
-      expect((await f.call(ack)).status).toBe(503);
-    }
-    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
-  });
-
-  it('returns bounded entry/review pages, conservative path metadata, and browser-only projection rejection', async () => {
-    const f = await fixture();
-    f.files.set(paths.row('review2'), { ...f.row(), id: 'review2' });
-    f.files.set(`globals/review-pages/${id}/p0.json`, {
-      ...(f.files.get(`globals/review-pages/${id}/p0.json`) as object),
-      ids: ['review1', 'review2'],
-    });
-    for (const path of [`/globals/${id}`, `/globals/${id}/reviews`]) {
-      vi.mocked(f.ctx.storage.readFiles).mockClear();
-      const response = await globalsHandler(new Request(`https://local${path}`), async () => f.ctx);
-      // Sync, then the entry; or sync, the review page, and all its rows in ONE read.
-      expect(f.ctx.storage.readFiles).toHaveBeenCalledTimes(path.endsWith('reviews') ? 3 : 2);
-      expect(response.status).toBe(200);
-      const result = await response.json();
-      expect(result.value.status).toBe('current');
-      if (path.endsWith('reviews')) expect(result.value.impacts[id]).toHaveLength(2);
-      if (path.endsWith('reviews'))
-        expect(result.value.impacts[id][0]).toMatchObject({
-          line: null,
-          path: null,
-          direct: null,
-          archived: true,
-        });
-    }
-    expect((await f.call(edit, {}, `/globals/${id}/impact`)).status).toBe(404);
-    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
-  });
-});
-
-describe('S5 fail-closed integration guards', () => {
-  it('requires current complete approval even with no pending causes', () => {
-    for (const certificate of [
-      undefined,
-      {},
-      { ...proof, consumer, causeIds: [], independent: false, approved: false },
-    ])
-      expect(() => assertGlobalsPublication(sources, current, certificate, consumer)).toThrow(
-        /Sync pending/,
-      );
-    expect(() =>
-      assertGlobalsPublication(
-        sources,
-        current,
-        { ...proof, consumer, causeIds: [], independent: false, approved: true },
-        consumer,
-      ),
-    ).not.toThrow();
-  });
-
-  it('blocks the destination while closure is unknown, allowing only exact independent certificates', () => {
-    const sync = {
-      version: 1,
-      status: 'sync-pending',
-      causeIds: ['cause1', 'cause2'],
-      causeEntries: { cause1: id, cause2: id },
-      lastFailure: null,
-    };
-    const certificate = {
-      ...proof,
-      consumer,
-      causeIds: sync.causeIds,
-      independent: true,
-      approved: true,
-    };
-    expect(() => assertGlobalsPublication(sources, sync, certificate, consumer)).not.toThrow();
-    for (const bad of [
-      { ...certificate, independent: false },
-      { ...certificate, causeIds: ['cause1'] },
-      { ...certificate, causeIds: ['cause1', 'cause1'] },
-      { ...certificate, consumer: { ...consumer, destination: 'upcoming' } },
-      { ...certificate, sources: { ...sources, authored: 'd'.repeat(40) } },
-      { ...certificate, complete: false },
-    ])
-      expect(() => assertGlobalsPublication(sources, sync, bad, consumer)).toThrow(/Sync pending/);
-    expect(() => assertGlobalsPublication(sources, null, certificate, consumer)).toThrow();
+describe('retired global review routes', () => {
+  it.each(['acknowledge', 'reviews', 'retry'])('answers 410 for %s before loading metadata or writing', async (route) => {
+    const load = vi.fn();
+    const response = await globalsHandler(
+      new Request(`https://local/globals/${id}/${route}`, { method: route === 'reviews' ? 'GET' : 'POST' }),
+      load,
+    );
+    expect(response.status).toBe(410);
+    expect(await response.json()).toEqual({ kind: 'invalid', message: expect.stringContaining('Reload the editor') });
+    expect(load).not.toHaveBeenCalled();
   });
 
   it('refuses raw aggregate saves/imports/history/batches', () => {
@@ -721,7 +557,7 @@ describe('S5 fail-closed integration guards', () => {
   });
 });
 
-describe('raw file bounds and acknowledgement capacity regressions', () => {
+describe('raw file bounds', () => {
   it('rejects whitespace-padded oversized sync, claim, and page-entry files before decoding or JSON parsing', async () => {
     for (const target of [
       paths.sync,
@@ -784,51 +620,16 @@ describe('raw file bounds and acknowledgement capacity regressions', () => {
     }
   });
 
-  it('refuses rows without audit capacity, and keeps a near-limit acknowledged row readable', async () => {
-    const f = await fixture();
-    const large = (target: number) => {
-      const row = f.row();
-      row.view.beforeSource = 'x'.repeat(8192);
-      row.view.afterSource = 'y'.repeat(target - globalFileBytes(row));
-      expect(globalFileBytes(row)).toBe(target);
-      return row;
-    };
-    f.files.set(paths.row('review1'), large(16_300));
-    expect((await f.call(ack)).status).toBe(503);
-    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
-    f.files.set(paths.row('review1'), large(14_000));
-    expect((await f.call(ack)).status).toBe(200);
-    expect(globalFileBytes(f.files.get(paths.row('review1')))).toBeLessThanOrEqual(
-      limits.entryBytes,
-    );
-    const response = await globalsHandler(
-      new Request(`https://local/globals/${id}/reviews`),
-      async () => f.ctx,
-    );
-    expect(response.status).toBe(200);
-    const result = await response.json();
-    expect(result.value.impacts[id][0].review.acknowledgement.decision).toBe('no-text-change');
-  });
 });
 
-describe('S3 snapshot and explicit durable-cause retry contract', () => {
+describe('legacy publisher metadata in entry responses', () => {
   async function pendingFixture() {
     const f = await fixture();
     const saved = await f.call();
     f.ctx.head = saved.data.value.head;
-    const causeIds: string[] = saved.data.value.causeIds;
-    const retry = async (overrides: Record<string, unknown> = {}) => {
-      const response = await globalsHandler(
-        new Request(`https://local/globals/${id}/retry`, {
-          method: 'POST',
-          body: JSON.stringify({ expectedHead: f.ctx.head, id, causeIds, ...overrides }),
-        }),
-        async () => f.ctx,
-      );
-      return { status: response.status, data: await response.json() };
-    };
     vi.mocked(f.ctx.storage.commit).mockClear();
-    return { ...f, causeIds, retry };
+    const causeIds: string[] = saved.data.value.causeIds;
+    return { ...f, causeIds };
   }
 
   it('returns per-entry and destination sync maps and sanitized failures on explicit refresh', async () => {
@@ -862,67 +663,6 @@ describe('S3 snapshot and explicit durable-cause retry contract', () => {
     expect(f.ctx.storage.commit).not.toHaveBeenCalled();
   });
 
-  it('requeues exact durable causes in one expected-head commit without changing causes, definitions, or approvals', async () => {
-    const f = await pendingFixture();
-    const before = structuredClone(f.files.get(`globals/causes/${f.causeIds[0]}.json`));
-    const result = await f.retry();
-    expect(result.status).toBe(200);
-    expect(result.data.value.sync[id]).toMatchObject({
-      status: 'sync-pending',
-      causeIds: f.causeIds,
-    });
-    expect(result.data.value.entries[0].id).toBe(id);
-    expect(result.data.value.destinationSync.live.status).toBe('sync-pending');
-    const changes = vi.mocked(f.ctx.storage.commit).mock.calls[0][1];
-    expect(Object.keys(changes).sort()).toEqual(
-      [`globals/retries/${result.data.value.retryId}.json`, paths.sync].sort(),
-    );
-    expect(changes[`globals/retries/${result.data.value.retryId}.json`]).toMatchObject({
-      globalId: id,
-      expectedHead: f.ctx.head,
-      sources,
-      causeIds: f.causeIds,
-      by: 'editor',
-    });
-    expect(f.files.get(`globals/causes/${f.causeIds[0]}.json`)).toEqual(before);
-    expect(f.ctx.storage.commit).toHaveBeenCalledTimes(1);
-  });
-
-  it('refuses stale heads, unknown/duplicate/mismatched causes, and missing durable cause records', async () => {
-    const f = await pendingFixture();
-    expect((await f.retry({ expectedHead: head })).status).toBe(409);
-    expect((await f.retry({ causeIds: ['unknown'] })).status).toBe(409);
-    expect((await f.retry({ causeIds: [f.causeIds[0], f.causeIds[0]] })).status).toBe(400);
-    expect((await f.retry({ id: 'g_other123' })).status).toBe(400);
-    const path = `globals/causes/${f.causeIds[0]}.json`,
-      original = f.files.get(path);
-    f.files.delete(path);
-    expect((await f.retry()).status).toBe(503);
-    f.files.set(path, { ...(original as object), globalId: 'g_other123' });
-    expect((await f.retry()).status).toBe(409);
-    f.files.set(path, { ...(original as object), id: 'wrong' });
-    expect((await f.retry()).status).toBe(409);
-    expect(f.ctx.storage.commit).not.toHaveBeenCalled();
-  });
-
-  it('rechecks retry permissions/languages, preserves pending on CAS conflict, and refuses cleared causes', async () => {
-    const f = await pendingFixture();
-    f.ctx.access = { login: 'translator', role: 'translator', languages: ['de'] };
-    expect((await f.retry()).status).toBe(403);
-    f.ctx.access = { login: 'trial', role: 'trial' };
-    const path = `globals/causes/${f.causeIds[0]}.json`,
-      original = f.files.get(path) as object;
-    f.files.set(path, { ...original, operation: 'remove' });
-    expect((await f.retry()).status).toBe(403);
-    f.ctx.access.role = 'maintainer';
-    vi.mocked(f.ctx.storage.commit).mockRejectedValueOnce(new RefRace());
-    const syncBefore = structuredClone(f.files.get(paths.sync));
-    expect((await f.retry()).status).toBe(409);
-    expect(f.files.get(paths.sync)).toEqual(syncBefore);
-    f.files.set(paths.sync, current);
-    expect((await f.retry()).status).toBe(409);
-  });
-
   it('distinguishes current entry state from destination-wide pending protection', async () => {
     const f = await fixture();
     f.files.set(paths.sync, {
@@ -942,7 +682,6 @@ describe('S3 snapshot and explicit durable-cause retry contract', () => {
       status: 'sync-pending',
       causeIds: ['other'],
     });
-    expect((await f.call(ack)).status).toBe(409);
   });
 });
 
@@ -1107,52 +846,6 @@ describe('root rulings N1(a), R5, and R7', () => {
     expect(response.status).toBe(200);
     expect((await response.text()).length).toBeLessThan(limits.fileBytes);
     expect(f.ctx.storage.commit).not.toHaveBeenCalled();
-  });
-
-  it.each(['edited', 'no-text-change'] as const)(
-    'refuses to relabel an existing equal-digest %s audit',
-    async (decision) => {
-      const f = await fixture(),
-        row = f.row();
-      const audit = {
-        by: 'alice',
-        at: '2026-11-15T00:00:00Z',
-        contentDigest: digest,
-        dependencyDigest: digest,
-        impactDigest: digest,
-        decision,
-      };
-      f.files.set(paths.row('review1'), {
-        ...row,
-        review: { ...row.review, acknowledgement: audit },
-      });
-      expect(await f.call(ack)).toMatchObject({ status: 409, data: { kind: 'conflict' } });
-      expect(
-        (f.files.get(paths.row('review1')) as { review: { acknowledgement: unknown } }).review
-          .acknowledgement,
-      ).toEqual(audit);
-      expect(f.ctx.storage.commit).not.toHaveBeenCalled();
-    },
-  );
-
-  it('allows a fresh audit after an earlier acknowledgement becomes stale', async () => {
-    const f = await fixture(),
-      row = f.row();
-    f.files.set(paths.row('review1'), {
-      ...row,
-      review: {
-        ...row.review,
-        acknowledgement: {
-          by: 'alice',
-          at: '2026-11-15T00:00:00Z',
-          contentDigest: digest,
-          dependencyDigest: digest,
-          impactDigest: 'c'.repeat(64),
-          decision: 'edited',
-        },
-      },
-    });
-    expect((await f.call(ack)).status).toBe(200);
   });
 
   it('preserves absent migration ancestry when editing post-migration definitions and adding translations', async () => {

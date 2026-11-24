@@ -18,13 +18,7 @@ import { marksRoute } from './marks.js';
 import { aliasGroupsRoute } from './aliasGroups.js';
 import { save } from './save.js';
 import { stageCurrentSave } from './currentSaveStage.js';
-import {
-  globalPublicationRead,
-  globalsRoute,
-  globalsSwitch,
-  isGlobalsPath,
-  refuseGlobalsWhenOff,
-} from './globalsRoute.js';
+import { globalsRoute, isGlobalsPath, refuseGlobalsWhenOff } from './globalsRoute.js';
 import { reports, purgeReports } from './reports.js';
 import { batchesRoute, isBatchPath, refuseWhenOff } from './schedule/routes.js';
 import { minuteCron, scheduleTick } from './schedule/lifecycle.js';
@@ -56,14 +50,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     return glossaryRoute(request, github, user, glossary[1]);
   if (isBatchPath(path)) return batchesRoute(request, path, github, user);
   if (isGlobalsPath(path)) return globalsRoute(request, github, user);
-  // Off: no proof reader, so a repository with global metadata refuses publication.
-  if (request.method === 'POST' && path === '/publish')
-    return publish(
-      request,
-      github,
-      user,
-      globalsSwitch.enabled() ? globalPublicationRead(github) : undefined,
-    );
+  if (request.method === 'POST' && path === '/publish') return publish(request, github, user);
   if (request.method === 'GET' && path === '/publish/status')
     return publishStatus(request, github, user);
   if (request.method === 'POST' && path === '/publish/kick')

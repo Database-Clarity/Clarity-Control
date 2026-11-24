@@ -1,7 +1,6 @@
 import { isTerminal, type PublishOp } from '../../services/publisher/opStore';
 import {
   needsPublishReceipt,
-  publishProofWait,
   publishTiming,
   regroupRefusals,
 } from './publishDriver';
@@ -75,10 +74,8 @@ export function describeOp(
       return {
         ...base,
         tone: 'busy',
-        chip: op.syncPendingSince === undefined ? 'Sending…' : 'Checking…',
-        detail:
-          note ??
-          (op.syncPendingSince === undefined ? 'Sending the publish request.' : publishProofWait),
+        chip: 'Sending…',
+        detail: note ?? 'Sending the publish request.',
       };
     case 'pending': {
       if (combining)
@@ -211,7 +208,6 @@ export function groupPublishes(
         updatedAt: Math.max(...members.map((op) => op.updatedAt)),
         // Waiting (and Retry) is timed from the queued part, e.g. a resent combination.
         acceptedAt: unfinished ? (unfinished.acceptedAt ?? unfinished.createdAt) : first.acceptedAt,
-        syncPendingSince: unfinished?.syncPendingSince,
         hashes: members.flatMap((op) => op.hashes),
         ...(globals.length ? { globals } : {}),
         ...(refusedGlobals.length ? { refusedGlobals } : {}),

@@ -42,7 +42,6 @@ import {
   readAdmissionState as readState,
   refuseClaimed,
   globalsListing,
-  requireScheduledGlobals,
   refuseRevision,
   requireBatch,
   scheduledSaveChangeCap,
@@ -108,6 +107,12 @@ function requireCapability(state: ScheduleState): void {
     throw new HttpError(422, `The installed publisher lacks ${schedulePreparationCapability}`);
 }
 
+function requireSharedTextForSchedule(state: ScheduleState, github: GitHub, hashes: Iterable<number>) {
+  const fence = inPlaceAdmission(state.extra.at(-1)?.value, state.pin, hashes, github.env.LIVE_BRANCH);
+  if (!fence && state.trees[1])
+    throw new HttpError(409, 'Complete the shared text migration before scheduling.');
+}
+
 /** Upload bounded parts beside an accepted schedule. Finalization signs the immutable source
  * tree. It does not change the batch, its due time, or its publication operation. */
 export async function stageScheduledSave(
@@ -126,7 +131,7 @@ export async function stageScheduledSave(
   for (let attempt = 0; attempt < 3; attempt++) {
     const state = await readState(github, user, readRoles, {
       batchId,
-      extra: [path, scheduleIntentPaths.request(id)],
+      extra: [path, scheduleIntentPaths.request(id), globalsInPlacePath],
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
@@ -154,7 +159,6 @@ export async function stageScheduledSave(
       throw new HttpError(409, 'The accepted schedule changed before these edits landed');
     if (Date.now() >= Date.parse(batch.notBefore))
       throw new HttpError(409, 'Batch published before these edits landed');
-    requireScheduledGlobals(state.trees[1] ?? null, state.pin);
     if (state.access.role === 'translator' && !state.access.languages?.length)
       throw new HttpError(403, 'No assigned languages');
     try {
@@ -168,6 +172,7 @@ export async function stageScheduledSave(
     if (stage?.id === id && stage.revision !== batch.revision)
       throw new HttpError(409, 'The accepted schedule changed before these edits landed');
     const hashes = new Set(memberHashes(child(state.trees[0], 'tooltips')));
+    requireSharedTextForSchedule(state, github, hashes);
     if (stage && stage.parts > hashes.size)
       throw new HttpError(409, 'The staged save membership changed. Retry after it settles');
     const at = new Date().toISOString();
@@ -416,7 +421,6 @@ export async function admitBatchRequest(
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
-    requireScheduledGlobals(state.trees[1] ?? null, state.pin);
     const batch = requireBatch(state, batchId);
     const existing = readRequest(state);
     if (existing) {
@@ -443,7 +447,7 @@ export async function admitBatchRequest(
     const hashes = new Set(memberHashes(child(state.trees[0], 'tooltips')));
     const fence = state.extra.at(-1);
     if (kind === 'schedule' || batch.status === 'scheduled')
-      inPlaceAdmission(fence?.value, state.pin, hashes, github.env.LIVE_BRANCH);
+      requireSharedTextForSchedule(state, github, hashes);
     if (fence && 'changes' in input) for (const { next } of input.changes) refuseInPlaceSave(next);
     const staging = 'changes' in input ? input.draftStaging : undefined;
     const activeStage = activeDraftStaging(batch, Date.now());
@@ -662,14 +666,13 @@ export async function retryBatchRequest(
       trees: [{ path: `schedule/batches/${batchId}`, depth: 2 }, globalsListing],
     });
     requireCapability(state);
-    requireScheduledGlobals(state.trees[1] ?? null, state.pin);
     const batch = requireBatch(state, batchId);
     const record = readRequest(state);
     if (!record || batch.preparation?.requestId !== input.requestId)
       throw new HttpError(409, 'This request is no longer outstanding');
     checkedRequest(record, batchId, input.requestId);
     if (batch.preparation.returnStatus === 'scheduled')
-      inPlaceAdmission(state.extra.at(-1)?.value, state.pin, [], github.env.LIVE_BRANCH);
+      requireSharedTextForSchedule(state, github, []);
     if (
       state.access.role === 'translator' &&
       (record.requesterId !== user.id || batch.preparation.kind !== 'save')

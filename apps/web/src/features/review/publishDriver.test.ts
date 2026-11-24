@@ -1,4 +1,3 @@
-import { publicationSyncPendingCode } from '@clarity/core';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PublishHttpError, type RemoteStatus } from '../../services/publisher/api';
 import { createMemoryOpStore, type OpStore } from '../../services/publisher/opStore';
@@ -1169,67 +1168,6 @@ it("shows the Worker's 409 reason; the old sentence is the fallback without one"
     'This publish id was already used with different contents. Publish again.',
   ]);
 });
-
-it('shows Sync pending and retries the same reviewed request until proof is ready', async () => {
-  const h = harness();
-  const driver = h.make();
-  await driver.start('1');
-  const pending = new PublishHttpError(409, 'Sync pending', true, publicationSyncPendingCode);
-  const readyAfter = 11 * 60_000;
-  const readyAt = Date.now() + readyAfter;
-  h.api.post.mockImplementation(async () => {
-    if (Date.now() < readyAt) throw pending;
-    return { status: 'pending' };
-  });
-  const created = await driver.create(inputs);
-  await settle();
-  expect(usePublishState.getState().notes[created.opId]).toMatch(/^Waiting for saved changes/);
-  expect(op().status).toBe('created');
-  expect(h.api.kick).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(readyAfter + 30_000);
-  expect(h.api.post.mock.calls.length).toBeGreaterThan(4);
-  for (const call of h.api.post.mock.calls) expect(call).toEqual(h.api.post.mock.calls[0]);
-  expect(op().status).toBe('pending');
-  expect(usePublishState.getState().notes[created.opId]).toBeUndefined();
-});
-
-it.each(['unknown', 'pending', 'unavailable'] as const)(
-  'keeps the sync deadline through reload and reconciles a Worker status of %s',
-  async (remote) => {
-    const h = harness();
-    const first = h.make();
-    await first.start('1');
-    h.api.post.mockRejectedValue(
-      new PublishHttpError(409, 'Sync pending', true, publicationSyncPendingCode),
-    );
-    const created = await first.create(inputs);
-    await settle();
-    const deadline = Date.now() + publishTiming.syncWaitMs;
-    expect(op().syncPendingSince).toBe(Date.now());
-    first.stop();
-    vi.setSystemTime(deadline - 300);
-    const reloaded = h.make();
-    if (remote === 'unavailable') h.api.status.mockRejectedValue(new Error('Offline'));
-    else h.api.status.mockResolvedValue(remote);
-    // Keep the same rejection if this tab manages one last send before the deadline.
-    h.api.post.mockRejectedValue(
-      new PublishHttpError(409, 'Sync pending', true, publicationSyncPendingCode),
-    );
-    await reloaded.start('1');
-    await vi.advanceTimersByTimeAsync(800);
-    expect(h.api.status).toHaveBeenCalledWith(created.opId);
-    expect(op().status).toBe(remote === 'pending' ? 'pending' : 'failed');
-    if (remote !== 'pending') {
-      expect(op().error).toContain('Automatic retries ended.');
-      expect(op().error).toContain(
-        remote === 'unknown' ? 'No publish request was found.' : 'The final status check failed.',
-      );
-      const sends = h.api.post.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(h.api.post).toHaveBeenCalledTimes(sends);
-    }
-  },
-);
 
 it('never kicks an operation a pass just found finished', async () => {
   const h = harness();

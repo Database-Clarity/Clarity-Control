@@ -17,7 +17,6 @@ import {
   aliasGroupsPath,
   isTextlessDescription,
   permissionsSchema,
-  publicationSyncPendingCode,
   publishBodySchema,
   publishIntentDigest,
   publishMonth,
@@ -34,7 +33,6 @@ import {
   validatePublishTime,
   type Aliases,
   type Tooltip,
-  type GlobalPublicationRead,
 } from '@clarity/core';
 import { unbase64 } from './crypto.js';
 import { body, HttpError, json } from './http.js';
@@ -43,8 +41,6 @@ import type { GitHub, RepoFile, TreeNode } from './github.js';
 import { schedulePaths } from '@clarity/core/schedule';
 import { switches } from './schedule/store.js';
 import type { Env, Identity } from './types.js';
-import { assertGlobalsPublication } from './globals/guards.js';
-import { publicationSchema, sameSources, sourcesSchema, syncSchema } from './globals/model.js';
 import { inPlaceAdmission } from './globals/inPlace.js';
 
 const envelopeSchema = z.object({ payload: z.string(), sig: z.string() }).strict();
@@ -141,7 +137,6 @@ export async function publish(
   request: Request,
   github: GitHub,
   user: Identity,
-  globalPublication?: GlobalPublicationRead,
 ) {
   const value = await body(request, publishBodySchema, 300 * 1024);
   const intent = {
@@ -172,11 +167,9 @@ export async function publish(
         sandboxPointersPath,
         inactiveMovesPath,
         aliasGroupsPath,
-        'globals/sync.json',
-        'globals/layout.json',
         globalsInPlacePath,
       ],
-      ['globals/sync.json', 'globals/layout.json'],
+      [],
       [
         ...(switches.scheduled() ? [{ path: schedulePaths.conflictsDir, depth: 1 as const }] : []),
         { path: 'globals', depth: 1 },
@@ -217,8 +210,8 @@ export async function publish(
         value.hashes,
         github.env.LIVE_BRANCH,
       );
-      if (!fence && value.globals)
-        throw new HttpError(409, 'Review shared definitions with the current publisher.');
+      if (!fence && (value.globals || snapshot.trees[switches.scheduled() ? 1 : 0] != null))
+        throw new HttpError(409, 'Complete the shared text migration before publishing.');
       if (fence) checkedHead = snapshot.head;
     }
     if (checkedHead !== snapshot.head) {
@@ -282,79 +275,6 @@ export async function publish(
           (await inactivePublishableHash(tooltip, aliases, moves)) !== value.expected[hash]
         ) {
           throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
-        }
-      }
-      if (snapshot.trees[switches.scheduled() ? 1 : 0] !== null) {
-        const capabilities = (pin as { capabilities?: unknown } | undefined)?.capabilities;
-        if (
-          !Array.isArray(capabilities) ||
-          !capabilities.includes('globalsRelease') ||
-          !capabilities.includes('globalsExportsV1') ||
-          !globalPublication
-        )
-          throw new HttpError(409, 'Sync pending: dependency-safe publisher proof required');
-        const consumers = [
-          ...new Set(value.hashes.map((hash) => resolveAlias(hash, aliases))),
-        ].flatMap((hash) => {
-          if (isMovedInactive(hash, moves))
-            return [{ hash, lang: 'en', destination: github.env.LIVE_BRANCH }];
-          const tooltip = checked.get(hash);
-          if (!tooltip) throw new HttpError(409, 'Sync pending: current consumer proof required');
-          return Object.keys(tooltip.text).map((lang) => ({
-            hash,
-            lang,
-            destination: github.env.LIVE_BRANCH,
-          }));
-        });
-        const proof = await globalPublication(snapshot.head, consumers);
-        if (proof.certificates.length !== consumers.length)
-          throw new HttpError(409, 'Sync pending: complete publication proof required');
-        const blocked = consumers.filter((consumer, index) => {
-          try {
-            assertGlobalsPublication(
-              proof.sources,
-              proof.sync,
-              proof.certificates[index],
-              consumer,
-            );
-            return false;
-          } catch (error) {
-            if (!(error instanceof HttpError)) throw error;
-            return true;
-          }
-        });
-        if (blocked.length) {
-          const sync = syncSchema.safeParse(proof.sync);
-          const materialized = sourcesSchema.safeParse(proof.materializedSources);
-          // Older publishers lack the materialization marker. A valid older certificate
-          // still establishes that the source inputs advanced before proofs were refreshed.
-          const stale = materialized.success
-            ? !sameSources(materialized.data, proof.sources)
-            : proof.materializedSources == null &&
-              proof.certificates.some((input, index) => {
-                const certificate = publicationSchema.safeParse(input);
-                const consumer = consumers[index]!;
-                return (
-                  certificate.success &&
-                  certificate.data.consumer.hash === consumer.hash &&
-                  certificate.data.consumer.lang === consumer.lang &&
-                  certificate.data.consumer.destination === consumer.destination &&
-                  !sameSources(certificate.data.sources, proof.sources)
-                );
-              });
-          if (
-            sync.success &&
-            (sync.data.status === 'sync-pending' || (sync.data.status === 'current' && stale))
-          )
-            throw new HttpError(409, 'Sync pending', { code: publicationSyncPendingCode });
-          const hashes = [...new Set(blocked.map(({ hash }) => hash))];
-          throw new HttpError(
-            409,
-            sync.success && sync.data.status === 'sync-failed'
-              ? `Global changes failed to sync. Retry sync before publishing tooltips ${hashes.join(', ')}.`
-              : `Global checks could not clear tooltips ${hashes.join(', ')} for publication. Review global changes or report this error.`,
-            { hashes },
-          );
         }
       }
       checkedHead = snapshot.head;

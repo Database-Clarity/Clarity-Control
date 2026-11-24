@@ -25,9 +25,6 @@ import {
   pendingCauseSchema,
   paths,
   removalSchema,
-  reviewPageSchema,
-  retrySchema,
-  rowSchema,
   sameSources,
   sourcesSchema,
   syncSchema,
@@ -166,10 +163,6 @@ async function readFiles<T>(ctx: GlobalsContext, list: string[], schema: z.ZodTy
 
 async function readFile<T>(ctx: GlobalsContext, path: string, schema: z.ZodType<T>) {
   return (await readFiles(ctx, [path], schema))[0]!;
-}
-
-async function readAll<T>(ctx: GlobalsContext, list: string[], schema: z.ZodType<T>) {
-  return (await readFiles(ctx, list, schema)).map((file) => file.value);
 }
 
 async function read<T>(ctx: GlobalsContext, path: string, schema: z.ZodType<T>): Promise<T> {
@@ -319,132 +312,7 @@ async function requestNameProof(
   );
 }
 
-async function acknowledge(
-  ctx: GlobalsContext,
-  mutation: Extract<Mutation, { operation: 'acknowledge' }>,
-  sync: SyncState,
-) {
-  if (sync.status !== 'current')
-    throw new HttpError(409, 'Sync pending: saved rows cannot be acknowledged');
-  const row = await read(ctx, paths.row(mutation.consumerId), rowSchema);
-  currentProof(row, ctx);
-  permit(ctx, ['editor', 'maintainer', 'translator'], row.review.consumer.lang);
-  if (
-    row.id !== mutation.consumerId ||
-    !row.review.causes.some((c) => c.globalId === mutation.id) ||
-    row.review.contentDigest !== mutation.contentDigest ||
-    row.review.dependencyDigest !== mutation.dependencyDigest ||
-    row.impactDigest !== mutation.impactDigest
-  )
-    throw new HttpError(409, 'The saved review is stale');
-  const previousAudit = row.review.acknowledgement;
-  if (
-    previousAudit &&
-    previousAudit.contentDigest === row.review.contentDigest &&
-    previousAudit.dependencyDigest === row.review.dependencyDigest &&
-    previousAudit.impactDigest === row.impactDigest
-  )
-    throw new HttpError(409, 'The saved review is already acknowledged');
-  const next = {
-    ...row,
-    review: {
-      ...row.review,
-      acknowledgement: {
-        by: ctx.user.login,
-        at: new Date().toISOString(),
-        contentDigest: row.review.contentDigest,
-        dependencyDigest: row.review.dependencyDigest,
-        impactDigest: row.impactDigest,
-        decision: mutation.decision,
-      },
-    },
-  };
-  admission(rowSchema, next);
-  bounded(next, limits.entryBytes);
-  const entry = await read(ctx, paths.entry(mutation.id), entrySchema);
-  if (entry.id !== mutation.id) throw new HttpError(503, 'Invalid global identity');
-  const result = {
-    ...snapshot(ctx, ctx.head, sync, [entry]),
-    consumerId: row.id,
-    review: next.review,
-  };
-  boundedResponse(result);
-  const head = await ctx.storage.commit(
-    ctx.head,
-    { [paths.row(row.id)]: next },
-    'Acknowledge global dependency review',
-    ctx.user,
-  );
-  return { ...result, head };
-}
-
-async function retry(ctx: GlobalsContext, input: z.infer<typeof retrySchema>, sync: SyncState) {
-  if (input.expectedHead !== ctx.head) throw new HttpError(409, 'Source head changed');
-  if (
-    sync.status === 'current' ||
-    input.causeIds.some((id) => !sync.causeIds.includes(id) || sync.causeEntries[id] !== input.id)
-  )
-    throw new HttpError(409, 'Sync causes changed; refresh before retrying');
-  const entry = await read(ctx, paths.entry(input.id), entrySchema);
-  if (entry.id !== input.id) throw new HttpError(503, 'Invalid global identity');
-  const files = await readGlobalFiles(
-    ctx.storage,
-    input.causeIds.map((id) => `globals/causes/${id}.json`),
-    ctx.head,
-    4096,
-  );
-  for (let i = 0; i < files.length; i++) {
-    const cause = pendingCauseSchema.safeParse(files[i]?.value);
-    if (!cause.success) throw new HttpError(503, 'Sync pending: durable cause is unavailable');
-    if (cause.data.id !== input.causeIds[i] || cause.data.globalId !== input.id)
-      throw new HttpError(409, 'Sync cause identity changed');
-    if (ctx.access.role === 'translator' && cause.data.lang === null)
-      throw new HttpError(403, 'Permission denied');
-    permit(
-      ctx,
-      cause.data.operation === 'remove'
-        ? ['maintainer']
-        : cause.data.operation === 'rename'
-          ? ['editor', 'maintainer']
-          : cause.data.operation === 'create'
-            ? ['trial', 'editor', 'maintainer']
-            : ['trial', 'editor', 'maintainer', 'translator'],
-      cause.data.lang ?? undefined,
-    );
-  }
-  const requestId = crypto.randomUUID();
-  const pending: SyncState = { ...sync, status: 'sync-pending' };
-  const request = {
-    version: 1,
-    id: requestId,
-    globalId: input.id,
-    causeIds: input.causeIds,
-    expectedHead: ctx.head,
-    sources: ctx.sources,
-    by: ctx.user.login,
-    at: new Date().toISOString(),
-  };
-  bounded(request);
-  const result = {
-    ...snapshot(ctx, ctx.head, pending, [entry]),
-    retryId: requestId,
-    message: 'Sync pending',
-  };
-  boundedResponse(result);
-  const head = await ctx.storage.commit(
-    ctx.head,
-    {
-      [`globals/retries/${requestId}.json`]: request,
-      [paths.sync]: pending,
-    },
-    'Requeue durable global sync causes',
-    ctx.user,
-  );
-  return { ...result, head };
-}
-
 async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) {
-  if (mutation.operation === 'acknowledge') return acknowledge(ctx, mutation, sync);
   const lang = 'lang' in mutation ? mutation.lang : undefined;
   let localeWithdrawal = false;
   if (mutation.operation === 'remove' && lang && lang !== 'en') {
@@ -637,17 +505,17 @@ async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) 
   return { ...result, head };
 }
 
-/** Exported for S5 routing. load() must authenticate, refresh permissions, and observe
- * all source identities on EVERY call, including read, retry, and acknowledgement.
- */
+/** Observe permissions and source identities before each entry read or mutation. */
 export async function globalsHandler(
   request: Request,
   load: () => Promise<GlobalsContext>,
 ): Promise<Response> {
   try {
     const url = new URL(request.url);
+    if (/^\/globals\/g_[a-zA-Z0-9_-]{8,80}\/(?:acknowledge|reviews|retry)$/.test(url.pathname))
+      throw new HttpError(410, 'Reload the editor. Shared changes now publish from Review → Globals.');
     const route =
-      /^\/globals(?:\/(g_[a-zA-Z0-9_-]{8,80})(?:\/(body|rename|remove|acknowledge|reviews|retry))?)?$/.exec(
+      /^\/globals(?:\/(g_[a-zA-Z0-9_-]{8,80})(?:\/(body|rename|remove))?)?$/.exec(
         url.pathname,
       );
     if (!route) throw new HttpError(404, 'Global route not found');
@@ -663,32 +531,6 @@ export async function globalsHandler(
     const syncRead = read(ctx, paths.sync, syncSchema);
     syncRead.catch(() => undefined);
     if (request.method === 'GET' && route[1]) {
-      if (route[2] === 'reviews') {
-        const cursor = url.searchParams.get('cursor') ?? 'p0';
-        if (!/^p\d{1,5}$/.test(cursor)) throw new HttpError(400, 'Invalid review page');
-        const [state, page] = await Promise.all([
-          syncRead,
-          read(ctx, `globals/review-pages/${route[1]}/${cursor}.json`, reviewPageSchema),
-        ]);
-        currentProof(page, ctx);
-        // One bounded read for the page's rows (at most limits.page), not one per row.
-        const rows = await readAll(ctx, page.ids.map(paths.row), rowSchema);
-        const consumers = [];
-        for (const [i, id] of page.ids.entries()) {
-          const row = rows[i]!;
-          currentProof(row, ctx);
-          if (row.id !== id || !row.review.causes.some((c) => c.globalId === route[1]))
-            throw new HttpError(503, 'Invalid global review page');
-          consumers.push({ ...row.view, id, review: row.review, impactDigest: row.impactDigest });
-        }
-        const value = {
-          ...snapshot(ctx, ctx.head, state, [], [route[1]]),
-          impacts: { [route[1]]: consumers },
-          nextCursor: page.nextCursor,
-        };
-        boundedResponse(value);
-        return json({ kind: 'ok', value });
-      }
       if (!route[2]) {
         const [state, entry] = await Promise.all([
           syncRead,
@@ -701,11 +543,6 @@ export async function globalsHandler(
       }
     }
     const sync = await syncRead;
-    if (request.method === 'POST' && route[2] === 'retry') {
-      const input = await body(request, retrySchema, limits.requestBytes);
-      if (input.id !== route[1]) throw new HttpError(400, 'Route and retry identity do not match');
-      return json({ kind: 'ok', value: await retry(ctx, input, sync) });
-    }
     if (request.method !== 'POST') throw new HttpError(405, 'Method not allowed');
     const input = await mutationBody(request);
     if (input.expectedHead !== ctx.head) throw new HttpError(409, 'Source head changed');

@@ -547,7 +547,7 @@ it('observes exact, nested, alias, and cyclic imports through the real resolver'
     ]).get(600),
   ).toContain(300);
 });
-it('orders pending global libraries and observes imports inside a global title', () => {
+it('observes pending imports inside an authored global title', () => {
   const consumer = t(100, '<title Info [Tip] />');
   const titles = t(3, 'title Tip (\nimport main from 200\n)');
   const target = t(200, 'Resolved');
@@ -557,17 +557,14 @@ it('orders pending global libraries and observes imports inside a global title',
     new Set([3, 200]),
     [consumer],
   );
-  expect(deps.get(100)).toContain(3);
   expect(deps.get(100)).toContain(200);
 });
 
-it('requires a pending globals aggregate only for a concrete import with per-entry release', () => {
+it('requires a pending dependency for a concrete numeric import', () => {
   const independent = t(100, 'Plain text');
-  const importer = t(200, 'import main from 1');
-  const tooltips = { 1: t(1, 'Global exports'), 100: independent, 200: importer };
-  const deps = publishDependencies(tooltips, {}, new Set([1]), [independent, importer], {
-    globals: true,
-  });
+  const importer = t(200, 'import main from 99');
+  const tooltips = { 99: t(99, 'Export source'), 100: independent, 200: importer };
+  const deps = publishDependencies(tooltips, {}, new Set([99]), [independent, importer]);
   expect(deps.get(100)).toEqual([]);
-  expect(deps.get(200)).toEqual([1]);
+  expect(deps.get(200)).toEqual([99]);
 });

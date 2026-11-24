@@ -226,10 +226,6 @@ export const pageSchema = z
 export const catalogSchema = z
   .object({ version: z.literal(1), lastPage: z.number().int().min(0).max(99999) })
   .strict();
-export const reviewPageSchema = z
-  .object({ ...proof, ids: z.array(token).max(limits.page), nextCursor: token.nullable() })
-  .strict();
-
 const expected = { expectedHead: oid };
 const existing = { id: globalIdSchema, revision: globalRevisionSchema };
 const definition = { lang: langSchema, body: z.string().max(limits.body) };
@@ -252,33 +248,10 @@ export const mutationSchema = z
       z
         .object({ operation: z.literal('remove'), ...existing, lang: langSchema.optional() })
         .strict(),
-      z
-        .object({
-          operation: z.literal('acknowledge'),
-          id: globalIdSchema,
-          consumerId: token,
-          contentDigest: globalDigestSchema,
-          dependencyDigest: globalDigestSchema,
-          impactDigest: globalDigestSchema,
-          decision: z.literal('no-text-change'),
-        })
-        .strict(),
     ]),
   })
   .strict();
 export type Mutation = z.infer<typeof mutationSchema>['mutation'];
-export const retrySchema = z
-  .object({
-    expectedHead: oid,
-    id: globalIdSchema,
-    causeIds: z
-      .array(token)
-      .min(1)
-      .max(limits.causes)
-      .refine((v) => new Set(v).size === v.length, 'Duplicate cause'),
-  })
-  .strict();
-
 export const paths = {
   sync: 'globals/sync.json',
   entry: (id: string) => `globals/entries/${id}.json`,

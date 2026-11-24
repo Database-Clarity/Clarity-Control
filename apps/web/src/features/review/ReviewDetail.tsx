@@ -26,7 +26,6 @@ import { revertDraft } from '../history/revert';
 import { CompendiumChanges, FieldChanges } from '../history/TooltipDiff';
 import { useRenderedDiff } from '../history/useRenderedDiff';
 import { itemFor, listName } from '../navigation/catalog';
-import { globalUsers, unitName, type GlobalPart } from './globalRows';
 import { publishedCell, type PendingGlobal } from './globalsPending';
 import { reviewGlobals, textLanguages, type Classification } from './kinds';
 import type { PendingTooltip } from './model';
@@ -104,17 +103,6 @@ function Sentence({
           {classification.markupLines
             ? ` Only the markup changed (${count.format(classification.markupLines)} ${classification.markupLines === 1 ? 'line' : 'lines'}).`
             : ''}
-        </p>
-      );
-    case 'Output unchanged':
-      return (
-        <p className={styles.sentence}>
-          <b>Output unchanged.</b>{' '}
-          {Object.values(entry.part?.source.before ?? {}).some((text) =>
-            /^export hidden /.test(text),
-          )
-            ? 'The published version hides this export; its text is the same.'
-            : 'Only how it is written changed; its text is the same.'}
         </p>
       );
     case 'Definition changed':
@@ -268,21 +256,6 @@ function UpdatedTooltips({ pending }: { pending: PendingGlobal }) {
         ))}
       </ul>
     </details>
-  );
-}
-
-/** A globals entry: which tooltips its change reaches, and that its file publishes as one. */
-function GlobalNote({ entry, part }: { entry: PendingTooltip; part: GlobalPart }) {
-  const data = useDataStore((state) => state.data);
-  const users = useMemo(() => (data ? globalUsers(part, data) : 0), [data, part]);
-  return (
-    <p className={styles.note}>
-      {users
-        ? `Used by ${count.format(users)} ${users === 1 ? 'tooltip' : 'tooltips'}.`
-        : 'No tooltip uses it directly.'}
-      {part.names.length > 1 &&
-        ` ${unitName(entry)} are published as one file: including or removing one does the same for ${part.names.length === 2 ? 'both' : `all ${count.format(part.names.length)}`}, and they count as one change.`}
-    </p>
   );
 }
 
@@ -653,13 +626,13 @@ export const ReviewDetail = memo(function ReviewDetail({
       </div>
     );
   else if (kind === 'Removed') evidence = savedText(live ?? entry.tooltip, 'live');
-  else if (kind === 'Output unchanged' || kind === 'Definition changed')
+  else if (kind === 'Definition changed')
     evidence = savedText(entry.tooltip);
   else if (kind === 'New' || kind === 'Restored' || kind === 'On hold' || !kind) {
     // Unknown (loading, failed, signed out): the saved text renders plain so it can be judged.
     if (kind || published?.status !== 'loading') evidence = savedText(entry.tooltip);
   }
-  // Raw markup of a globals entry is its whole declaration, not only the body that renders.
+  // Show the original authored text in raw mode.
   const part = entry.part;
   const rawSource = (side: 'before' | 'after', lang: Lang) =>
     part
@@ -678,7 +651,7 @@ export const ReviewDetail = memo(function ReviewDetail({
         classification={classification}
         onRetry={onRetry}
       />
-      {pending ? (
+      {pending && (
         <>
           {sameTextLanguages(pending).length > 0 && (
             <p className={styles.note}>
@@ -688,8 +661,6 @@ export const ReviewDetail = memo(function ReviewDetail({
           )}
           <UpdatedTooltips pending={pending} />
         </>
-      ) : (
-        part && <GlobalNote entry={entry} part={part} />
       )}
       {saverLine}
       {entry.inactiveAliases?.length ? (
@@ -731,7 +702,7 @@ export function RestoreLive({
   onDone,
 }: {
   entry: PendingTooltip;
-  /** What the draft replaces (every entry of a globals file). */
+  /** The tooltip whose draft will be replaced. */
   name?: string;
   published: Published | undefined;
   className?: string;

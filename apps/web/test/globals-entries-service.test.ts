@@ -1,17 +1,6 @@
 import { expect, it, vi } from 'vitest';
-import {
-  canAcknowledgeGlobal,
-  globalReviewState,
-  createGlobalsService,
-  type GlobalCatalog,
-  type GlobalResult,
-} from '../src/services/globals';
-import {
-  createGlobalsFixture,
-  fixtureHead,
-  fixtureSources,
-  globalFixtureSnapshot,
-} from './globals-entries-fixture';
+import { createGlobalsService, type GlobalCatalog, type GlobalResult } from '../src/services/globals';
+import { createGlobalsFixture, fixtureHead, globalFixtureSnapshot } from './globals-entries-fixture';
 
 function pagedSeed() {
   const seed = structuredClone(globalFixtureSnapshot);
@@ -21,14 +10,6 @@ function pagedSeed() {
       id: `g_extra000${n}`,
       name: `Extra${n}`,
     });
-  for (let n = 30; n < 37; n++) {
-    const row = structuredClone(seed.impacts.g_damage0001[0]);
-    row.id = `review_${n}_en_live`;
-    row.consumer.hash = n;
-    row.review.consumer.hash = n;
-    row.variant = n;
-    seed.impacts.g_damage0001.push(row);
-  }
   return seed;
 }
 const edit = (expectedHead = fixtureHead(1)) => ({
@@ -42,78 +23,25 @@ const edit = (expectedHead = fixtureHead(1)) => ({
   },
 });
 
-it('reads the whole catalogue once and fetches reviews only for the opened entry', async () => {
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, pagedSeed());
+it('shares catalogue and opened-entry reads', async () => {
+  const fixture = createGlobalsFixture(pagedSeed());
   const catalog = vi.fn(fixture.catalog);
-  const reviews = vi.spyOn(fixture.transport, 'reviews');
   const entry = vi.spyOn(fixture.transport, 'entry');
-  const listed = vi.fn();
-  const service = createGlobalsService(fixture.transport, {
-    destinations: ['live', 'saved'],
-    catalog,
-    onCatalog: listed,
-  });
+  const service = createGlobalsService(fixture.transport, { catalog });
   const first = service.readCatalog!();
   expect(service.readCatalog!()).toBe(first);
-  const result = await first;
-  expect(result.kind).toBe('ok');
-  if (result.kind !== 'ok') return;
-  expect(result.value.entries).toHaveLength(7);
-  expect(result.value.impacts).toEqual({});
-  expect(result.value.sync.g_damage0001.status).toBe('current');
-  expect(listed.mock.calls.map(([entries]) => entries.length)).toEqual([7]);
-  await service.readCatalog!();
-  expect(catalog).toHaveBeenCalledTimes(1);
+  const listed = await first;
+  expect(listed.kind === 'ok' && listed.value.entries).toHaveLength(7);
   expect(entry).not.toHaveBeenCalled();
-  expect(reviews).not.toHaveBeenCalled();
-  const opening = service.readEntry('g_damage0001');
-  expect(service.readEntry('g_damage0001')).toBe(opening);
-  const opened = await opening;
-  expect(opened.kind).toBe('ok');
-  if (opened.kind !== 'ok') return;
+  const opened = service.readEntry('g_damage0001');
+  expect(service.readEntry('g_damage0001')).toBe(opened);
+  expect((await opened).kind).toBe('ok');
   expect(entry.mock.calls).toEqual([['g_damage0001']]);
-  // Every review page of the opened entry, from p0 (requested alongside the entry read).
-  expect(reviews.mock.calls).toEqual([
-    ['g_damage0001', 'p0'],
-    ['g_damage0001', 'p1'],
-    ['g_damage0001', 'p2'],
-  ]);
-  expect(opened.value.impacts.g_damage0001).toHaveLength(9);
+  expect(catalog).toHaveBeenCalledTimes(1);
 });
 
-it.each(['sync-pending', 'sync-failed'] as const)(
-  'does not request unavailable reviews during %s and reads them once sync is current',
-  async (status) => {
-    const seed = structuredClone(globalFixtureSnapshot);
-    for (const state of [...Object.values(seed.sync), ...Object.values(seed.destinationSync)]) {
-      state.status = status;
-      state.causeIds = ['waiting'];
-    }
-    const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, seed);
-    const reviews = vi.spyOn(fixture.transport, 'reviews');
-    const result = await fixture.service.read();
-    expect(result.kind).toBe('ok');
-    if (result.kind !== 'ok') return;
-    expect(result.value.sync.g_damage0001.status).toBe(status);
-    expect(result.value.impacts.g_damage0001).toBeUndefined();
-    const opened = await fixture.service.readEntry('g_damage0001');
-    expect(opened.kind).toBe('ok');
-    if (opened.kind !== 'ok') return;
-    expect(opened.value.impacts.g_damage0001).toEqual([]);
-    expect(reviews).not.toHaveBeenCalled();
-    fixture.controls.syncOutcome = 'current';
-    const current = await fixture.service.read();
-    expect(current.kind).toBe('ok');
-    if (current.kind !== 'ok') return;
-    expect(current.value.sync.g_damage0001.status).toBe('current');
-    expect(current.value.impacts.g_damage0001).toBeUndefined();
-    await fixture.service.readEntry('g_damage0001');
-    expect(reviews).toHaveBeenCalledWith('g_damage0001', 'p0');
-  },
-);
-
-it('takes the head and sync state for writes from the opened entry, not an older catalogue', async () => {
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] });
+it('takes the head for writes from the opened entry, not an older catalogue', async () => {
+  const fixture = createGlobalsFixture();
   const bundleHead = fixtureHead(7);
   // The bundle lags: older head, older body, and sync shown current at that head.
   const stale = async (): Promise<GlobalResult<GlobalCatalog>> => {
@@ -124,7 +52,6 @@ it('takes the head and sync state for writes from the opened entry, not an older
     return result;
   };
   const service = createGlobalsService(fixture.transport, {
-    destinations: ['live', 'saved'],
     catalog: stale,
   });
   const listed = await service.read();
@@ -140,39 +67,13 @@ it('takes the head and sync state for writes from the opened entry, not an older
   expect(opened.value.entries[0].definitions.en?.body).toBe(
     globalFixtureSnapshot.entries[0].definitions.en?.body,
   );
-  expect(opened.value.impacts.g_damage0001).toHaveLength(2);
   expect((await service.mutate(edit())).kind).toBe('ok');
 });
 
-it('drops reviews read at an older head when an opened entry reports a newer head', async () => {
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] });
-  await fixture.service.read();
-  const first = await fixture.service.readEntry('g_damage0001');
-  if (first.kind !== 'ok') throw new Error('Missing entry');
-  expect(first.value.impacts.g_damage0001).toBeDefined();
-  const original = fixture.transport.entry.bind(fixture.transport);
-  vi.spyOn(fixture.transport, 'entry').mockImplementation(async (id) => {
-    const result = await original(id);
-    if (result.kind === 'ok') result.value.head = fixtureHead(99);
-    return result;
-  });
-  const reviews = fixture.transport.reviews.bind(fixture.transport);
-  vi.spyOn(fixture.transport, 'reviews').mockImplementation(async (id, cursor) => {
-    const result = await reviews(id, cursor);
-    if (result.kind === 'ok') result.value.head = fixtureHead(99);
-    return result;
-  });
-  const second = await fixture.service.readEntry('g_title00001');
-  if (second.kind !== 'ok') throw new Error(`Missing entry: ${second.message}`);
-  expect(second.value.head).toBe(fixtureHead(99));
-  expect(second.value.impacts.g_damage0001).toBeUndefined();
-});
-
 it('reports a save receipt so the tab can keep the saved entry until the bundle catches up', async () => {
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] });
+  const fixture = createGlobalsFixture();
   const saved = vi.fn();
   const service = createGlobalsService(fixture.transport, {
-    destinations: ['live', 'saved'],
     catalog: fixture.catalog,
     initialSnapshot: globalFixtureSnapshot,
     onEntrySaved: saved,
@@ -185,15 +86,13 @@ it('reports a save receipt so the tab can keep the saved entry until the bundle 
   expect(head).toBe(result.value.head);
 });
 
-it('merges a bounded changed-entry receipt without reading the catalogue or other reviews', async () => {
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] });
+it('merges a bounded changed-entry receipt without reading the catalogue', async () => {
+  const fixture = createGlobalsFixture();
   const catalog = vi.fn(fixture.catalog);
   const service = createGlobalsService(fixture.transport, {
-    destinations: ['live', 'saved'],
     catalog,
     initialSnapshot: globalFixtureSnapshot,
   });
-  const reviews = vi.spyOn(fixture.transport, 'reviews');
   const mutate = vi.spyOn(fixture.transport, 'mutate');
   const result = await service.mutate(edit());
   expect(result.kind).toBe('ok');
@@ -206,68 +105,12 @@ it('merges a bounded changed-entry receipt without reading the catalogue or othe
   expect(wire.value).toHaveProperty('entry');
   expect(result.value.entries[0].definitions.en?.body).toBe('25%');
   expect(result.value.entries[1]).toEqual(globalFixtureSnapshot.entries[1]);
-  expect(result.value.impacts).toEqual(globalFixtureSnapshot.impacts);
-  expect(result.value.sync.g_title00001.status).toBe('sync-pending');
-  expect(result.value.destinationSync.live.status).toBe('sync-pending');
-  expect(
-    canAcknowledgeGlobal(result.value, 'g_damage0001', result.value.impacts.g_damage0001[0]),
-  ).toBe(false);
   expect(catalog).not.toHaveBeenCalled();
-  expect(reviews).not.toHaveBeenCalled();
-});
-
-it('patches the audited row in every cached cause group from the small acknowledgement receipt', async () => {
-  const seed = structuredClone(globalFixtureSnapshot);
-  const row = seed.impacts.g_damage0001[0];
-  row.causes.push({ globalId: 'g_title00001', beforeRevision: 'r0', afterRevision: 'r1' });
-  seed.impacts.g_title00001 = [row];
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, seed);
-  const mutate = vi.spyOn(fixture.transport, 'mutate');
-  const result = await fixture.service.mutate({
-    expectedHead: seed.head,
-    mutation: {
-      operation: 'acknowledge',
-      id: 'g_damage0001',
-      consumerId: row.id,
-      contentDigest: row.review.contentDigest,
-      dependencyDigest: row.review.dependencyDigest,
-      impactDigest: row.impactDigest,
-      decision: 'no-text-change',
-    },
-  });
-  expect(result.kind).toBe('ok');
-  if (result.kind !== 'ok') return;
-  expect(globalReviewState(result.value.impacts.g_damage0001[0])).toBe('acknowledged');
-  expect(globalReviewState(result.value.impacts.g_title00001[0])).toBe('acknowledged');
-  const wire = await mutate.mock.results[0].value;
-  if (wire.kind !== 'ok') throw new Error('Missing audit receipt');
-  expect(wire.value).toHaveProperty('consumerId');
-  expect(wire.value).not.toHaveProperty('entry');
-  expect(wire.value).not.toHaveProperty('impacts');
-});
-
-it('does not publish partial review pages when a head or source pin changes', async () => {
-  for (const drift of ['head', 'sources'] as const) {
-    const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, pagedSeed());
-    await fixture.service.read();
-    const original = fixture.transport.reviews.bind(fixture.transport);
-    vi.spyOn(fixture.transport, 'reviews').mockImplementation(async (id, cursor) => {
-      const page = await original(id, cursor);
-      if (page.kind === 'ok' && cursor === 'p1') {
-        if (drift === 'head') page.value.head = fixtureHead(999);
-        else page.value.sources = { ...fixtureSources, aliases: '9'.repeat(40) };
-      }
-      return page;
-    });
-    expect((await fixture.service.readEntry('g_damage0001')).kind).toBe('conflict');
-    expect((await fixture.service.mutate(edit())).kind).toBe('ok');
-  }
 });
 
 it('rejects a catalogue with duplicate identities without replacing a known snapshot', async () => {
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, pagedSeed());
+  const fixture = createGlobalsFixture(pagedSeed());
   const service = createGlobalsService(fixture.transport, {
-    destinations: ['live', 'saved'],
     initialSnapshot: globalFixtureSnapshot,
     catalog: async () => {
       const result = await fixture.catalog();
@@ -280,9 +123,8 @@ it('rejects a catalogue with duplicate identities without replacing a known snap
 });
 
 it('passes a catalogue refusal through and keeps the last complete snapshot', async () => {
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] });
+  const fixture = createGlobalsFixture();
   const service = createGlobalsService(fixture.transport, {
-    destinations: ['live', 'saved'],
     initialSnapshot: globalFixtureSnapshot,
     catalog: async () => ({
       kind: 'retry',
@@ -299,11 +141,10 @@ it('passes a catalogue refusal through and keeps the last complete snapshot', as
 });
 
 it('ignores a late refresh after a newer mutation delta is merged', async () => {
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] });
+  const fixture = createGlobalsFixture();
   const oldCatalog = await fixture.catalog();
   let release!: (value: typeof oldCatalog) => void;
   const service = createGlobalsService(fixture.transport, {
-    destinations: ['live', 'saved'],
     initialSnapshot: globalFixtureSnapshot,
     catalog: () =>
       new Promise((resolve) => {
@@ -321,7 +162,7 @@ it('ignores a late refresh after a newer mutation delta is merged', async () => 
 });
 
 it('propagates transport refusals and refuses foreign entry receipts', async () => {
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] });
+  const fixture = createGlobalsFixture();
   const mutate = vi.spyOn(fixture.transport, 'mutate');
   mutate.mockResolvedValueOnce({ kind: 'forbidden', message: 'Role changed.' });
   expect(await fixture.service.mutate(edit())).toEqual({
@@ -332,46 +173,4 @@ it('propagates transport refusals and refuses foreign entry receipts', async () 
   if (entry.kind !== 'ok') throw new Error('Missing fixture entry');
   mutate.mockResolvedValueOnce(entry);
   expect((await fixture.service.mutate(edit())).kind).toBe('invalid');
-});
-
-it('an acknowledgement for B cannot refuse an accepted but unread rename of A', async () => {
-  const seed = structuredClone(globalFixtureSnapshot);
-  const [a, b] = seed.entries;
-  const row = structuredClone(seed.impacts[a.id][0]);
-  row.id = 'review_b';
-  row.causes = [{ globalId: b.id, beforeRevision: 'r0', afterRevision: 'r1' }];
-  row.review.causes = structuredClone(row.causes);
-  seed.impacts[b.id] = [row];
-  const fixture = createGlobalsFixture({ role: 'editor', languages: [] }, seed);
-  const queued = await fixture.service.mutate({
-    expectedHead: seed.head,
-    mutation: { operation: 'rename', id: a.id, revision: a.revision, name: 'Harm' },
-  });
-  expect(queued.kind).toBe('ok');
-  // The publisher accepts A's rename; this tab has not read A since.
-  fixture.controls.syncOutcome = 'current';
-  const authoritative = await fixture.catalog();
-  expect(authoritative.kind === 'ok' && authoritative.value.entries[0].name).toBe('Harm');
-  const opened = await fixture.service.readEntry(b.id);
-  if (opened.kind !== 'ok') throw new Error(opened.message);
-  expect(opened.value.renameIntents?.[a.id].status).toBe('queued');
-  const current = opened.value.impacts[b.id][0];
-  const acknowledged = await fixture.service.mutate({
-    expectedHead: opened.value.head,
-    mutation: {
-      operation: 'acknowledge',
-      id: b.id,
-      consumerId: current.id,
-      contentDigest: current.review.contentDigest,
-      dependencyDigest: current.review.dependencyDigest,
-      impactDigest: current.impactDigest,
-      decision: 'no-text-change',
-    },
-  });
-  if (acknowledged.kind !== 'ok') throw new Error(acknowledged.message);
-  expect(acknowledged.value.renameIntents?.[a.id].status).toBe('queued');
-  // A's own Worker read settles it: accepted, so the intent clears without a report.
-  const settled = await fixture.service.readEntry(a.id);
-  if (settled.kind !== 'ok') throw new Error(settled.message);
-  expect(settled.value.renameIntents?.[a.id]).toBeUndefined();
 });

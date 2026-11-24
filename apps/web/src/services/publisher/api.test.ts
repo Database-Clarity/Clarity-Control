@@ -1,4 +1,4 @@
-import { globalsInPlacePublishContract, publicationSyncPendingCode } from '@clarity/core';
+import { globalsInPlacePublishContract } from '@clarity/core';
 import { expect, it, vi } from 'vitest';
 import { apiRequest } from '../api';
 import { postPublish } from './api';
@@ -62,7 +62,7 @@ it('returns the named terminal reason for a changed selection', async () => {
 it.each([
   { status: 409, error: 'Tooltip 10 changed since review' },
   { status: 502, error: 'Upstream request failed' },
-  { status: 409, error: 'Sync pending', details: { code: publicationSyncPendingCode } },
+  { status: 409, error: 'Operation refused', details: { code: 'operation-refused' } },
 ])(
   'preserves Worker errors and optional retry details ($status $error)',
   async ({ status, error, details }) => {

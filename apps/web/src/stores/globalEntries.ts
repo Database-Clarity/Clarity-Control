@@ -56,13 +56,11 @@ async function bundleCatalog(): Promise<GlobalResult<GlobalCatalog>> {
   if (typeof bundle === 'string') return { kind: 'retry', message: bundle };
   if (!bundle.globals) {
     unusable.add(bundle);
-    return { kind: 'retry', message: 'Sync pending: global metadata is incomplete' };
+    return { kind: 'retry', message: 'The globals catalogue is unavailable. Refresh to try again.' };
   }
   return {
     kind: 'ok',
     value: {
-      ...bundle.globals.sync,
-      version: 1,
       head: bundle.sourceCommit,
       entries: applySavedGlobals(bundle, bundle.globals.entries),
     },

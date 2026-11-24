@@ -81,8 +81,6 @@ export function globalEntries(
     entry.part = {
       kind: pending.kind,
       name: pending.name,
-      unit: entry,
-      names: [pending.name],
       published: {
         status: 'ready',
         tooltip: pending.change === 'new' ? null : before.tooltip,

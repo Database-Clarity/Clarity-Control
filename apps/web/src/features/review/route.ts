@@ -1,11 +1,11 @@
 import { redirect, type LoaderFunctionArgs } from 'react-router-dom';
 import { useDataStore } from '../../stores/data';
-import { reviewRows, routedRow, rowKey, unresolvedRow } from './globalRows';
+import { routedRow, rowKey } from './globalRows';
 import { preparedPending, type PendingTooltip } from './model';
 import { acknowledgedGlobals, acknowledgedMarkers } from './session';
 import { useAuthStore } from '../../stores/auth';
 import { apiUrl } from '../../services/api';
-import { loadPublished, publishedRows, usePublished } from './published';
+import { loadPublished, publishedRows } from './published';
 
 export function initialReviewParams(
   params: URLSearchParams,
@@ -22,8 +22,6 @@ export function initialReviewParams(
       )
     : pool;
   const requestedHash = params.get('hash');
-  if (requestedHash && unresolvedRow(entries, requestedHash, usePublished.getState().byHash))
-    return new URLSearchParams(params);
   const requested =
     requestedHash === null
       ? undefined
@@ -51,7 +49,7 @@ export function reviewRoute({ request }: LoaderFunctionArgs) {
   if (!data) return null;
   const entries = preparedPending(data, acknowledgedMarkers(data), acknowledgedGlobals(data));
   if (!entries) return null;
-  const next = initialReviewParams(params, reviewRows(entries, usePublished.getState().byHash));
+  const next = initialReviewParams(params, entries);
   // Finish canonical routing before mounting: a post-mount history replacement
   // flushes the newly inserted workspace layout and renders its parent again.
   if (next.toString() !== params.toString())

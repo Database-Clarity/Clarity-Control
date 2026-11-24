@@ -8,7 +8,7 @@ import { clearSavedOverlay } from './savedOverlay';
 import { globalFixtureSnapshot } from '../../test/globals-entries-fixture';
 import type { GlobalEntry } from '../services/globals';
 
-const transport = vi.hoisted(() => ({ entry: vi.fn(), reviews: vi.fn(), mutate: vi.fn() }));
+const transport = vi.hoisted(() => ({ entry: vi.fn(), mutate: vi.fn() }));
 vi.mock('../services/globalsHttp', () => ({ createGlobalsHttpTransport: () => transport }));
 const user = { id: 1, login: 'alice', role: 'editor' as const };
 const head = 'a'.repeat(40);
@@ -69,7 +69,6 @@ it.each(['maintainer', 'editor', 'translator', 'trial'] as const)(
     expect(useGlobalIdentities.getState().status).toBe('ready');
     expect(ids()).toEqual([damage.id, title.id]);
     expect(transport.entry).not.toHaveBeenCalled();
-    expect(transport.reviews).not.toHaveBeenCalled();
   },
 );
 
@@ -143,7 +142,7 @@ it('says the catalogue is unavailable when the bundle has none, keeps the last l
   expect((await globalsSession().service.read()).kind).toBe('retry');
   expect(useGlobalIdentities.getState()).toMatchObject({
     status: 'failed',
-    error: 'Sync pending: global metadata is incomplete',
+    error: 'The globals catalogue is unavailable. Refresh to try again.',
     identities: previous,
   });
   // Retry: the same bundle is never reread; the data loader's background refresh fetches anew.
@@ -182,7 +181,7 @@ it('keeps saying unavailable when the reloaded bundle still has no catalogue', a
   expect(load).toHaveBeenCalledTimes(2);
   expect(useGlobalIdentities.getState()).toMatchObject({
     status: 'failed',
-    error: 'Sync pending: global metadata is incomplete',
+    error: 'The globals catalogue is unavailable. Refresh to try again.',
   });
 });
 

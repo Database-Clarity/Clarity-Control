@@ -36,8 +36,7 @@ export interface PublishOp {
   status: OpStatus;
   /** When the Worker first said "queued"; drives the waiting threshold and the auto-kick. */
   acceptedAt?: number;
-  /** First proof wait for this request, shared across tabs and reloads. */
-  syncPendingSince?: number;
+  /** When this tab last asked the publisher to process this request. */
   kickedAt?: number;
   polledAt?: number;
   /** Plain-language reason for `failed`/`stale`/`rejected` that originates in the client. */

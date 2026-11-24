@@ -41,7 +41,7 @@ export interface PendingTooltip {
   pushed?: string;
   inactiveChange?: 'remove' | 'restore';
   inactiveAliases?: number[];
-  /** A pending global, or Review's row for one entry of a globals file (never a publish unit). */
+  /** The pending definition of a global row. */
   part?: GlobalPart;
 }
 
@@ -176,7 +176,7 @@ async function computePending(
       (!isTextlessDescription(tooltip) || isMovedInactive(tooltip.hash, moves)) &&
       resolveAlias(tooltip.hash, data.aliases) === tooltip.hash &&
       // Globals filled into tooltips have no files of their own to publish.
-      !(data.bundle.globalsPending && globalAggregates.includes(tooltip.hash)),
+      !globalAggregates.includes(tooltip.hash),
   );
   const digests = await fingerprintDigests(tooltips, activeAliases(data.aliases, moves));
   const removals = new Map(
@@ -196,7 +196,6 @@ async function computePending(
     const item = data.items[tooltip.hash];
     const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
     const category = categories.get(categoryId);
-    const global = categoryId === 'none' && globalAggregates.includes(tooltip.hash);
     const removing = isMovedInactive(tooltip.hash, moves);
     const restoring =
       !removing && removals.get(tooltip.hash) === pushedMarker && pushedMarker !== undefined;
@@ -206,8 +205,8 @@ async function computePending(
     return {
       tooltip,
       name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
-      category: global ? 'Globals' : (category ?? categoryDisplay(categoryId)).label,
-      categoryId: global ? '~globals' : categoryId,
+      category: (category ?? categoryDisplay(categoryId)).label,
+      categoryId,
       categoryOrder: (category ?? categoryDisplay(categoryId)).order,
       markerOnly:
         !removing &&

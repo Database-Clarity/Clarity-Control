@@ -1,5 +1,5 @@
 import { previousCategoryLabel } from '../../services/categoryLabels';
-import { rowKey, unitCount, type RowKey } from './globalRows';
+import { rowKey, type RowKey } from './globalRows';
 import type { Kind } from './kinds';
 import type { PendingTooltip } from './model';
 
@@ -13,10 +13,8 @@ export interface QueueGroup {
   kind: 'group';
   id: string;
   label: string;
-  /** Changes in the group after filters; the rows of one globals file are one change. */
+  /** Changes in the group after filters. */
   count: number;
-  /** Says which rows are ticked together. */
-  note?: string;
   /** Publishable hashes in the group, what its select-all checkbox picks (never leftovers). */
   publishable: number[];
   collapsed: boolean;
@@ -35,7 +33,7 @@ export interface QueueView {
   ordered: PendingTooltip[];
   /** Keys of `ordered` rows that are shown, i.e. not inside a collapsed group. */
   shown: Set<RowKey>;
-  /** Content rows; `unitCount` gives the changes they stand for. */
+  /** Number of content rows after filters. */
   contentCount: number;
   markerCount: number;
 }
@@ -53,19 +51,6 @@ export function matchesFilter(
   return `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
     .toLowerCase()
     .includes(query.toLowerCase());
-}
-
-/** The rows of one globals file share a tick; short, so a narrow list still shows it. */
-function togetherNote(rows: readonly PendingTooltip[]): string | undefined {
-  const files = new Map<number, string>();
-  for (const { tooltip, part } of rows)
-    if (part && part.names.length > 1) files.set(tooltip.hash, part.kind);
-  if (!files.size) return undefined;
-  if (files.size > 1) return 'each kind ticked together';
-  const [[hash, kind]] = [...files] as [[number, string]];
-  return rows.every(({ tooltip }) => tooltip.hash === hash)
-    ? 'ticked together'
-    : `${kind} ticked together`;
 }
 
 /** Leftovers: hidden (the list's "Show" line), or shown as one group, collapsed or open. */
@@ -117,8 +102,8 @@ export function queueView(
       kind: 'group',
       id,
       label: rows[0]!.category,
-      count: unitCount(rows),
-      note: togetherNote(rows),
+      count: rows.length,
+
       publishable: [
         ...new Set(
           rows.filter(({ unpublishable }) => !unpublishable).map(({ tooltip }) => tooltip.hash),

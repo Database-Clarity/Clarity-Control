@@ -4,7 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { publicationSyncPendingCode, publishableHash, type Tooltip } from '@clarity/core';
+import { publishableHash, type Tooltip } from '@clarity/core';
 import { Layout } from '../navigation/Layout';
 import { ReviewPage } from './ReviewPage';
 import { useDataStore } from '../../stores/data';
@@ -259,153 +259,7 @@ it('loads a manually included migration leftover before confirming a removal sel
   expect(posts()).toHaveLength(0);
 });
 
-it.each([false, true])(
-  'checks a pending aggregate before confirmation when the selection imports it (%s)',
-  async (importsExports) => {
-    bundle.tooltips[1] = {
-      ...tooltip,
-      hash: 1,
-      custom: { name: 'Global exports', categoryId: 'other' },
-    };
-    if (importsExports) bundle.tooltips[10]!.text.en!.text = 'import main from 1';
-    await mount();
-    await act(async () =>
-      host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
-    );
-    if (importsExports) {
-      await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' })));
-      expect(host.querySelector('dialog[open]')).toBeNull();
-      expect(host.textContent).toContain('Include Global exports before publishing.');
-      expect(posts()).toHaveLength(0);
-      await act(async () =>
-        host.querySelector<HTMLInputElement>('input[data-review-toggle="1"]')!.click(),
-      );
-    }
-    await openPublish();
-    const dialog = host.querySelector('dialog[open]')!;
-    expect(dialog.textContent).toContain('Tooltip 10');
-    expect(dialog.textContent?.includes('Global exports')).toBe(importsExports);
-    await click('Cancel');
-    expect(posts()).toHaveLength(0);
-    await openPublish();
-    await click(importsExports ? 'Publish 2' : 'Publish 1');
-    await waitFor(() => expect(posts()).toHaveLength(1));
-    expect(posts()[0]!.body).toMatchObject({ hashes: importsExports ? [1, 10] : [10] });
-  },
-);
-
-it('lists each export of the globals file, ticks them together, and publishes the one file', async () => {
-  const text = (word: string) =>
-    ['anti_barrier', 'overload', 'unstoppable']
-      .map((name) => `${word} ${name} (\nText of ${name}\n)`)
-      .join('\n\n');
-  const file = (word: string): Tooltip => ({
-    hash: 1,
-    custom: { name: 'Global exports', categoryId: 'none' },
-    text: { en: { ...tooltip.text.en!, text: text(word) } },
-    associated: [],
-  });
-  bundle.tooltips = { 1: file('export') };
-  // A change after the file, which a decision on it moves on to.
-  bundle.tooltips[2] = {
-    ...file('export'),
-    hash: 2,
-    custom: { name: 'Global variables', categoryId: 'none' },
-    text: { en: { ...tooltip.text.en!, text: 'var a = 1' } },
-  };
-  bundle.pushed = { 1: 'live-marker' };
-  const fallback = vi.mocked(fetch).getMockImplementation()!;
-  vi.mocked(fetch).mockImplementation((url, init) =>
-    String(url).endsWith('/history/1?live=1')
-      ? Promise.resolve(
-          Response.json({ tooltip: file('export hidden'), pushedHash: 'live-marker' }),
-        )
-      : fallback(url, init),
-  );
-  await mount();
-  const rows = () =>
-    [...host.querySelectorAll<HTMLAnchorElement>('a[data-review-hash]')].map(
-      (row) => row.textContent,
-    );
-  await waitFor(() =>
-    expect(rows()).toEqual([
-      'anti_barrierOutput unchanged',
-      'overloadOutput unchanged',
-      'unstoppableOutput unchanged',
-      'aNew',
-    ]),
-  );
-  expect(host.textContent).not.toContain('Global exports');
-  expect(host.textContent).toContain('2 changes waiting to go live');
-  expect(host.textContent).toContain('Globals · exports ticked together');
-  const detail = () => host.querySelector('section[aria-label="Selected change"]')!;
-  expect(detail().textContent).toContain(
-    'Output unchanged. The published version hides this export; its text is the same.',
-  );
-  expect(detail().querySelector('ins, del')).toBeNull();
-  expect(
-    host.querySelector<HTMLAnchorElement>('a[href="/t/1?global=anti_barrier"]'),
-  ).not.toBeNull();
-
-  // Include on one export ticks all three, says so, and moves past the file.
-  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' })));
-  await waitFor(() => expect(host.querySelector('article h2')?.textContent).toBe('overload'));
-  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })));
-  const boxes = () => [...host.querySelectorAll<HTMLInputElement>('input[data-review-toggle="1"]')];
-  expect(boxes().map(({ checked }) => checked)).toEqual([true, true, true]);
-  expect(host.textContent).toContain(
-    'anti_barrier, overload, and unstoppable: included in the publish.',
-  );
-  expect(host.textContent).toContain('1 included');
-  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })));
-  await waitFor(() => expect(host.querySelector('article h2')?.textContent).toBe('a'));
-  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'u' })));
-  expect(boxes().map(({ checked }) => checked)).toEqual([false, false, false]);
-  await waitFor(() => expect(host.querySelector('article h2')?.textContent).toBe('overload'));
-
-  await act(async () => boxes()[2]!.click());
-  expect(boxes().map(({ checked }) => checked)).toEqual([true, true, true]);
-  await openPublish();
-  const dialog = host.querySelector('dialog[open]')!;
-  expect(dialog.textContent).toContain('1 tooltip with unchanged output goes live');
-  expect([...dialog.querySelectorAll('li')].map((row) => row.textContent)).toEqual([
-    'anti_barrier, overload, and unstoppableGlobals · 1Output unchanged',
-  ]);
-  await click('Publish 1');
-  await waitFor(() => expect(posts()).toHaveLength(1));
-  expect(posts()[0]!.body).toMatchObject({
-    hashes: [1],
-    expected: { 1: await publishableHash(file('export')) },
-  });
-});
-
-it('opens the export a cold filtered link names once its word is known', async () => {
-  const file = (word: string): Tooltip => ({
-    hash: 1,
-    custom: { name: 'Global exports', categoryId: 'none' },
-    text: {
-      en: {
-        ...tooltip.text.en!,
-        text: ['first', 'last'].map((name) => `${word} ${name} (\nText\n)`).join('\n\n'),
-      },
-    },
-    associated: [],
-  });
-  bundle.tooltips = { 1: file('export') };
-  bundle.pushed = { 1: 'deep-link-marker' };
-  const fallback = vi.mocked(fetch).getMockImplementation()!;
-  vi.mocked(fetch).mockImplementation(async (url, init) => {
-    if (!String(url).endsWith('/history/1?live=1')) return fallback(url, init);
-    // The rows mount, filtered out, before their published file arrives.
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    return Response.json({ tooltip: file('export hidden'), pushedHash: 'deep-link-marker' });
-  });
-  await mount(`/review?hash=${encodeURIComponent('1:last')}&kind=Output+unchanged`);
-  await waitFor(() => expect(host.querySelector('article h2')?.textContent).toBe('last'));
-  expect(host.querySelectorAll('a[data-review-hash^="1:"]')).toHaveLength(2);
-});
-
-it('follows one reviewed request through Checking, Queued, and Published', async () => {
+it('follows one reviewed request through Queued and Published', async () => {
   await mount();
   expect(host.textContent).toContain('1 change waiting to go live');
   await selectAll();
@@ -415,30 +269,12 @@ it('follows one reviewed request through Checking, Queued, and Published', async
   expect(dialog.textContent).toContain('1 new tooltip goes live for everyone using Clarity.');
   expect(dialog.textContent).toContain('Tooltip 10');
   vi.useFakeTimers({ toFake: ['Date'] });
-  const accepted = postAnswer;
-  postAnswer = () =>
-    Response.json(
-      { error: 'Sync pending', details: { code: publicationSyncPendingCode } },
-      { status: 409 },
-    );
   await click('Publish 1');
   await waitFor(() => expect(posts()).toHaveLength(1));
   const body = posts()[0]!.body as { opId: string; hashes: number[]; expected: object };
   expect(Object.keys(body).sort()).toEqual(['expected', 'hashes', 'opId']);
   expect(body.hashes).toEqual([10]);
   expect(body.expected).toEqual({ 10: await publishableHash(tooltip) });
-  await waitFor(() => {
-    const activity = host.querySelector('[aria-label="Publish activity"]')!;
-    expect(activity.textContent).toContain(
-      'Waiting for saved changes to be checked. Retrying automatically.',
-    );
-    expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
-  });
-  postAnswer = accepted;
-  vi.setSystemTime(Date.now() + publishTiming.pollMs(0) + 500);
-  await act(async () => void (await publishDriver.refresh()));
-  await waitFor(() => expect(posts()).toHaveLength(2));
-  expect(posts()[1]!.body).toEqual(body);
   // The legacy path is never used with the flag on.
   expect(calls.some((c) => c.path === '/push-live')).toBe(false);
   await waitFor(() => {

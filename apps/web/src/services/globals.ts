@@ -1,261 +1,62 @@
-import type {
-  GlobalImpact,
-  GlobalImpactChange,
-  GlobalImpactRow,
-  GlobalImpactSnapshot,
-  GlobalKind,
-  GlobalRecord,
-  GlobalReview,
-  Lang,
-} from '@clarity/core';
+import type { GlobalKind, GlobalRecord, Lang } from '@clarity/core';
 
-// UI service and browser projection boundary. Live transport/mounting waits for S2B/S5 and the owner gates.
 export type EntryKind = GlobalKind;
 export type GlobalActor = {
   role: 'trial' | 'translator' | 'editor' | 'maintainer';
   languages: Lang[];
 } | null;
 export type GlobalEntry = GlobalRecord;
-/** S1 impact and review records, plus non-authoritative navigation/display metadata. */
-export interface GlobalConsumerView extends GlobalImpactRow {
-  id: string;
-  variant: number;
-  name: string;
-  category: string;
-  line: number | null;
-  path: string[] | null;
-  direct: boolean | null;
-  archived: boolean;
-  beforeSource: string;
-  afterSource: string;
-}
-export interface GlobalConsumer extends GlobalConsumerView {
-  review: GlobalReview;
-  impactDigest: string;
-}
-
-export interface GlobalProjectionInput {
-  before: GlobalImpactSnapshot;
-  after: GlobalImpactSnapshot;
-  changes: GlobalImpactChange[];
-  destination: string;
-}
-export interface GlobalProjectionRequest {
-  expectedHead: string;
-  id: string;
-  revision: string;
-  lang: Lang;
-  body: string;
-}
-/** S5 supplies pinned snapshots and display metadata; no HTTP endpoint resolves a draft. */
-export interface GlobalProjectionSource {
-  prepare(request: GlobalProjectionRequest): GlobalProjectionInput;
-  describe(row: GlobalImpactRow, input: GlobalProjectionInput): GlobalConsumerView;
-}
-export type GlobalsImpactRequest = { id: number; input: GlobalProjectionInput };
-export type GlobalsImpactReply = { id: number; result?: GlobalImpact; error?: string };
-export interface GlobalImpactProjector {
-  calculate(input: GlobalProjectionInput, signal?: AbortSignal): Promise<GlobalImpact>;
-  dispose(): void;
-}
-
-/** S1 is synchronous inside the worker: terminating it cancels its CPU work as well as its reply. */
-export function createGlobalImpactProjector(
-  createWorker: () => Worker = () =>
-    new Worker(new URL('./globalsImpact.worker.ts', import.meta.url), { type: 'module' }),
-): GlobalImpactProjector {
-  let cancelActive: (() => void) | undefined;
-  let sequence = 0;
-  return {
-    calculate(input, signal) {
-      cancelActive?.();
-      return new Promise((resolve, reject) => {
-        if (signal?.aborted) {
-          reject(new DOMException('Calculation cancelled.', 'AbortError'));
-          return;
-        }
-        const worker = createWorker();
-        const id = ++sequence;
-        let finished = false;
-        const finish = (callback: () => void) => {
-          if (finished) return;
-          finished = true;
-          worker.terminate();
-          signal?.removeEventListener('abort', cancel);
-          if (cancelActive === cancel) cancelActive = undefined;
-          callback();
-        };
-        const cancel = () =>
-          finish(() => reject(new DOMException('Calculation cancelled.', 'AbortError')));
-        cancelActive = cancel;
-        signal?.addEventListener('abort', cancel, { once: true });
-        worker.onmessage = (event: MessageEvent<GlobalsImpactReply>) => {
-          if (event.data.id !== id) return;
-          finish(() =>
-            event.data.result
-              ? resolve(event.data.result)
-              : reject(new Error(event.data.error ?? 'Projected calculation failed.')),
-          );
-        };
-        worker.onerror = (event) => {
-          event.preventDefault();
-          finish(() => reject(new Error(event.message || 'Projected calculation worker failed.')));
-        };
-        try {
-          worker.postMessage({ id, input } satisfies GlobalsImpactRequest);
-        } catch (error) {
-          finish(() => reject(error));
-        }
-      });
-    },
-    dispose() {
-      cancelActive?.();
-    },
-  };
-}
 export interface GlobalSnapshot {
   head: string;
   entries: GlobalEntry[];
-  impacts: Record<string, GlobalConsumer[]>;
   sourceBodies?: Record<string, Partial<Record<Lang, string>>>;
-  sync: Record<string, GlobalSyncState>;
-  destinationSync: Record<string, GlobalSyncState>;
   renameIntents?: Record<string, GlobalRenameIntent>;
-  sources?: GlobalSourcePins;
-  /** Which entry owns each pending cause; a Retry sends only the selected entry's own. */
-  causeEntries?: Record<string, string>;
 }
-/**
- * A queued rename. When its cause clears, the Worker entry confirms the new name or the UI
- * shows `not-applied` until the rename is requested again.
- */
-export interface GlobalRenameIntent {
+interface GlobalRenameIntent {
   intentId: string;
-  renameCompleted: false;
-  name?: string;
-  status?: 'queued' | 'not-applied';
-}
-export interface GlobalSyncState {
-  status: 'sync-pending' | 'sync-failed' | 'current';
-  lastFailure?: string | null;
-  causeIds: string[];
-}
-const unknownSync: GlobalSyncState = { status: 'sync-pending', causeIds: [] };
-export function globalSyncState(snapshot: GlobalSnapshot, id: string): GlobalSyncState {
-  return snapshot.sync[id] ?? unknownSync;
-}
-export function canAcknowledgeGlobal(
-  snapshot: GlobalSnapshot,
-  id: string,
-  row: GlobalConsumer,
-): boolean {
-  return (
-    globalSyncState(snapshot, id).status === 'current' &&
-    snapshot.destinationSync[row.consumer.destination]?.status === 'current' &&
-    globalReviewState(row) === 'required'
-  );
+  name: string;
+  status: 'queued' | 'not-applied';
 }
 export type GlobalMutation =
   | { operation: 'create'; kind: EntryKind; name: string; lang: Lang; body: string }
   | { operation: 'edit'; id: string; revision: string; lang: Lang; body: string }
   | { operation: 'rename'; id: string; revision: string; name: string }
-  | { operation: 'remove'; id: string; revision: string; lang?: Lang }
-  | {
-      operation: 'acknowledge';
-      id: string;
-      consumerId: string;
-      contentDigest: string;
-      dependencyDigest: string;
-      impactDigest: string;
-      decision: 'no-text-change';
-    };
+  | { operation: 'remove'; id: string; revision: string; lang?: Lang };
 export type GlobalResult<T> =
   | { kind: 'ok'; value: T }
-  | { kind: 'conflict'; message: string }
-  | { kind: 'retry'; message: string }
-  | { kind: 'invalid' | 'forbidden'; message: string };
-type ReadGlobalEntry = (
-  id: string,
-  options?: { reviews?: boolean },
-) => Promise<GlobalResult<GlobalSnapshot>>;
+  | { kind: 'conflict' | 'retry' | 'invalid' | 'forbidden'; message: string };
+
+type ReadGlobalEntry = (id: string) => Promise<GlobalResult<GlobalSnapshot>>;
 export interface GlobalsService {
   read(): Promise<GlobalResult<GlobalSnapshot>>;
-  /** Catalogue-only reads can be shared by the finder and workspace. */
   readCatalog?(): Promise<GlobalResult<GlobalSnapshot>>;
   readEntry?: ReadGlobalEntry;
   mutate(request: {
     expectedHead: string;
     mutation: GlobalMutation;
   }): Promise<GlobalResult<GlobalSnapshot>>;
-  retrySync(request: {
-    expectedHead: string;
-    id: string;
-    causeIds: string[];
-  }): Promise<GlobalResult<GlobalSnapshot>>;
 }
 
-/** Structurally matches S2B model.ts Sources; no browser import of server runtime/context. */
-export interface GlobalSourcePins {
-  authored: string;
-  definitions: string;
-  projections: string;
-  config: string;
-  live: string;
-  upcoming: string;
-  aliases: string;
-  generator: string;
-  fallback: string;
-  resolver: string;
-}
-export interface GlobalHttpState extends GlobalSyncState {
+export type GlobalCatalog = Pick<GlobalSnapshot, 'head' | 'entries'>;
+export interface GlobalEntryDelta {
   head: string;
-  version: 1;
-  sources?: GlobalSourcePins;
-  causeEntries?: Record<string, string>;
-  destinationSync?: GlobalSnapshot['destinationSync'];
-}
-/** The whole catalogue at one head: the editor-data bundle's globals at its sourceCommit. */
-export interface GlobalCatalog extends GlobalHttpState {
-  entries: GlobalEntry[];
-}
-export interface GlobalReviewPage extends GlobalHttpState {
-  consumers: GlobalConsumer[];
-  nextCursor: string | null;
-}
-export interface GlobalEntryDelta extends GlobalHttpState {
   entry: GlobalEntry;
+  causeIds: string[];
   renameCompleted?: false;
   intentId?: string;
 }
-export interface GlobalAuditDelta extends GlobalHttpState {
-  consumerId: string;
-  review: GlobalReview;
-}
-/** Bounded HTTP responses, not whole UI snapshots. S5 supplies authenticated transport. */
 export interface GlobalsTransport {
   entry(id: string): Promise<GlobalResult<GlobalEntryDelta>>;
-  reviews(id: string, cursor: string): Promise<GlobalResult<GlobalReviewPage>>;
-  mutate(
-    request: Parameters<GlobalsService['mutate']>[0],
-  ): Promise<GlobalResult<GlobalEntryDelta | GlobalAuditDelta>>;
-  retrySync(
-    request: Parameters<GlobalsService['retrySync']>[0],
-  ): Promise<GlobalResult<GlobalEntryDelta>>;
+  mutate(request: Parameters<GlobalsService['mutate']>[0]): Promise<GlobalResult<GlobalEntryDelta>>;
 }
 
-/**
- * The catalogue comes whole from `catalog` (the editor-data bundle, at its own head); the opened
- * entry, its reviews, and the head every write expects come from the Worker (readEntry), so a
- * catalogue older than the data head never reaches a save or an acknowledgement.
- */
+/** The bundle supplies the catalogue. The Worker supplies the opened entry and write head. */
 export function createGlobalsService(
   transport: GlobalsTransport,
   options: {
-    destinations?: readonly string[];
     catalog(): Promise<GlobalResult<GlobalCatalog>>;
     initialSnapshot?: GlobalSnapshot;
     onCatalog?(entries: readonly GlobalEntry[]): void;
-    /** A write receipt's entry and head (the saved overlay keeps it until the bundle catches up). */
     onEntrySaved?(entry: GlobalEntry, head: string): void;
   },
 ): GlobalsService & { readEntry: ReadGlobalEntry } {
@@ -263,70 +64,13 @@ export function createGlobalsService(
   let generation = 0;
   let catalogRead: Promise<GlobalResult<GlobalSnapshot>> | undefined;
   let entryRead:
-    | {
-        id: string;
-        reviews: boolean;
-        generation: number;
-        promise: Promise<GlobalResult<GlobalSnapshot>>;
-      }
+    | { id: string; generation: number; promise: Promise<GlobalResult<GlobalSnapshot>> }
     | undefined;
   const conflict = (): GlobalResult<GlobalSnapshot> => ({
     kind: 'conflict',
     message: 'Globals changed. Refresh to load the current snapshot.',
   });
   const invalid = (message: string): GlobalResult<GlobalSnapshot> => ({ kind: 'invalid', message });
-  const state = (header: GlobalHttpState): GlobalSyncState => ({
-    status: header.status,
-    lastFailure: header.lastFailure,
-    causeIds: [...header.causeIds],
-  });
-  const sourceKey = (sources?: GlobalSourcePins) =>
-    sources &&
-    JSON.stringify([
-      sources.authored,
-      sources.definitions,
-      sources.projections,
-      sources.config,
-      sources.live,
-      sources.upcoming,
-      sources.aliases,
-      sources.generator,
-      sources.fallback,
-      sources.resolver,
-    ]);
-  const sameHeader = (a: GlobalHttpState, b: GlobalHttpState) =>
-    a.head === b.head &&
-    a.status === b.status &&
-    a.lastFailure === b.lastFailure &&
-    JSON.stringify(a.causeIds) === JSON.stringify(b.causeIds) &&
-    JSON.stringify(a.destinationSync) === JSON.stringify(b.destinationSync) &&
-    sourceKey(a.sources) === sourceKey(b.sources);
-  /**
-   * `intents`: the one entry whose queued rename this header may settle, from that entry's
-   * own current Worker record; 'none' for the bundle (it may lag) and acknowledgements.
-   */
-  function applyState(next: GlobalSnapshot, header: GlobalHttpState, intents: 'none' | string) {
-    next.head = header.head;
-    next.sources = header.sources;
-    // Cause ownership never changes, so receipts only add to it; current sync has no causes.
-    next.causeEntries =
-      header.status === 'current' ? {} : { ...next.causeEntries, ...header.causeEntries };
-    next.sync = Object.fromEntries(next.entries.map((entry) => [entry.id, state(header)]));
-    next.destinationSync =
-      header.destinationSync ??
-      Object.fromEntries(
-        (options.destinations ?? []).map((destination) => [destination, state(header)]),
-      );
-    if (intents !== 'none')
-      next.renameIntents = Object.fromEntries(
-        Object.entries(next.renameIntents ?? {}).flatMap(([id, intent]) => {
-          if (id !== intents || header.causeIds.includes(intent.intentId)) return [[id, intent]];
-          const entry = next.entries.find((item) => item.id === id);
-          if (!intent.name || !entry || entry.name === intent.name) return [];
-          return [[id, { ...intent, status: 'not-applied' as const }]];
-        }),
-      );
-  }
   function mergeEntry(next: GlobalSnapshot, entry: GlobalEntry) {
     const old = next.entries.findIndex((item) => item.id === entry.id);
     if (old < 0) next.entries.push(entry);
@@ -336,232 +80,112 @@ export function createGlobalsService(
       next.entries[old] = entry;
     }
   }
+  function applyEntry(next: GlobalSnapshot, value: GlobalEntryDelta) {
+    next.head = value.head;
+    mergeEntry(next, value.entry);
+    // Only the Worker's response for this entry can settle its queued rename.
+    const intents = next.renameIntents;
+    const intent = intents?.[value.entry.id];
+    if (intents && intent && !value.causeIds.includes(intent.intentId)) {
+      if (value.entry.name === intent.name) delete intents[value.entry.id];
+      else intent.status = 'not-applied';
+    }
+  }
   function publish(next: GlobalSnapshot, token: number): GlobalResult<GlobalSnapshot> {
     if (token !== generation) return conflict();
     cached = next;
     return { kind: 'ok', value: structuredClone(next) };
   }
-  async function readReviews(
-    id: string,
-    header: GlobalHttpState,
-    token: number,
-    first?: Promise<GlobalResult<GlobalReviewPage>>,
-  ): Promise<GlobalResult<GlobalConsumer[]>> {
-    const consumers: GlobalConsumer[] = [],
-      cursors = new Set<string>(),
-      ids = new Set<string>();
-    let cursor: string | null = 'p0';
-    while (cursor !== null) {
-      if (!/^p\d{1,5}$/.test(cursor) || cursors.has(cursor))
-        return { kind: 'invalid', message: 'Invalid global review cursor.' };
-      cursors.add(cursor);
-      const page: GlobalResult<GlobalReviewPage> = await (cursor === 'p0' && first
-        ? first
-        : transport.reviews(id, cursor));
-      if (token !== generation)
-        return { kind: 'conflict', message: 'A newer globals request replaced this read.' };
-      if (page.kind !== 'ok') return page;
-      if (!sameHeader(header, page.value))
-        return { kind: 'conflict', message: 'Global review pages changed. Refresh again.' };
-      if (page.value.consumers.length > 3 || page.value.consumers.some((row) => ids.has(row.id)))
-        return { kind: 'invalid', message: 'Invalid global review page.' };
-      for (const row of page.value.consumers) {
-        if (ids.has(row.id)) return { kind: 'invalid', message: 'Duplicate global review.' };
-        ids.add(row.id);
-        consumers.push(row);
-      }
-      cursor = page.value.nextCursor;
-    }
-    return { kind: 'ok', value: consumers };
-  }
-  async function delta(
-    request: Parameters<GlobalsService['mutate']>[0] | Parameters<GlobalsService['retrySync']>[0],
-    retry: boolean,
-  ): Promise<GlobalResult<GlobalSnapshot>> {
+
+  async function read() {
     const token = ++generation;
-    if (!cached || request.expectedHead !== cached.head) return conflict();
-    const base = structuredClone(cached);
-    const response = retry
-      ? await transport.retrySync(request as Parameters<GlobalsService['retrySync']>[0])
-      : await transport.mutate(request as Parameters<GlobalsService['mutate']>[0]);
-    if (response.kind !== 'ok') return response;
+    const catalog = await options.catalog();
+    if (catalog.kind !== 'ok') return catalog;
     if (token !== generation) return conflict();
-    const value = response.value;
-    const mutation = 'mutation' in request ? request.mutation : undefined;
-    if ('entry' in value) {
-      const expectedId =
-        mutation?.operation === 'create'
-          ? value.entry.id
-          : mutation && 'id' in mutation
-            ? mutation.id
-            : 'id' in request
-              ? request.id
-              : undefined;
-      if (value.entry.id !== expectedId || mutation?.operation === 'acknowledge')
-        return invalid('Unexpected global entry receipt.');
-      if (
-        mutation?.operation === 'create' &&
-        base.entries.some((entry) => entry.id === value.entry.id)
-      )
-        return invalid('Global create reused an existing identity.');
-      if (mutation && value.status !== 'sync-pending')
-        return invalid('Global admission did not report Sync pending.');
-      if (mutation?.operation === 'rename' && (value.renameCompleted !== false || !value.intentId))
-        return invalid('Rename intent receipt is incomplete.');
-      if (
-        mutation?.operation === 'rename' &&
-        base.entries.find((entry) => entry.id === mutation.id)?.name !== value.entry.name
-      )
-        return invalid('Queued rename changed the name before completion.');
-      mergeEntry(base, value.entry);
-      applyState(base, value, value.entry.id);
-      // A queued rename's receipt carries the unchanged entry; the publisher writes the result.
-      if (mutation && value.renameCompleted !== false)
-        options.onEntrySaved?.(value.entry, value.head);
-      if (value.renameCompleted === false && value.intentId)
-        base.renameIntents = {
-          ...base.renameIntents,
-          [value.entry.id]: {
-            intentId: value.intentId,
-            renameCompleted: false,
-            ...(mutation?.operation === 'rename' ? { name: mutation.name } : {}),
-            status: 'queued',
-          },
-        };
-    } else {
-      if (mutation?.operation !== 'acknowledge' || value.consumerId !== mutation.consumerId)
-        return invalid('Unexpected global review receipt.');
-      if (value.status !== 'current') return invalid('Global acknowledgement is not current.');
-      const ack = value.review.acknowledgement;
-      if (
-        !ack ||
-        ack.contentDigest !== mutation.contentDigest ||
-        ack.dependencyDigest !== mutation.dependencyDigest ||
-        ack.impactDigest !== mutation.impactDigest ||
-        ack.decision !== mutation.decision
-      )
-        return invalid('Global acknowledgement receipt is stale.');
-      let found = false;
-      for (const rows of Object.values(base.impacts))
-        for (const row of rows)
-          if (row.id === value.consumerId) {
-            if (
-              JSON.stringify(row.consumer) !== JSON.stringify(value.review.consumer) ||
-              JSON.stringify(row.causes) !== JSON.stringify(value.review.causes)
-            )
-              return invalid('Global review identity changed.');
-            row.review = value.review;
-            found = true;
-          }
-      if (!found) return conflict();
-      applyState(base, value, 'none');
-    }
-    return publish(base, token);
+    const { head, entries } = catalog.value;
+    if (new Set(entries.map(({ id }) => id)).size !== entries.length)
+      return invalid('Duplicate global identity in catalog.');
+    const next: GlobalSnapshot = {
+      head,
+      entries: structuredClone(entries),
+      sourceBodies: structuredClone(cached?.sourceBodies ?? {}),
+      renameIntents: structuredClone(cached?.renameIntents ?? {}),
+    };
+    for (const entry of entries)
+      if (cached?.entries.find((old) => old.id === entry.id)?.revision !== entry.revision)
+        delete next.sourceBodies![entry.id];
+    options.onCatalog?.([...next.entries]);
+    return publish(next, token);
   }
-  const service: GlobalsService & { readEntry: ReadGlobalEntry } = {
-    async read() {
-      const token = ++generation;
-      const next: GlobalSnapshot = {
-        head: '',
-        entries: [],
-        impacts: {},
-        sync: {},
-        destinationSync: {},
-        sourceBodies: structuredClone(cached?.sourceBodies ?? {}),
-        renameIntents: structuredClone(cached?.renameIntents ?? {}),
-      };
-      const catalog = await options.catalog();
-      if (catalog.kind !== 'ok') return catalog;
-      if (token !== generation) return conflict();
-      const ids = new Set<string>();
-      for (const entry of catalog.value.entries) {
-        if (ids.has(entry.id)) return invalid('Duplicate global identity in catalog.');
-        ids.add(entry.id);
-        next.entries.push(structuredClone(entry));
-        if (
-          cached?.entries.find((old) => old.id === entry.id)?.revision !== entry.revision &&
-          next.sourceBodies
-        )
-          delete next.sourceBodies[entry.id];
-      }
-      // No impacts: opening any entry reads it, its reviews, and the current head (readEntry).
-      next.causeEntries = { ...catalog.value.causeEntries };
-      // The bundle may predate a queued rename's outcome: never settle renames from it.
-      applyState(next, catalog.value, 'none');
-      options.onCatalog?.([...next.entries]);
-      return publish(next, token);
-    },
-    async readEntry(id, { reviews = true } = {}) {
-      const token = ++generation;
-      if (!cached) return conflict();
-      // While sync looks current, the first review page loads alongside the entry; it is used
-      // only if the entry is current too, and only at the entry's head (readReviews checks).
-      const firstReviews =
-        reviews && cached.sync[id]?.status === 'current' ? transport.reviews(id, 'p0') : undefined;
-      const entry = await transport.entry(id);
-      if (entry.kind !== 'ok') return entry;
-      if (entry.value.entry.id !== id) return invalid('Global entry read names another entry.');
-      const next = structuredClone(cached);
-      // A newer head than the catalogue's: reviews read at the older head are no longer current.
-      if (entry.value.head !== cached.head) next.impacts = {};
-      mergeEntry(next, entry.value.entry);
-      // Only the Worker's entry and pending causes can settle this entry's queued rename.
-      applyState(next, entry.value, id);
-      if (!reviews) delete next.impacts[id];
-      else if (entry.value.status === 'current' && !entry.value.entry.tombstone) {
-        const rows = await readReviews(id, entry.value, token, firstReviews);
-        if (rows.kind !== 'ok') return rows;
-        next.impacts[id] = rows.value;
-      } else next.impacts[id] = structuredClone(cached.impacts[id] ?? []);
-      return publish(next, token);
-    },
-    mutate: (request) => delta(request, false),
-    retrySync: (request) => delta(request, true),
-  };
+
+  async function readEntry(id: string) {
+    const token = ++generation;
+    if (!cached) return conflict();
+    const result = await transport.entry(id);
+    if (result.kind !== 'ok') return result;
+    if (token !== generation) return conflict();
+    if (result.value.entry.id !== id) return invalid('Global entry read names another entry.');
+    const next = structuredClone(cached);
+    applyEntry(next, result.value);
+    return publish(next, token);
+  }
   return {
-    ...service,
-    readEntry(id, options) {
-      const reviews = options?.reviews ?? true;
-      if (
-        entryRead?.id === id &&
-        entryRead.reviews === reviews &&
-        entryRead.generation === generation
-      )
-        return entryRead.promise;
-      const pending = service.readEntry(id, options).finally(() => {
-        if (entryRead?.promise === pending) entryRead = undefined;
-      });
-      entryRead = { id, reviews, generation, promise: pending };
-      return pending;
-    },
+    read,
     readCatalog() {
       if (catalogRead) return catalogRead;
       if (cached) return Promise.resolve({ kind: 'ok' as const, value: structuredClone(cached) });
-      const pending = service.read().finally(() => {
+      const pending = read().finally(() => {
         if (catalogRead === pending) catalogRead = undefined;
       });
       catalogRead = pending;
       return pending;
     },
+    readEntry(id) {
+      if (entryRead?.id === id && entryRead.generation === generation) return entryRead.promise;
+      const pending = readEntry(id).finally(() => {
+        if (entryRead?.promise === pending) entryRead = undefined;
+      });
+      entryRead = { id, generation, promise: pending };
+      return pending;
+    },
+    async mutate(request) {
+      const token = ++generation;
+      if (!cached || request.expectedHead !== cached.head) return conflict();
+      const next = structuredClone(cached);
+      const response = await transport.mutate(request);
+      if (response.kind !== 'ok') return response;
+      if (token !== generation) return conflict();
+      const value = response.value;
+      const { mutation } = request;
+      if (mutation.operation === 'create') {
+        if (next.entries.some((entry) => entry.id === value.entry.id))
+          return invalid('Global create reused an existing identity.');
+      } else if (value.entry.id !== mutation.id) return invalid('Unexpected global entry receipt.');
+      if (mutation.operation === 'rename') {
+        if (
+          value.renameCompleted !== false ||
+          !value.intentId ||
+          !value.causeIds.includes(value.intentId)
+        )
+          return invalid('Rename intent receipt is incomplete.');
+        if (next.entries.find((entry) => entry.id === mutation.id)?.name !== value.entry.name)
+          return invalid('Queued rename changed the name before completion.');
+        applyEntry(next, value);
+        (next.renameIntents ??= {})[mutation.id] = {
+          intentId: value.intentId,
+          name: mutation.name,
+          status: 'queued',
+        };
+      } else {
+        if (value.renameCompleted === false) return invalid('Unexpected global entry receipt.');
+        applyEntry(next, value);
+        options.onEntrySaved?.(value.entry, value.head);
+      }
+      return publish(next, token);
+    },
   };
 }
-export function globalReviewState(row: GlobalConsumer): 'required' | 'acknowledged' | 'stale' {
-  const ack = row.review.acknowledgement;
-  if (!ack) return 'required';
-  return ack.contentDigest === row.review.contentDigest &&
-    ack.dependencyDigest === row.review.dependencyDigest &&
-    ack.impactDigest === row.impactDigest
-    ? 'acknowledged'
-    : 'stale';
-}
+
 export function canEditGlobal(actor: GlobalActor, lang: Lang) {
   return !!actor && (actor.role !== 'translator' || actor.languages.includes(lang));
-}
-export function canReviewGlobal(actor: GlobalActor, lang: Lang) {
-  return (
-    !!actor &&
-    (actor.role === 'editor' ||
-      actor.role === 'maintainer' ||
-      (actor.role === 'translator' && lang !== 'en' && actor.languages.includes(lang)))
-  );
 }

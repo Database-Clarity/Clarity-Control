@@ -27,10 +27,6 @@ import {
   publishedOf,
   routedRow,
   rowKey,
-  unitCount,
-  unitName,
-  unresolvedRow,
-  useReviewRows,
   type RowKey,
 } from './globalRows';
 import { rowIdentity } from './globalsPending';
@@ -240,7 +236,7 @@ export function ReviewPage() {
   }, [data, acknowledgments, publishedGlobals, prepared, clearSelection]);
   const list = entries ?? noEntries;
   // What the list shows; what is ticked and published is always an entry of `list`.
-  const rows = useReviewRows(entries ?? null);
+  const rows = list;
   // The published text of every waiting change, once, in the background; then the row words.
   const published = usePublished((state) => state.byHash);
   const classified = useKinds((state) => state.byHash);
@@ -297,13 +293,11 @@ export function ReviewPage() {
   useEffect(() => {
     if (entries) publishSidebar(entries);
   }, [entries]);
-  // A named row the filters may still show (its word is being checked), or that the published
-  // file may still list: its link is kept until that is known.
+  // Keep a named global's link while its classification is still being checked.
   const waitingRow = useMemo(() => {
     if (routedHash === null) return false;
     const row = rows.find((candidate) => String(rowKey(candidate)) === routedHash);
-    if (!row) return unresolvedRow(rows, routedHash, published);
-    if (!row.part || !kindFilter || kinds.get(rowKey(row))) return false;
+    if (!row?.part || !kindFilter || kinds.get(rowKey(row))) return false;
     const status = publishedOf(row, published)?.status;
     return status !== 'error' && status !== 'missing';
   }, [routedHash, rows, published, kindFilter, kinds]);
@@ -398,7 +392,7 @@ export function ReviewPage() {
     setDecisions((stack) => [...stack.slice(-49), { hash, key: rowKey(current), was: included }]);
     setIncluded(hash, !included);
     setMessage({
-      text: `${unitName(current)}: ${included ? 'removed from' : 'included in'} the publish.`,
+      text: `${current.name}: ${included ? 'removed from' : 'included in'} the publish.`,
       hash,
       included: !included,
     });
@@ -417,7 +411,7 @@ export function ReviewPage() {
     setIncluded(last.hash, last.was);
     const entry = rows.find(({ tooltip }) => tooltip.hash === last.hash);
     setMessage({
-      text: entry ? `${unitName(entry)}: undone.` : 'Last decision undone.',
+      text: entry ? `${entry.name}: undone.` : 'Last decision undone.',
       hash: last.hash,
     });
     if (ordered.some((row) => rowKey(row) === last.key)) selectRow(last.key);
@@ -552,13 +546,11 @@ export function ReviewPage() {
   }
 
   const leftoverView = !!current?.markerOnly;
-  // Positions count changes, like every other number: the rows of one globals file share one.
   const position = useMemo(() => {
     if (index < 0) return '';
     const from = index < view.contentCount ? 0 : view.contentCount;
-    const all = ordered.slice(from, from ? undefined : view.contentCount);
-    const at = unitCount(all.slice(0, index - from + 1));
-    return `${count.format(at)} / ${count.format(unitCount(all))}`;
+    const total = from ? ordered.length - from : view.contentCount;
+    return `${count.format(index - from + 1)} / ${count.format(total)}`;
   }, [index, ordered, view.contentCount]);
   const previous = current ? stepRow(view, index, -1) : -1;
   const next = current ? stepRow(view, index, 1) : -1;
@@ -598,8 +590,8 @@ export function ReviewPage() {
   // A global's earlier text is restored from its own page's History.
   const restore = current && !current.part?.pending && (
     <RestoreLive
-      entry={current.part?.unit ?? current}
-      name={unitName(current)}
+      entry={current}
+      name={current.name}
       published={publishedFor(published, current.tooltip.hash, current.pushed)}
       onDone={(text) => setMessage({ text, hash: current.tooltip.hash })}
     />
@@ -654,7 +646,6 @@ export function ReviewPage() {
       {confirming && (
         <PushConfirm
           entries={confirming.entries}
-          rows={rows}
           kinds={kinds}
           needed={confirming.needed}
           background={publisher}

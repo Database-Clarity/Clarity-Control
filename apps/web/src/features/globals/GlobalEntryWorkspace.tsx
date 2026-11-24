@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -25,7 +24,6 @@ import {
   RightPaneTabsContext,
   type RightPaneTabs,
 } from '../../ui/RightPane';
-import { PanelRow } from '../../ui/PanelRow';
 import { RenderedWordDiff } from '../history/RenderedWordDiff';
 import { RawDiffToggle } from '../history/RawDiffToggle';
 import { useRawDiff } from '../history/diffPreference';
@@ -38,16 +36,7 @@ import { VariantWorkspace, useShowEditor } from '../tooltip/VariantWorkspace';
 import page from '../tooltip/TooltipPage.module.scss';
 import {
   canEditGlobal,
-  canAcknowledgeGlobal,
-  createGlobalImpactProjector,
-  globalSyncState,
-  type GlobalImpactProjector,
-  type GlobalConsumerView,
-  type GlobalProjectionSource,
-  globalReviewState,
-  canReviewGlobal,
   type GlobalActor,
-  type GlobalConsumer,
   type GlobalEntry,
   type GlobalMutation,
   type GlobalSnapshot,
@@ -62,33 +51,23 @@ import {
 } from './globalDrafts';
 import { GlobalHistory, type GlobalHistoryReader } from './GlobalHistory';
 import { useAuthStore } from '../../stores/auth';
-import { GlobalImpactComparison, validGlobalImpact } from './GlobalImpactComparison';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { importGlobals } from '../../services/tooltipImports';
 import { tooltipTextSources } from '../editor/references';
 import { definitionPath } from '../editor/definitionPath';
-import { canonicalHash, classifiedCategory, itemFor, listName } from '../navigation/catalog';
+import { classifiedCategory, itemFor, listName } from '../navigation/catalog';
 import { FinderIcon } from '../navigation/FinderIcon';
 import { globalUsageIndex, type GlobalUsageIndex, type GlobalUsages } from './usages';
 
 const globals = { variables: '', titles: '' };
 type Action = 'create' | 'rename' | 'remove' | 'remove-language';
-const destinationLabel = (value: string) =>
-  value === 'live'
-    ? 'Live'
-    : value === 'saved'
-      ? 'Saved'
-      : value === 'upcoming'
-        ? 'Upcoming'
-        : value;
 const kindLabel = (kind: GlobalEntry['kind']) =>
   kind === 'variables' ? 'Variable' : kind === 'exports' ? 'Export' : 'Title';
 
 /**
  * `/globals/:id` (stable ID): a global opens in the tooltip editor's own slots. Header finder,
  * left column preview, the definition in the main editor, and Usages / Translations / History in
- * the right pane. `entryId` '' opens the first entry. No projection source is mounted yet: drafts
- * show saved impact.
+ * the right pane. An empty entry ID opens the first entry.
  *
  * Saving stays the global mutation API (one Save in the pane header) until cut-over, when global
  * drafts are meant to move into the tooltip save pipeline; `run` below is the only write path.
@@ -97,7 +76,6 @@ export function GlobalEntryWorkspace({
   service,
   actor,
   globalsByLanguage,
-  projectionSource,
   entryId,
   history,
   onSnapshot,
@@ -105,7 +83,6 @@ export function GlobalEntryWorkspace({
   service: GlobalsService;
   actor: GlobalActor;
   globalsByLanguage?: Partial<Record<Lang, MarkupGlobals>>;
-  projectionSource?: GlobalProjectionSource;
   /** Saved versions of an entry; the History tab shows only when it is supplied. */
   history?: GlobalHistoryReader;
   entryId: string;
@@ -160,7 +137,6 @@ export function GlobalEntryWorkspace({
       service={service}
       actor={actor}
       globalsByLanguage={globalsByLanguage}
-      projectionSource={projectionSource}
       entryId={entryId}
       history={history}
       onSnapshot={setSnapshot}
@@ -173,7 +149,6 @@ function Workspace({
   service,
   actor,
   globalsByLanguage,
-  projectionSource,
   entryId,
   history,
   onSnapshot,
@@ -182,7 +157,6 @@ function Workspace({
   service: GlobalsService;
   actor: GlobalActor;
   globalsByLanguage?: Partial<Record<Lang, MarkupGlobals>>;
-  projectionSource?: GlobalProjectionSource;
   entryId: string;
   history?: GlobalHistoryReader;
   onSnapshot(value: GlobalSnapshot): void;
@@ -248,43 +222,12 @@ function Workspace({
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [projected, setProjected] = useState<{
-    key: string;
-    body: string;
-    head: string;
-    source: GlobalProjectionSource;
-    consumers: GlobalConsumerView[];
-  }>();
-  const [projecting, setProjecting] = useState(false);
-  const [projectionError, setProjectionError] = useState('');
-  const projector = useRef<GlobalImpactProjector>();
-  const projectionAbort = useRef<AbortController>();
-  const projectionGeneration = useRef(0);
-  const cancelProjection = useCallback(() => {
-    ++projectionGeneration.current;
-    projectionAbort.current?.abort();
-    setProjecting(false);
-    setProjectionError('');
-  }, []);
-  useEffect(() => {
-    return cancelProjection;
-  }, [key, body, snapshot.head, projectionSource, cancelProjection]);
-  useEffect(() => () => projector.current?.dispose(), []);
-  const [reviewed, setReviewed] = useState<string>();
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [raw] = useRawDiff();
   const query = params.get('q') ?? '';
   const tab = params.get('tab') ?? (actor?.role === 'translator' ? 'translations' : 'usages');
   const shownTab =
     tab === 'translations' ? tab : tab === 'history' && history ? 'history' : 'usages';
-  const sync = globalSyncState(snapshot, entry?.id ?? '');
-  // The Worker requeues only causes this entry owns; the repository-wide status still blocks.
-  const ownCauses = sync.causeIds.filter((cause) => snapshot.causeEntries?.[cause] === entry?.id);
   const openId = entry?.id;
-  // Globals that tooltips are filled with: Review approves the change itself, so no tooltip's
-  // impact is reviewed and nothing waits for a sync.
-  const filled = useDataStore((state) => !!state.data?.bundle.globalsPending);
-  const savedImpacts = (!filled && openId && snapshot.impacts[openId]) || noImpacts;
   // The loaded tooltips (the same data the tooltip editor uses) give previews, references, and
   // usages; the definition being edited still comes from the globals catalogue.
   const data = useDataStore((state) => state.data);
@@ -302,116 +245,48 @@ function Workspace({
     [usageIndex.index, openId],
   );
   const allRows = useMemo(
-    () => usageRows(uses ?? noUses, savedImpacts, data, snapshot.entries, lang),
-    [uses, savedImpacts, data, snapshot.entries, lang],
+    () => usageRows(uses ?? noUses, data, snapshot.entries, lang),
+    [uses, data, snapshot.entries, lang],
   );
-  const [reviewReload, setReviewReload] = useState(0);
-  const [reviewError, setReviewError] = useState('');
-  /** The opened entry as the Worker has it: the bundle's catalogue may lag behind saves. */
+  const [entryReload, setEntryReload] = useState(0);
+  const [entryError, setEntryError] = useState('');
+  // The opened entry as the Worker has it, since the catalogue may lag behind saves.
   const [confirmed, setConfirmed] = useState<string>();
-  const reviewsMissing =
-    !!entry &&
-    service.readEntry !== undefined &&
-    (filled ? confirmed !== entry.id : snapshot.impacts[entry.id] === undefined);
+  const entryMissing = !!entry && service.readEntry !== undefined && confirmed !== entry.id;
   useEffect(() => {
-    if (!reviewsMissing || !entry || !service.readEntry) return;
+    if (!entryMissing || !entry || !service.readEntry) return;
     let active = true;
-    setReviewError('');
-    (filled ? service.readEntry(entry.id, { reviews: false }) : service.readEntry(entry.id))
+    setEntryError('');
+    service.readEntry(entry.id)
       .then((result) => {
         if (!active) return;
         if (result.kind === 'ok') {
           setConfirmed(entry.id);
           onSnapshot(result.value);
-        } else setReviewError(result.message);
+        } else setEntryError(result.message);
       })
       .catch((reason: unknown) => {
         if (active)
-          setReviewError(reason instanceof Error ? reason.message : 'Could not load reviews.');
+          setEntryError(reason instanceof Error ? reason.message : 'Could not load the saved definition.');
       });
     return () => {
       active = false;
     };
-  }, [service, entry, filled, reviewsMissing, snapshot.head, reviewReload, onSnapshot]);
-  const projection =
-    dirty &&
-    projected?.key === key &&
-    projected.body === body &&
-    projected.head === snapshot.head &&
-    projected.source === projectionSource
-      ? projected.consumers
-      : undefined;
-  const projectedScope = dirty && !!projectionSource;
-  const scope = projectedScope ? 'projected' : 'saved';
-  // One stable switcher: every view keeps its place and the open one reads as selected.
+  }, [service, entry, entryMissing, snapshot.head, entryReload, onSnapshot]);
   const paneViews: [string, string][] = [
-    [
-      'usages',
-      scope === 'projected'
-        ? 'Projected impact'
-        : uses
-          ? `Usages ${allRows.filter((row) => row.direct || row.via.length).length}`
-          : 'Usages',
-    ],
+    ['usages', uses ? `Usages ${allRows.length}` : 'Usages'],
     ['translations', 'Translations'],
     ...(history ? [['history', 'History'] as [string, string]] : []),
   ];
-  const consumers = projectedScope ? (projection ?? []) : savedImpacts;
-  function reviewState(row: GlobalConsumerView) {
-    return projectedScope ? 'projected' : globalReviewState(row as GlobalConsumer);
-  }
-  const matches = (text: string) => text.toLowerCase().includes(query.toLowerCase());
-  // Language and Review filter the saved impacts under each row too (and so the selection); a
-  // row stays while it uses the global in that language or still has a matching impact.
+  const category = params.get('category');
   const usageLang = params.get('usageLang') as Lang | null;
-  const review = filled ? null : params.get('review');
-  const shownRows = allRows
-    .map((row) => ({
-      ...row,
-      impacts: row.impacts.filter(
-        (impact) =>
-          (!usageLang || impact.consumer.lang === usageLang) &&
-          (!review || review === reviewState(impact)),
-      ),
-    }))
-    .filter(
-      (row) =>
-        matches(`${row.name} ${row.hash ?? ''} ${row.category}`) &&
-        (!params.get('category') || params.get('category') === row.category) &&
-        (review
-          ? row.impacts.length > 0
-          : !usageLang || row.langs.includes(usageLang) || row.impacts.length > 0),
-    );
-  // Saved: the impacts of the rows shown. Projected: the calculated rows, filtered as before.
-  const shown = projectedScope
-    ? consumers.filter(
-        (row) =>
-          matches(`${row.name} ${row.consumer.hash} ${row.consumer.lang} ${row.category}`) &&
-          (!params.get('category') || params.get('category') === row.category) &&
-          (!params.get('usageLang') || params.get('usageLang') === row.consumer.lang) &&
-          (!params.get('review') || params.get('review') === reviewState(row)),
-      )
-    : shownRows.flatMap((row) => row.impacts);
-  const consumer = shown.find((row) => row.id === params.get('consumer')) ?? shown[0];
-  const savedConsumer =
-    !dirty && consumer ? savedImpacts.find((row) => row.id === consumer.id) : undefined;
-  const canAcknowledge =
-    !error &&
-    !conflict &&
-    !!entry &&
-    !!savedConsumer &&
-    validGlobalImpact(savedConsumer) &&
-    canAcknowledgeGlobal(snapshot, entry.id, savedConsumer);
-  const reviewKey =
-    savedConsumer &&
-    JSON.stringify([
-      snapshot.head,
-      savedConsumer.id,
-      savedConsumer.review.contentDigest,
-      savedConsumer.review.dependencyDigest,
-      savedConsumer.impactDigest,
-    ]);
-  const disabled = pending || actionsOpen || reviewOpen;
+  const shownRows = allRows.filter(
+    (row) =>
+      `${row.name} ${row.hash ?? ''} ${row.category}`.toLowerCase().includes(query.toLowerCase()) &&
+      (!category || category === row.category) &&
+      (!usageLang || row.langs.includes(usageLang)),
+  );
+  const disabled = pending || actionsOpen;
   const editable = canEditGlobal(actor, lang);
   const structural = actor?.role === 'editor' || actor?.role === 'maintainer';
   /** Changes the view; `entry` moves to another stable-ID path ('' is the first entry). */
@@ -444,10 +319,10 @@ function Workspace({
     setError('');
     try {
       let head = snapshot.head;
-      if (filled && mutation && entry && service.readEntry) {
+      if (mutation && entry && service.readEntry) {
         // The publisher can advance the head to update its bookkeeping after any save.
         // Keep the revision the user edited so a concurrent edit still conflicts.
-        const current = await service.readEntry(entry.id, { reviews: false });
+        const current = await service.readEntry(entry.id);
         if (!mounted.current) return false;
         if (current.kind !== 'ok') {
           setError(current.message);
@@ -463,16 +338,14 @@ function Workspace({
       if (result.kind === 'ok') {
         onSnapshot(result.value);
         setDraft(null);
-        setProjected(undefined);
         if (!mutation) setDrafts({});
-        setReviewed(undefined);
         setConflict(false);
         if (mutation?.operation === 'remove') update({ entry: '' });
         if (mutation?.operation === 'create') {
           const created = result.value.entries.find(
             (item) => !snapshot.entries.some((old) => old.id === item.id),
           );
-          if (created) update({ entry: created.id, consumer: '' });
+          if (created) update({ entry: created.id });
         }
         return true;
       } else {
@@ -490,27 +363,16 @@ function Workspace({
     }
     return false;
   }
-  async function refreshSync(retry = false) {
-    if ((retry && !entry) || busy.current) return;
+  async function refreshEntry() {
+    if (busy.current) return;
     busy.current = true;
     setPendingAction('checking');
     setError('');
     try {
-      // Confirm the opened entry even when the bundle lags or its review page is unavailable.
-      const result =
-        retry && entry
-          ? await service.retrySync({
-              expectedHead: snapshot.head,
-              id: entry.id,
-              causeIds: ownCauses,
-            })
-          : entry && service.readEntry
-            ? await service.readEntry(entry.id, { reviews: false })
-            : await service.read();
+      const result = entry && service.readEntry ? await service.readEntry(entry.id) : await service.read();
       if (!mounted.current) return;
       if (result.kind === 'ok') {
         onSnapshot(result.value);
-        setReviewed(undefined);
         setConflict(false);
       } else {
         setError(result.message);
@@ -518,58 +380,10 @@ function Workspace({
       }
     } catch (reason) {
       if (mounted.current)
-        setError(
-          reason instanceof Error ? reason.message : 'Sync request failed. Retry the action.',
-        );
+        setError(reason instanceof Error ? reason.message : 'Could not refresh the saved definition.');
     } finally {
       busy.current = false;
       if (mounted.current) setPendingAction(null);
-    }
-  }
-  async function project() {
-    if (!entry || !projectionSource) {
-      setProjectionError('Projected calculation is unavailable until source snapshots load.');
-      return;
-    }
-    cancelProjection();
-    const generation = ++projectionGeneration.current;
-    const controller = new AbortController();
-    projectionAbort.current = controller;
-    setProjecting(true);
-    setProjectionError('');
-    try {
-      const input = projectionSource.prepare({
-        expectedHead: snapshot.head,
-        id: entry.id,
-        revision: entry.revision,
-        lang,
-        body,
-      });
-      projector.current ??= createGlobalImpactProjector();
-      const result = await projector.current.calculate(input, controller.signal);
-      if (!mounted.current || generation !== projectionGeneration.current) return;
-      setProjected({
-        key,
-        body,
-        head: snapshot.head,
-        source: projectionSource,
-        consumers: result.rows.map((row) => projectionSource.describe(row, input)),
-      });
-      if (!result.complete)
-        setProjectionError(`Projected calculation is incomplete: ${result.blockers.join('; ')}`);
-    } catch (reason) {
-      if (
-        mounted.current &&
-        generation === projectionGeneration.current &&
-        !controller.signal.aborted
-      )
-        setProjectionError(
-          reason instanceof Error
-            ? reason.message
-            : 'Projected calculation failed. Retry the calculation.',
-        );
-    } finally {
-      if (mounted.current && generation === projectionGeneration.current) setProjecting(false);
     }
   }
   const paneBody = useRef<HTMLDivElement>(null);
@@ -598,20 +412,19 @@ function Workspace({
   );
 
   // A translation can be withdrawn by whoever edits it: tooltips then show English as a whole.
-  const withdrawable = filled && editable && lang !== 'en' && !!entry?.definitions[lang];
+  const withdrawable = editable && lang !== 'en' && !!entry?.definitions[lang];
   const actions = actor && (actor.role !== 'translator' || withdrawable) && (
     <GlobalActions
       className={page.ghost}
       open={actionsOpen}
-      disabled={pending || reviewOpen}
+      disabled={pending}
       onOpenChange={setActionsOpen}
       pending={pending}
-      blocked={dirty || reviewOpen}
-      reviewsMissing={reviewsMissing}
-      filled={filled}
+      blocked={dirty}
+      entryMissing={entryMissing}
       withdrawable={withdrawable}
       translator={actor.role === 'translator'}
-      referenced={savedImpacts.length > 0 || allRows.some((row) => row.direct || row.via.length)}
+      referenced={allRows.length > 0}
       structural={structural}
       maintainer={actor.role === 'maintainer'}
       entry={entry}
@@ -643,13 +456,10 @@ function Workspace({
   const header = (
     <EditorPaneHeader
       lang={lang}
-      onLanguage={(value) => update({ lang: value, consumer: '' })}
+      onLanguage={(value) => update({ lang: value })}
       draft={dirty}
       saving={pending}
-      onDiscard={() => {
-        setDraft(null);
-        setProjected(undefined);
-      }}
+      onDiscard={() => setDraft(null)}
       reason={null}
       onSwitch={() => {}}
       overrides={[]}
@@ -681,10 +491,6 @@ function Workspace({
   );
   const renameIntent = snapshot.renameIntents?.[entry.id];
   const renameQueued = renameIntent && renameIntent.status !== 'not-applied';
-  const syncStatus = filled ? 'current' : sync.status;
-  const blockedDestinations = Object.entries(snapshot.destinationSync)
-    .filter(([, state]) => !filled && state.status !== 'current')
-    .map(([destination]) => destinationLabel(destination));
   const notices = (
     <>
       {renameIntent?.status === 'not-applied' && (
@@ -692,64 +498,29 @@ function Workspace({
           Rename to {renameIntent.name} did not apply. Open Actions and choose Rename to try again.
         </p>
       )}
-      {(renameQueued || syncStatus !== 'current' || blockedDestinations.length > 0) && (
-        <div
-          className={styles.notice}
-          data-tone={syncStatus === 'sync-failed' ? 'warn' : undefined}
-        >
-          <span role="status">
-            {renameQueued && `Rename queued. Refresh to check whether it applied. `}
-            {syncStatus === 'sync-failed'
-              ? /^sync failed/i.test(sync.lastFailure ?? '')
-                ? sync.lastFailure
-                : `Sync failed. ${sync.lastFailure ?? 'Failure details unavailable.'}`
-              : syncStatus === 'sync-pending'
-                ? !snapshot.sync[entry.id]
-                  ? 'Check status unavailable. Refresh to try again.'
-                  : ownCauses.length && !renameQueued
-                    ? dirty
-                      ? 'Waiting for checks on a saved version.'
-                      : 'Saved. Waiting for affected tooltips to be checked.'
-                    : 'Waiting for global changes to be checked.'
-                : null}{' '}
-            {blockedDestinations.length > 0 &&
-              `Publishing to ${blockedDestinations.join(' and ')} is paused.`}
-          </span>
+      {renameQueued && (
+        <div className={styles.notice}>
+          <span role="status">Rename queued. Refresh to check whether it applied.</span>
           <span className={styles.noticeActions}>
-            <button
-              type="button"
-              className={page.ghost}
-              disabled={pending}
-              aria-label="Refresh sync"
-              onClick={() => void refreshSync()}
-            >
+            <button type="button" className={page.ghost} disabled={pending} onClick={() => void refreshEntry()}>
               Refresh
             </button>
-            {syncStatus === 'sync-failed' && (
-              <button
-                type="button"
-                className={page.ghost}
-                disabled={pending || !actor || !ownCauses.length}
-                title={ownCauses.length ? undefined : 'Retry from the entry whose save is waiting.'}
-                aria-label="Retry sync"
-                onClick={() => void refreshSync(true)}
-              >
-                Retry
-              </button>
-            )}
           </span>
         </div>
       )}
-      {(error || projectionError || staleDraft) && (
+      {entryMissing && entryError && (
+        <div role="alert" className={styles.notice}>
+          {entryError}
+          <button type="button" className={page.ghost} disabled={pending} onClick={() => setEntryReload((value) => value + 1)}>
+            Retry
+          </button>
+        </div>
+      )}
+      {(error || staleDraft) && (
         <div role="alert" className={styles.notice} data-tone="warn">
-          {error || projectionError || 'The saved revision changed while this draft was open.'}
+          {error || 'The saved revision changed while this draft was open.'}
           {(conflict || staleDraft) && (
-            <button
-              type="button"
-              className={page.ghost}
-              disabled={pending}
-              onClick={() => void run()}
-            >
+            <button type="button" className={page.ghost} disabled={pending} onClick={() => void run()}>
               Reload and discard draft
             </button>
           )}
@@ -782,158 +553,33 @@ function Workspace({
           paused={pending}
           readOnlyReason={pending ? pendingLabel : null}
           preview={column ? { collapsed: column.collapsed, onShow: column.show } : undefined}
-          onChange={(value) => {
-            setDraft(value);
-            setReviewed(undefined);
-          }}
+          onChange={setDraft}
         />
       </div>
     </section>
   );
   const left = (
-    <>
-      <div className={page.previewBody}>
-        <TooltipPreview
-          text={body}
-          lang={lang}
-          name={entry.name}
-          categoryLabel={kindLabel(entry.kind)}
-          globals={sharedGlobals}
-          fill
-        />
-      </div>
-      {consumer && (
-        <div className={page.rows}>
-          <PanelRow
-            label="Tooltip impact"
-            summary={`${consumer.name} (${languageLabel(consumer.consumer.lang)})`}
-          >
-            <GlobalImpactComparison row={consumer} raw={raw} />
-          </PanelRow>
-        </div>
-      )}
-    </>
+    <div className={page.previewBody}>
+      <TooltipPreview
+        text={body}
+        lang={lang}
+        name={entry.name}
+        categoryLabel={kindLabel(entry.kind)}
+        globals={sharedGlobals}
+        fill
+      />
+    </div>
   );
-  /** Plain words for a saved review; a sync that has not finished outranks it. */
-  const reviewLabel = (state: string) =>
-    !projectedScope && sync.status === 'sync-pending'
-      ? entry && snapshot.sync[entry.id]
-        ? 'Waiting for checks'
-        : 'Check status unavailable'
-      : !projectedScope && sync.status === 'sync-failed'
-        ? 'Sync failed'
-        : state === 'required'
-          ? 'Needs review'
-          : state === 'acknowledged'
-            ? 'Acknowledged'
-            : state === 'stale'
-              ? 'Review out of date'
-              : state;
-  const reviewPopover = (row: GlobalConsumerView) => (
-    <Popover
-      label="Review tooltip impact"
-      trigger="Review"
-      triggerLabel={`Review ${row.name}`}
-      contain
-      open={reviewOpen && consumer?.id === row.id}
-      onOpenChange={(open) => {
-        if (pending || actionsOpen) return;
-        if (open) update({ consumer: row.id }, true);
-        setReviewOpen(open);
-        setReviewed(undefined);
-      }}
-    >
-      <div className={styles.review}>
-        <div className={styles.reviewHeader}>
-          <strong>
-            {row.name} ({destinationLabel(row.consumer.destination)})
-          </strong>
-          <RawDiffToggle />
-        </div>
-        <GlobalImpactComparison row={row} raw={raw} />
-        <label>
-          <input
-            type="checkbox"
-            disabled={!canAcknowledge || pending || raw}
-            checked={canAcknowledge && !!reviewKey && reviewed === reviewKey}
-            onChange={(e) => setReviewed(e.target.checked ? reviewKey : undefined)}
-          />
-          I reviewed both renders; no tooltip change needed.
-        </label>
-        <button
-          disabled={
-            dirty ||
-            pending ||
-            actionsOpen ||
-            conflict ||
-            raw ||
-            reviewed !== reviewKey ||
-            !canReviewGlobal(actor, row.consumer.lang) ||
-            !canAcknowledge
-          }
-          onClick={() =>
-            savedConsumer &&
-            canAcknowledge &&
-            void run({
-              operation: 'acknowledge',
-              id: entry.id,
-              consumerId: row.id,
-              contentDigest: savedConsumer.review.contentDigest,
-              impactDigest: savedConsumer.impactDigest,
-              dependencyDigest: savedConsumer.review.dependencyDigest,
-              decision: 'no-text-change',
-            })
-          }
-        >
-          Acknowledge review
-        </button>
-        {dirty ? (
-          <p>Save this definition before acknowledging impact.</p>
-        ) : (
-          !canAcknowledge && (
-            <p>
-              Only current, fully synced reviews can be acknowledged. Refresh after sync finishes.
-            </p>
-          )
-        )}
-      </div>
-    </Popover>
-  );
-  const filterValues = projectedScope
-    ? {
-        category: [...new Set(consumers.map((row) => row.category))],
-        usageLang: [...new Set(consumers.map((row) => row.consumer.lang))],
-      }
-    : {
-        category: [...new Set(allRows.map((row) => row.category).filter(Boolean))],
-        usageLang: [
-          ...new Set(
-            allRows.flatMap((row) => [
-              ...row.langs,
-              ...row.impacts.map((impact) => impact.consumer.lang),
-            ]),
-          ),
-        ],
-      };
+  const filterValues = {
+    category: [...new Set(allRows.map((row) => row.category).filter(Boolean))],
+    usageLang: [...new Set(allRows.flatMap((row) => row.langs))],
+  };
   const pane = (
     <RightPaneTabsContext.Provider value={paneTabs}>
       <RightPane
         bodyRef={paneBody}
         label="Global usages and translations"
-        header={
-          <RightPaneHeader title={paneViews.find(([id]) => id === shownTab)![1]}>
-            {shownTab === 'usages' && dirty && projectionSource && (
-              <button
-                type="button"
-                className={page.ghost}
-                disabled={disabled}
-                onClick={() => (projecting ? cancelProjection() : void project())}
-              >
-                {projecting ? 'Cancel calculation' : 'Calculate projected impact'}
-              </button>
-            )}
-          </RightPaneHeader>
-        }
+        header={<RightPaneHeader title={paneViews.find(([id]) => id === shownTab)![1]} />}
       >
         {shownTab === 'history' && history ? (
           <HistoryTab
@@ -942,10 +588,7 @@ function Workspace({
             lang={lang}
             saved={saved}
             canRestore={!disabled && editable && !conflict}
-            onRestore={(value) => {
-              setDraft(value);
-              setReviewed(undefined);
-            }}
+            onRestore={setDraft}
           />
         ) : shownTab === 'translations' ? (
           <div className={styles.paneBody}>
@@ -997,36 +640,6 @@ function Workspace({
           </div>
         ) : (
           <div className={`${styles.paneBody} ${styles.usagePane}`}>
-            {scope === 'projected' && (
-              <p className={styles.impactHeading}>Projected impact — unsaved</p>
-            )}
-            {projecting && <p role="status">Calculating projected impact… You can keep editing.</p>}
-            {reviewsMissing &&
-              !projectedScope &&
-              (reviewError ? (
-                <div role="alert">
-                  <p>{reviewError}</p>
-                  <button disabled={pending} onClick={() => setReviewReload((value) => value + 1)}>
-                    {filled ? 'Retry' : 'Retry reviews'}
-                  </button>
-                </div>
-              ) : (
-                !filled && <p role="status">Loading reviews…</p>
-              ))}
-            {projectedScope && !projection && (
-              <p>
-                Calculate projected impact to inspect this draft. Saved reviews remain separate.
-              </p>
-            )}
-            {projectedScope && (
-              <p>
-                {reviewsMissing
-                  ? 'Saved impact: Loading…'
-                  : sync.status === 'current'
-                    ? `Saved impact: ${new Set(savedImpacts.map((row) => row.consumer.hash)).size} tooltips.`
-                    : 'Saved usages will update when sync finishes.'}
-              </p>
-            )}
             <label className={styles.search}>
               Filter usages{' '}
               <input
@@ -1040,15 +653,6 @@ function Workspace({
               {[
                 { key: 'category', label: 'Category', values: filterValues.category },
                 { key: 'usageLang', label: 'Language', values: filterValues.usageLang },
-                ...(filled
-                  ? []
-                  : [
-                      {
-                        key: 'review',
-                        label: 'Review',
-                        values: ['required', 'acknowledged', 'stale'],
-                      },
-                    ]),
               ].map((filter) => (
                 <label key={filter.key}>
                   {filter.label}
@@ -1067,17 +671,7 @@ function Workspace({
                 </label>
               ))}
             </div>
-            {projectedScope ? (
-              !shown.length && (
-                <p>
-                  {query
-                    ? 'No matching tooltips. Clear the filter to restore them.'
-                    : !projection
-                      ? 'Projected usages have not been calculated.'
-                      : 'No affected tooltips.'}
-                </p>
-              )
-            ) : !uses ? (
+            {!uses ? (
               <p role="status">
                 {usageIndex.error ||
                   (data ? 'Finding usages…' : 'Usages show once the tooltips load.')}
@@ -1085,108 +679,44 @@ function Workspace({
             ) : (
               !shownRows.length && (
                 <p>
-                  {query || params.get('category') || params.get('usageLang') || review
+                  {query || category || usageLang
                     ? 'No matching usages. Clear the filters to restore them.'
                     : 'Not used by any tooltip.'}
                 </p>
               )
             )}
             <ul ref={usageList} className={styles.consumers}>
-              {projectedScope
-                ? shown.map((row) => (
-                    <li
-                      key={row.id}
-                      data-global-consumer={row.id}
-                      data-selected={consumer?.id === row.id}
-                    >
-                      <div className={styles.consumerHeading}>
-                        <button
-                          className={styles.consumerSelect}
-                          disabled={disabled}
-                          aria-pressed={consumer?.id === row.id}
-                          onClick={() => update({ consumer: row.id })}
-                        >
-                          {row.name} ({languageLabel(row.consumer.lang)})
-                        </button>
-                        {reviewPopover(row)}
-                      </div>
-                      <div className={styles.projectedMeta}>
-                        <span className={styles.projectedDetail}>
-                          {row.direct === null ? 'Unproven' : row.direct ? 'Direct' : 'Indirect'},{' '}
-                          {reviewState(row)}, {destinationLabel(row.consumer.destination)}
-                          {row.archived ? ', archived' : ''}
-                        </span>
-                        <span className={styles.projectedDetail}>
-                          {row.path?.join(' → ') ?? 'Exact dependency path unavailable.'}
-                        </span>
-                        <span>
-                          {row.causes.length} cause{row.causes.length === 1 ? '' : 's'}
-                        </span>
-                        <Link
-                          tabIndex={disabled ? -1 : undefined}
-                          onClick={(e) => {
-                            if (disabled) e.preventDefault();
-                          }}
-                          to={`/t/${row.consumer.hash}?lang=${row.consumer.lang}&variant=${row.variant}${row.line === null ? '' : `&line=${row.line}`}`}
-                        >
-                          {row.line === null ? 'Open tooltip' : `Open line ${row.line}`}
-                        </Link>
-                      </div>
-                    </li>
-                  ))
-                : shownRows.map((row) => (
-                    <li key={row.key} data-global-usage={row.key}>
-                      <Link
-                        className={styles.usageLink}
-                        tabIndex={disabled ? -1 : undefined}
-                        onClick={(e) => {
-                          if (disabled) e.preventDefault();
-                        }}
-                        to={row.to}
-                      >
-                        {row.hash !== undefined && <FinderIcon icon={row.icon} />}
-                        {row.name}
-                      </Link>
-                      <div className={styles.consumerMeta}>
-                        <span>
-                          {[
-                            row.category,
-                            row.langs.map(languageLabel).join(', '),
-                            row.direct
-                              ? 'Direct'
-                              : row.via.length
-                                ? `Through ${row.via.join(', ')}`
-                                : 'No current use',
-                            row.members > 1 && `${row.members} items`,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </span>
-                      </div>
-                      {row.impacts.map((impact) => (
-                        <div
-                          key={impact.id}
-                          className={styles.consumerHeading}
-                          data-global-consumer={impact.id}
-                          data-selected={consumer?.id === impact.id}
-                        >
-                          <button
-                            className={styles.consumerSelect}
-                            disabled={disabled}
-                            aria-pressed={consumer?.id === impact.id}
-                            onClick={() => update({ consumer: impact.id })}
-                          >
-                            <span>
-                              {languageLabel(impact.consumer.lang)}:{' '}
-                              {reviewLabel(reviewState(impact))},{' '}
-                              {destinationLabel(impact.consumer.destination)}
-                            </span>
-                          </button>
-                          {reviewPopover(impact)}
-                        </div>
-                      ))}
-                    </li>
-                  ))}
+              {shownRows.map((row) => (
+                <li key={row.key} data-global-usage={row.key}>
+                  <Link
+                    className={styles.usageLink}
+                    tabIndex={disabled ? -1 : undefined}
+                    onClick={(e) => {
+                      if (disabled) e.preventDefault();
+                    }}
+                    to={row.to}
+                  >
+                    {row.hash !== undefined && <FinderIcon icon={row.icon} />}
+                    {row.name}
+                  </Link>
+                  <div className={styles.consumerMeta}>
+                    <span>
+                      {[
+                        row.category,
+                        row.langs.map(languageLabel).join(', '),
+                        row.direct
+                          ? 'Direct'
+                          : row.via.length
+                            ? `Through ${row.via.join(', ')}`
+                            : 'No current use',
+                        row.members > 1 && `${row.members} items`,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </div>
+                </li>
+              ))}
             </ul>
           </div>
         )}
@@ -1213,7 +743,6 @@ function Workspace({
   );
 }
 
-const noImpacts: GlobalConsumer[] = [];
 const noUses: GlobalUsages = { tooltips: [], globals: [] };
 
 /**
@@ -1277,28 +806,15 @@ interface UsageRow {
   via: string[];
   members: number;
   to: string;
-  /** Saved review obligations for this tooltip (any language or destination). */
-  impacts: GlobalConsumer[];
 }
 
-/**
- * One row per tooltip (an alias group or base/enhanced pair once, under its canonical hash) and
- * per global that uses the entry, with any saved impacts attached. A saved impact without a
- * current use (the reference was removed since) keeps its own row so it can still be reviewed.
- */
+/** One row per canonical tooltip and per global that uses the entry. */
 function usageRows(
   uses: GlobalUsages,
-  impacts: readonly GlobalConsumer[],
   data: EditorData | null,
   entries: readonly GlobalEntry[],
   lang: Lang,
 ): UsageRow[] {
-  const canonical = (hash: number) => (data ? canonicalHash(hash, data) : hash);
-  const byHash = new Map<number, GlobalConsumer[]>();
-  for (const impact of impacts) {
-    const hash = canonical(impact.consumer.hash);
-    byHash.set(hash, [...(byHash.get(hash) ?? []), impact]);
-  }
   const describe = (hash: number) => {
     const item = data ? itemFor(hash, data) : undefined;
     return {
@@ -1322,21 +838,7 @@ function usageRows(
     members: use.members,
     // Member, language, and line of the same use, so the line exists where the editor opens.
     to: `/t/${use.hash}?lang=${use.open.lang}&variant=${use.open.variant}${use.open.line ? `&line=${use.open.line}` : ''}`,
-    impacts: byHash.get(use.hash) ?? [],
   }));
-  for (const [hash, list] of byHash)
-    if (!uses.tooltips.some((use) => use.hash === hash))
-      rows.push({
-        key: `t:${hash}`,
-        ...describe(hash),
-        hash,
-        langs: [],
-        direct: false,
-        via: [],
-        members: 1,
-        to: `/t/${hash}?lang=${list[0].consumer.lang}&variant=${list[0].variant}`,
-        impacts: list,
-      });
   for (const use of uses.globals) {
     const entry = entries.find((item) => item.id === use.id);
     if (!entry) continue;
@@ -1349,7 +851,6 @@ function usageRows(
       via: use.via.map(named),
       members: 1,
       to: `/globals/${use.id}?lang=${languageOf(use.langs)}`,
-      impacts: [],
     });
   }
   return rows.sort((a, b) => a.name.localeCompare(b.name));
@@ -1379,8 +880,7 @@ function GlobalActions({
   referenced,
   pending,
   blocked,
-  reviewsMissing,
-  filled,
+  entryMissing,
   withdrawable,
   translator,
   entry,
@@ -1396,8 +896,7 @@ function GlobalActions({
   referenced: boolean;
   pending: boolean;
   blocked: boolean;
-  reviewsMissing: boolean;
-  filled: boolean;
+  entryMissing: boolean;
   withdrawable: boolean;
   translator: boolean;
   entry?: GlobalEntry;
@@ -1414,7 +913,7 @@ function GlobalActions({
   const [body, setBody] = useState('');
   const removing = action === 'remove' || action === 'remove-language';
   const inUse = removing && referenced && !(withdrawable && action === 'remove-language');
-  const submitDisabled = pending || blocked || reviewsMissing || inUse;
+  const submitDisabled = pending || blocked || entryMissing || inUse;
   const label = !action
     ? 'Global actions'
     : action === 'create'
@@ -1457,7 +956,7 @@ function GlobalActions({
                 allowed && (
                   <button
                     key={value}
-                    disabled={reviewsMissing}
+                    disabled={entryMissing}
                     onClick={() => {
                       setName(value === 'rename' ? (entry?.name ?? '') : '');
                       setBody('');
@@ -1468,11 +967,7 @@ function GlobalActions({
                   </button>
                 ),
             )}
-            {reviewsMissing && (
-              <p>
-                {filled ? 'Checking the saved version…' : 'Load reviews before changing globals.'}
-              </p>
-            )}
+            {entryMissing && <p>Checking the saved version…</p>}
           </div>
         ) : (
           <form

@@ -36,22 +36,16 @@ function data(tooltips: Tooltip[], pushed: Record<string, string> = {}): EditorD
 }
 
 describe('review pending content', () => {
-  it('labels the aggregate rows and their Review group Globals', async () => {
+  it('excludes raw global aggregate rows from Review', async () => {
     const hashes = [1, 2, 3];
     const state = data([0, ...hashes].map((hash) => ({ ...tooltip, hash })));
     for (const hash of [0, ...hashes])
       state.items[hash] = { ...state.items[123], hash, categoryId: 'none' };
     const entries = await pendingTooltips(state);
-    expect(entries.map((entry) => entry.category)).toEqual([
-      'Globals',
-      'Globals',
-      'Globals',
-      'Other: none',
-    ]);
+    expect(entries.map((entry) => entry.category)).toEqual(['Other: none']);
     expect(
       queueView(entries, '', '', new Set(), 'hidden').items.filter(({ kind }) => kind === 'group'),
     ).toMatchObject([
-      { label: 'Globals', publishable: hashes },
       { label: 'Other: none', publishable: [0] },
     ]);
   });
@@ -204,7 +198,7 @@ it('keeps text-less records out of Review and selection, then includes them afte
   expect(selectedPending(new Set([123]), injected)).toEqual([]);
 });
 
-it('keeps an intentionally emptied reserved global library in Review and selection', async () => {
+it('keeps an emptied reserved global library out of Review and selection', async () => {
   const global = {
     ...tooltip,
     hash: 2,
@@ -212,7 +206,6 @@ it('keeps an intentionally emptied reserved global library in Review and selecti
     custom: { name: 'Variables', categoryId: 'global' },
   };
   const entries = await pendingTooltips(data([global]));
-  expect(entries).toHaveLength(1);
-  expect(publishableHashes(entries)).toEqual([2]);
-  expect(selectedPending(new Set([2]), entries)).toEqual([2]);
+  expect(entries).toEqual([]);
+  expect(selectedPending(new Set([2]), entries)).toEqual([]);
 });

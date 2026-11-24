@@ -25,26 +25,26 @@ function editor(tooltips: Tooltip[], aliases: Aliases, pushed: Record<number, st
 }
 
 describe('marker-only classification', () => {
-  // 10 is an alias of 1: tooltip 1 carries an incoming-alias marker in its digest.
-  const aliases: Aliases = { 10: { to: 1, kind: 'frame' } };
+  // 10 is an alias of 101: tooltip 101 carries an incoming-alias marker in its digest.
+  const aliases: Aliases = { 10: { to: 101, kind: 'frame' } };
 
   it('separates alias-marker leftovers from content changes and never-pushed tooltips', async () => {
-    const left = tooltip(1);
-    const edited = tooltip(2, 'Edited after the push');
-    const fresh = tooltip(3);
+    const left = tooltip(101);
+    const edited = tooltip(102, 'Edited after the push');
+    const fresh = tooltip(103);
     const pushed = {
       // Pushed before the alias existed: only the marker differs now.
-      1: await publishableHash(left),
+      101: await publishableHash(left),
       // Pushed with other text: a real content change.
-      2: await publishableHash(tooltip(2, 'Original')),
+      102: await publishableHash(tooltip(102, 'Original')),
     };
     const entries = await pendingTooltips(
-      editor([left, edited, fresh], { ...aliases, 11: { to: 2, kind: 'frame' } }, pushed),
+      editor([left, edited, fresh], { ...aliases, 11: { to: 102, kind: 'frame' } }, pushed),
     );
     const byHash = Object.fromEntries(entries.map((e) => [e.tooltip.hash, e]));
-    expect(byHash[1]).toMatchObject({ markerOnly: true, isNew: false });
-    expect(byHash[2]).toMatchObject({ markerOnly: false, isNew: false });
-    expect(byHash[3]).toMatchObject({ markerOnly: false, isNew: true });
+    expect(byHash[101]).toMatchObject({ markerOnly: true, isNew: false });
+    expect(byHash[102]).toMatchObject({ markerOnly: false, isNew: false });
+    expect(byHash[103]).toMatchObject({ markerOnly: false, isNew: true });
   });
 
   it('never calls an entry without incoming aliases marker-only', async () => {
@@ -56,15 +56,15 @@ describe('marker-only classification', () => {
   });
 
   it('keeps leftovers out of Select page and the sidebar list', async () => {
-    const left = tooltip(1);
-    const edited = tooltip(2, 'Edited');
+    const left = tooltip(101);
+    const edited = tooltip(102, 'Edited');
     const entries = await pendingTooltips(
       editor([left, edited], aliases, {
-        1: await publishableHash(left),
-        2: await publishableHash(tooltip(2, 'Original')),
+        101: await publishableHash(left),
+        102: await publishableHash(tooltip(102, 'Original')),
       }),
     );
-    expect(publishableHashes(entries)).toEqual([2]);
-    expect(sidebarChanges(entries).map((change) => change.hash)).toEqual([2]);
+    expect(publishableHashes(entries)).toEqual([102]);
+    expect(sidebarChanges(entries).map((change) => change.hash)).toEqual([102]);
   });
 });

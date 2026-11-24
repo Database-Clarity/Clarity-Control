@@ -5,7 +5,7 @@ import { useAuthStore } from '../../stores/auth';
 import { FinderSheetCloseContext, FinderSheetContext } from '../navigation/FinderSheetContext';
 import { useDraftStore } from '../../stores/drafts';
 import { SkeletonRows } from '../../ui/Skeleton';
-import { rowKey, unitCount, useReviewRows } from './globalRows';
+import { rowKey } from './globalRows';
 import { kindWords, useRowKinds, type Kind } from './kinds';
 import { canPush, publishableHashes, type PendingTooltip } from './model';
 import { globalKey } from './globalsPending';
@@ -19,6 +19,7 @@ import { useDelayed } from './useDelayed';
 import styles from './ReviewQueue.module.scss';
 
 const count = new Intl.NumberFormat('en');
+const noEntries: PendingTooltip[] = [];
 
 /** Rows inside a publish that is still queued or being sent; they cannot be picked again. */
 export function useInFlight(): ReadonlySet<number> {
@@ -135,7 +136,7 @@ function SavedSidebar() {
   const pushing = useReviewSession((state) => state.pushing);
   const drafts = useDraftStore((state) => Object.keys(state.drafts).length);
   const inFlight = useInFlight();
-  const rows = useReviewRows(entries);
+  const rows = entries ?? noEntries;
   const kinds = useRowKinds(rows);
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get('query') ?? '';
@@ -238,7 +239,7 @@ function SavedSidebar() {
           </div>
           {shownChanges.length > 0 && (
             <div className={styles.listBar}>
-              <span>{count.format(unitCount(shownChanges))} shown</span>
+              <span>{count.format(shownChanges.length)} shown</span>
               {shownPublishable.length > 0 && (
                 <button
                   type="button"

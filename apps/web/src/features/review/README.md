@@ -11,16 +11,7 @@ one quiet "Show" line outside the counts and the list; shown, they are one colla
 never takes part in a group tick. Find matches name, category, and hash; the kind select filters
 by word, and "Include all N" ticks the publishable rows a filter shows.
 
-The global exports, variables, and titles are each published as one file but edited as entries, so
-the list shows one row per entry that changed (`globalRows.ts`), compared definition by definition.
-The file stays the change: its rows share one tick, every count (waiting, included, groups, kinds,
-positions, Publish N) counts the file once, and the confirmation lists it once with its entries'
-names. "Output unchanged" is an entry whose text is the same and only its declaration differs (an
-export that was hidden), and whose text uses nothing else; one that uses an import, a variable, or a
-title reads "Definition changed", because what it uses is not compared here. Until the published file is known, every saved entry is listed without a word.
-
-With `globalsPending` in the bundle (even empty) the files are gone: each pending global is one
-ordinary row (`globalsPending.ts`) with its own tick, published by id and digest. A negative number
+Each pending global is one ordinary row (`globalsPending.ts`) with its own tick, published by id and digest. A negative number
 stands in for its tooltip hash within the tab. A new global that a chosen text uses publishes along.
 
 Row words (`kinds.ts`): New, Removed, Restored, On hold, and Leftover are known locally. Text

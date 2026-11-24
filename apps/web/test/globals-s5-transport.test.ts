@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  canAcknowledgeGlobal,
   createGlobalsService,
   type GlobalsTransport,
 } from '../src/services/globals';
@@ -13,7 +12,6 @@ import {
 } from '../src/stores/globalIdentities';
 
 const entry = globalFixtureSnapshot.entries[0];
-const row = globalFixtureSnapshot.impacts.g_damage0001[0];
 const header = (
   status: 'current' | 'sync-pending' | 'sync-failed' = 'current',
   causeIds: string[] = [],
@@ -43,59 +41,14 @@ describe('authenticated globals transport', () => {
   const transport = async () =>
     (await import('../src/services/globalsHttp')).createGlobalsHttpTransport();
 
-  it('gates approval on the destination state sent by the Worker', async () => {
-    const destination = 'converter-v2-test';
-    const consumer = { ...row.consumer, destination };
-    const review = { ...row, consumer, review: { ...row.review, consumer } };
-    const service = createGlobalsService(await transport(), {
-      catalog: async () => ({ kind: 'ok', value: { ...header(), version: 1, entries: [entry] } }),
+  it('reads the opened entry and accepts the existing Worker envelope', async () => {
+    fetch.mockResolvedValueOnce(reply({ kind: 'ok', value: { ...header(), entry } }));
+    expect(await (await transport()).entry(entry.id)).toEqual({
+      kind: 'ok',
+      value: { head: fixtureHead(1), causeIds: [], entry },
     });
-    await service.read();
-    for (const status of ['sync-pending', 'current'] as const) {
-      const destinationSync = { [destination]: { status, causeIds: [] } };
-      fetch.mockImplementation(async (url: string) =>
-        reply({
-          kind: 'ok',
-          value: {
-            ...header(),
-            destinationSync,
-            ...(url.includes('/reviews?')
-              ? { impacts: { [entry.id]: [review] }, nextCursor: null }
-              : { entry }),
-          },
-        }),
-      );
-      const result = await service.readEntry(entry.id);
-      if (result.kind !== 'ok') throw new Error(result.message);
-      expect(result.value.destinationSync).toEqual(destinationSync);
-      expect(canAcknowledgeGlobal(result.value, entry.id, result.value.impacts[entry.id][0])).toBe(
-        status === 'current',
-      );
-    }
-  });
-
-  it('normalizes the S2B review page and retry receipt into the S3 shapes', async () => {
-    fetch.mockResolvedValueOnce(
-      reply({
-        kind: 'ok',
-        value: { ...header(), impacts: { [entry.id]: [row] }, nextCursor: null },
-      }),
-    );
-    const page = await (await transport()).reviews(entry.id, 'p0');
-    expect(page).toMatchObject({ kind: 'ok', value: { version: 1, consumers: [row] } });
-    expect(fetch.mock.calls[0][0]).toBe(
-      `https://worker.example/globals/${entry.id}/reviews?cursor=p0`,
-    );
+    expect(fetch.mock.calls[0][0]).toBe(`https://worker.example/globals/${entry.id}`);
     expect(fetch.mock.calls[0][1].credentials).toBe('omit');
-
-    fetch.mockResolvedValueOnce(
-      reply({ kind: 'ok', value: { ...header('sync-pending', ['c1']), entries: [entry] } }),
-    );
-    const retried = await (
-      await transport()
-    ).retrySync({ expectedHead: fixtureHead(1), id: entry.id, causeIds: ['c1'] });
-    expect(retried).toMatchObject({ kind: 'ok', value: { entry, status: 'sync-pending' } });
-    expect(fetch.mock.calls[1][1].method).toBe('POST');
   });
 
   it('answers Sync pending once for a 503 or a queued name proof, never retrying', async () => {
@@ -138,7 +91,7 @@ describe('authenticated globals transport', () => {
     fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     const offline = await (await transport()).entry(entry.id);
     expect(offline.kind).toBe('retry');
-    expect(offline.kind !== 'ok' && offline.message).toMatch(/^Sync pending: /);
+    expect(offline.kind !== 'ok' && offline.message).toContain('Could not reach the server');
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
@@ -170,7 +123,7 @@ describe('authenticated globals transport', () => {
     );
   });
 
-  it('reads an unreadable 2xx write reply as Sync pending and checks history versions', async () => {
+  it('reports an unconfirmed write on an unreadable 2xx reply and checks history versions', async () => {
     fetch.mockResolvedValueOnce(new Response('not json', { status: 200 }));
     expect(
       await (
@@ -181,7 +134,7 @@ describe('authenticated globals transport', () => {
       }),
     ).toEqual({
       kind: 'retry',
-      message: 'Sync pending: the save could not be confirmed; refresh first.',
+      message: 'The save could not be confirmed. Refresh to check.',
     });
     const other = { ...entry, id: 'g_other00001' };
     fetch.mockResolvedValueOnce(
@@ -223,10 +176,6 @@ describe('stale rename intents', () => {
     const saved = vi.fn();
     const transport: GlobalsTransport = {
       entry: async () => ({ kind: 'ok', value: { ...worker(), entry: { ...entry, name } } }),
-      reviews: async () => ({
-        kind: 'ok',
-        value: { ...worker(), consumers: [], nextCursor: null },
-      }),
       mutate: async () => ({
         kind: 'ok',
         value: {
@@ -237,10 +186,8 @@ describe('stale rename intents', () => {
           intentId: 'intent1',
         },
       }),
-      retrySync: async () => ({ kind: 'invalid', message: 'unused' }),
     };
     const service = createGlobalsService(transport, {
-      destinations: ['live'],
       catalog: async () => structuredClone(bundle),
       onEntrySaved: saved,
     });
@@ -274,16 +221,9 @@ describe('stale rename intents', () => {
     status = 'current';
     name = 'Harm';
     expect(intent(await service.read())).toMatchObject({ status: 'queued' });
-    const reviews = vi.spyOn(transport, 'reviews').mockResolvedValue({
-      kind: 'retry',
-      message: 'Invalid global review page',
-    });
-    const accepted = await service.readEntry(entry.id, { reviews: false });
-    expect(reviews).not.toHaveBeenCalled();
+    const accepted = await service.readEntry(entry.id);
     expect(intent(accepted)).toBeUndefined();
     expect(accepted.kind === 'ok' && accepted.value.entries[0].name).toBe('Harm');
-    expect(accepted.kind === 'ok' && accepted.value.impacts[entry.id]).toBeUndefined();
-    expect(await service.readEntry(entry.id)).toMatchObject({ kind: 'retry' });
   });
 
   it('reports a cleared rename even while another change is pending', async () => {
@@ -297,10 +237,6 @@ describe('stale rename intents', () => {
     });
     const transport: GlobalsTransport = {
       entry: async () => ({ kind: 'ok', value: { ...page().value, entry } }),
-      reviews: async () => ({
-        kind: 'ok',
-        value: { ...page().value, consumers: [], nextCursor: null },
-      }),
       mutate: async () => ({
         kind: 'ok',
         value: {
@@ -311,10 +247,8 @@ describe('stale rename intents', () => {
           intentId: 'intent1',
         },
       }),
-      retrySync: async () => ({ kind: 'invalid', message: 'unused' }),
     };
     const service = createGlobalsService(transport, {
-      destinations: ['live'],
       catalog: async () => page(),
     });
     expect((await service.read()).kind).toBe('ok');

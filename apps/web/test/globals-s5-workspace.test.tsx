@@ -69,7 +69,6 @@ function service(snapshot: GlobalSnapshot = globalFixtureSnapshot) {
   return {
     read: vi.fn<GlobalsService['read']>().mockResolvedValue({ kind: 'ok', value: snapshot }),
     mutate: vi.fn<GlobalsService['mutate']>(),
-    retrySync: vi.fn<GlobalsService['retrySync']>(),
   };
 }
 
@@ -120,7 +119,7 @@ it('opens the entry named by the stable-ID path and keeps selection in the path'
     select.value = 'de';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  expect(path).toBe('/globals/g_title00001?lang=de&consumer=');
+  expect(path).toBe('/globals/g_title00001?lang=de');
   expect(host.querySelector('h1')!.textContent).toBe('Reload');
 });
 
@@ -153,9 +152,8 @@ it('opens an export body at hash 1 and preserves its draft through typing and di
   expect(host.querySelector('textarea')!.value).toBe(entry.definitions.en!.body);
 });
 
-it('renders the definition while only the opened entry reviews wait, fail, and retry', async () => {
+it('renders the definition while the opened entry loads, fails, and retries', async () => {
   const catalogue = structuredClone(globalFixtureSnapshot);
-  catalogue.impacts = {};
   const globals = service(catalogue);
   let finish!: (value: unknown) => void;
   const readEntry = vi.fn().mockReturnValueOnce(
@@ -167,18 +165,16 @@ it('renders the definition while only the opened entry reviews wait, fail, and r
   await mount('/globals/g_title00001', lazy);
   expect(host.querySelector('h1')?.textContent).toBe('Reload');
   expect(host.querySelector('textarea')?.value).toBe(catalogue.entries[1].definitions.en?.body);
-  expect(host.textContent).toContain('Loading reviews…');
   expect(host.textContent).not.toContain('No affected consumers.');
   expect(readEntry).toHaveBeenCalledExactlyOnceWith('g_title00001');
   await act(async () => button('Actions').click());
   expect(document.querySelector('[role="dialog"][aria-label="Global actions"]')).not.toBeNull();
   expect(button('Rename').disabled).toBe(true);
   await act(async () => button('Actions').click());
-  await act(async () => finish({ kind: 'retry', message: 'Review request failed' }));
-  expect(host.textContent).toContain('Review request failed');
+  await act(async () => finish({ kind: 'retry', message: 'Could not load the saved definition.' }));
+  expect(host.textContent).toContain('Could not load the saved definition.');
   readEntry.mockResolvedValueOnce({ kind: 'ok', value: globalFixtureSnapshot });
-  await act(async () => button('Retry reviews').click());
-  expect(host.textContent).not.toContain('Loading reviews…');
+  await act(async () => button('Retry').click());
   expect(readEntry).toHaveBeenCalledTimes(2);
   await act(async () => button('Actions').click());
   expect(button('Rename').disabled).toBe(false);
@@ -186,31 +182,14 @@ it('renders the definition while only the opened entry reviews wait, fail, and r
 
 it('reviews no tooltip impact and waits for no sync once globals fill in tooltips', async () => {
   const id = globalFixtureSnapshot.entries[0]!.id;
-  const snapshot: GlobalSnapshot = {
-    ...globalFixtureSnapshot,
-    destinationSync: { test: { status: 'sync-pending', causeIds: [], lastFailure: null } },
-  };
+  const snapshot = globalFixtureSnapshot;
   const reader = () => ({
     ...service(snapshot),
     readEntry: vi.fn().mockResolvedValue({ kind: 'ok', value: snapshot }),
   });
-  await mount(`/globals/${id}`, reader());
-  expect(host.textContent).toContain('is paused.');
-  expect(host.textContent).toContain('Needs review');
-  await act(async () => root!.unmount());
-  host.remove();
-  useDataStore.setState({
-    data: {
-      items: {},
-      categories: [],
-      aliases: {},
-      bundle: { tooltips: {}, pushed: {}, globalsPending: [] },
-    } as unknown as EditorData,
-    status: 'ready',
-  });
   const filled = reader();
   await mount(`/globals/${id}`, filled);
-  expect(filled.readEntry).toHaveBeenCalledExactlyOnceWith(id, { reviews: false });
+  expect(filled.readEntry).toHaveBeenCalledExactlyOnceWith(id);
   for (const text of ['is paused.', 'Waiting for', 'Needs review', 'Tooltip impact'])
     expect(host.textContent).not.toContain(text);
   expect(host.querySelector('[aria-label="Refresh sync"]')).toBeNull();
@@ -251,9 +230,8 @@ it('lets a translator withdraw their own translation once globals fill in toolti
   expect(await open('en')).toEqual([]);
 });
 
-it('recovers reviews from a newer Worker head without replacing the draft or reloading the catalogue', async () => {
+it('reads the newer Worker head without replacing the draft or reloading the catalogue', async () => {
   const catalogue = structuredClone(globalFixtureSnapshot);
-  catalogue.impacts = {};
   const globals = service(catalogue);
   const loaded = structuredClone(globalFixtureSnapshot);
   loaded.head = fixtureHead(7);
@@ -267,52 +245,32 @@ it('recovers reviews from a newer Worker head without replacing the draft or rel
   await mount('/globals/g_damage0001', { ...globals, readEntry });
   await act(async () => change('KEPT DRAFT'));
   expect(host.textContent).toContain('Globals changed.');
-  await act(async () => button('Retry reviews').click());
+  await act(async () => button('Retry').click());
   expect(globals.read).toHaveBeenCalledTimes(1);
   expect(readEntry).toHaveBeenCalledTimes(2);
   expect(host.textContent).not.toContain('Globals changed.');
-  expect(host.querySelectorAll('[data-global-consumer]').length).toBe(2);
   expect(host.querySelector('textarea')!.value).toBe('KEPT DRAFT');
 });
 
-it('keeps a confirmed rename through follow-up sync refresh and repeated review failures', async () => {
+it('reads the opened entry to confirm a queued rename', async () => {
   const queued = structuredClone(globalFixtureSnapshot);
   const id = queued.entries[0].id;
-  queued.renameIntents = {
-    [id]: { intentId: 'intent1', renameCompleted: false, name: 'Harm', status: 'queued' },
-  };
+  queued.renameIntents = { [id]: { intentId: 'intent1', name: 'Harm', status: 'queued' } };
   const applied = structuredClone(queued);
   applied.entries[0].name = 'Harm';
   applied.head = fixtureHead(7);
   applied.renameIntents = {};
-  applied.impacts = {};
-  const synced = structuredClone(applied);
-  synced.head = fixtureHead(8);
-  applied.sync[id] = { status: 'sync-pending', causeIds: ['other'] };
-  const globals = service(globalFixtureSnapshot);
-  globals.read.mockResolvedValueOnce({ kind: 'ok', value: queued });
-  const readEntry = vi
-    .fn<NonNullable<GlobalsService['readEntry']>>()
-    .mockResolvedValueOnce({ kind: 'ok', value: applied })
-    .mockResolvedValueOnce({ kind: 'ok', value: { ...applied, impacts: { [id]: [] } } })
-    .mockResolvedValueOnce({ kind: 'ok', value: synced })
-    .mockResolvedValue({ kind: 'retry', message: 'Invalid global review page' });
+  const globals = service(queued);
+  const readEntry = vi.fn<NonNullable<GlobalsService['readEntry']>>()
+    .mockResolvedValueOnce({ kind: 'ok', value: queued })
+    .mockResolvedValueOnce({ kind: 'ok', value: applied });
   await mount(`/globals/${id}`, { ...globals, readEntry });
   expect(host.textContent).toContain('Rename queued.');
   await act(async () => button('Refresh').click());
-  expect(readEntry.mock.calls).toEqual([[id, { reviews: false }], [id]]);
+  expect(readEntry.mock.calls).toEqual([[id], [id]]);
   expect(host.querySelector('h1')?.textContent).toBe('Harm');
   expect(host.textContent).not.toContain('Rename queued.');
-  await act(async () => button('Refresh').click());
-  expect(readEntry.mock.calls.slice(2)).toEqual([[id, { reviews: false }], [id]]);
-  expect(host.querySelector('h1')?.textContent).toBe('Harm');
-  expect(host.textContent).toContain('Invalid global review page');
-  await act(async () => button('Retry reviews').click());
-  expect(readEntry).toHaveBeenCalledTimes(5);
   expect(globals.read).toHaveBeenCalledTimes(1);
-  expect(host.querySelector('h1')?.textContent).toBe('Harm');
-  expect(host.textContent).toContain('Invalid global review page');
-  expect(host.textContent).not.toContain('Acknowledge review');
 });
 
 it('keeps an unsaved definition across a remount (reload) and marks it stale after a new revision', async () => {
@@ -416,16 +374,6 @@ it('restores an older version into the draft; saving stays an ordinary edit', as
   expect(globals.mutate).not.toHaveBeenCalled();
 });
 
-it('shows saved impact, not a projection panel, while a draft is open', async () => {
-  await mount('/globals/g_damage0001', service());
-  await act(async () => change('20%'));
-  expect(host.textContent).not.toContain('Calculate projected impact');
-  expect(host.querySelector('[aria-label="Global pane"] [aria-selected="true"]')!.textContent).toBe(
-    'Usages',
-  );
-  expect(host.querySelectorAll('[data-global-consumer]').length).toBe(2);
-});
-
 it('lists the tooltips an unedited global is used by, once per alias group, and opens them', async () => {
   const text = (hash: number, value: string) => ({
     hash,
@@ -455,7 +403,6 @@ it('lists the tooltips an unedited global is used by, once per alias group, and 
     } as unknown as EditorData,
   });
   const catalogue = structuredClone(globalFixtureSnapshot);
-  catalogue.impacts = { g_damage0001: [], g_title00001: [] };
   await mount('/globals/g_damage0001', service(catalogue));
   await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
   // One Usages place: the pane tab carries the count; the left column has no Usages row.
@@ -487,28 +434,7 @@ it('says when a global is not used by any tooltip', async () => {
     } as unknown as EditorData,
   });
   const catalogue = structuredClone(globalFixtureSnapshot);
-  catalogue.impacts = { g_damage0001: [], g_title00001: [] };
   await mount('/globals/g_title00001', service(catalogue));
   await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
   expect(host.textContent).toContain('Not used by any tooltip.');
-});
-
-it('filters the saved impacts under a row, and the selection, by language', async () => {
-  const catalogue = structuredClone(globalFixtureSnapshot);
-  const english = catalogue.impacts.g_damage0001[0];
-  const french = structuredClone(english);
-  french.id = 'review_10_fr_live';
-  french.consumer = { ...french.consumer, lang: 'fr' };
-  french.review = { ...french.review, consumer: french.consumer };
-  catalogue.impacts = { g_damage0001: [english, french], g_title00001: [] };
-  await mount('/globals/g_damage0001?usageLang=fr', service(catalogue));
-  // One tooltip row; only its French obligation shows and is selected for the comparison.
-  expect(host.querySelectorAll('[data-global-usage]').length).toBe(1);
-  expect(
-    [...host.querySelectorAll('[data-global-consumer]')].map((row) =>
-      row.getAttribute('data-global-consumer'),
-    ),
-  ).toEqual(['review_10_fr_live']);
-  expect(host.textContent).toContain('Focused Fury (French)');
-  expect(host.textContent).not.toContain('Focused Fury (English)');
 });

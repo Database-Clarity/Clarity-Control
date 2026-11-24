@@ -11,7 +11,6 @@ import {
   type Lang,
   type Tooltip,
 } from '@clarity/core';
-import { globalAggregates } from '../../services/globalsFlag';
 
 const textIn = (tooltip: Tooltip, lang: Lang) =>
   usesEnglishFallback(tooltip, lang) ? tooltip.text.en?.text : tooltip.text[lang]?.text;
@@ -102,7 +101,6 @@ function tooltipReads(
 
 interface PublishDependencyOptions {
   moves?: InactiveMoves;
-  globals?: boolean;
   /** Ready Review comparisons. A row without a marker has an explicit undefined value. */
   published?: Readonly<Partial<Record<number, Tooltip | null | undefined>>>;
 }
@@ -112,19 +110,13 @@ export function publishDependencies(
   aliases: Aliases,
   pending: ReadonlySet<number>,
   selected: readonly Tooltip[],
-  { moves = {}, globals = false, published = {} }: PublishDependencyOptions = {},
+  { moves = {}, published = {} }: PublishDependencyOptions = {},
 ): Map<number, number[]> {
   const result = new Map<number, Set<number>>(selected.map((t) => [t.hash, new Set()]));
   const active = selected.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
   tooltipReads(tooltips, aliases, active, (reader, _source, hash) => {
     if (pending.has(hash)) result.get(reader)!.add(hash);
   });
-  // Without per-entry release, the aggregate bodies are inputs even without a numeric lookup.
-  if (!globals)
-    for (const tooltip of active)
-      for (const hash of globalAggregates)
-        if (pending.has(hash)) result.get(tooltip.hash)!.add(hash);
-
   const removedBy = new Map<number, number>();
   for (const key of Object.keys(selectedInactiveMoves(moves, result.keys(), aliases))) {
     const hash = Number(key);

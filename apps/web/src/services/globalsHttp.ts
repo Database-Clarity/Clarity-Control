@@ -1,17 +1,11 @@
 import { z } from 'zod';
 import {
-  globalIdSchema,
-  globalImpactRowSchema,
   globalRecordSchema,
-  globalReviewSchema,
 } from '@clarity/core';
 import { apiRequest } from './apiAuth';
 import { errorMessage } from './http';
 import type {
-  GlobalAuditDelta,
-  GlobalEntryDelta,
   GlobalResult,
-  GlobalReviewPage,
   GlobalsService,
   GlobalsTransport,
 } from './globals';
@@ -19,60 +13,22 @@ import type {
 /** The Worker caps every globals response at 64 KiB (S2B limits.fileBytes). */
 export const globalsResponseBytes = 65_536;
 
-const syncState = {
-  status: z.enum(['sync-pending', 'sync-failed', 'current']),
+const head = z.string().regex(/^[a-f0-9]{40}$/);
+const entryDelta = z.object({
+  head,
+  entry: globalRecordSchema,
   causeIds: z.array(z.string().max(128)).max(32),
-  lastFailure: z.string().max(512).nullable().optional(),
-};
-const header = {
-  head: z.string().regex(/^[a-f0-9]{40}$/),
-  ...syncState,
-  destinationSync: z
-    .record(z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), z.object(syncState))
-    .optional(),
-  /** Per-entry views (handlers.ts snapshot): which entry owns each pending cause. */
-  sync: z
-    .record(globalIdSchema, z.object({ causeIds: z.array(z.string().max(128)).max(32) }))
-    .optional(),
-};
-const entryDelta = z.object({ ...header, entry: globalRecordSchema });
-const consumer = globalImpactRowSchema.extend({
-  id: z.string().max(128),
-  variant: z.number().int().nonnegative(),
-  name: z.string().max(256),
-  category: z.string().max(128),
-  line: z.number().int().positive().nullable(),
-  path: z.array(z.string().max(128)).max(32).nullable(),
-  direct: z.boolean().nullable(),
-  archived: z.boolean(),
-  beforeSource: z.string().max(8192),
-  afterSource: z.string().max(8192),
-  review: globalReviewSchema,
-  impactDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  renameCompleted: z.literal(false).optional(),
+  intentId: z.string().max(128).optional(),
 });
-const reviewPage = z.object({
-  ...header,
-  impacts: z.record(globalIdSchema, z.array(consumer).max(3)),
-  nextCursor: z.string().nullable(),
-});
-const mutationDelta = z.union([
-  z.object({
-    ...header,
-    entry: globalRecordSchema,
-    renameCompleted: z.literal(false).optional(),
-    intentId: z.string().max(128).optional(),
-  }),
-  z.object({ ...header, consumerId: z.string().max(128), review: globalReviewSchema }),
-]);
-const retryDelta = z.object({ ...header, entries: z.tuple([globalRecordSchema]) });
 /** W b0e6884f: commits that touched the entry record (30 per page), newest first. */
 const historyPage = z.object({
-  head: header.head,
+  head,
   page: z.number().int().positive(),
   commits: z
     .array(
       z.object({
-        commit: header.head,
+        commit: head,
         author: z.string().max(256).nullable(),
         login: z.string().max(128).nullable(),
         avatar: z.string().max(2048).nullable().optional(),
@@ -83,8 +39,8 @@ const historyPage = z.object({
     .max(30),
 });
 const historyVersion = z.object({
-  head: header.head,
-  commit: header.head,
+  head,
+  commit: head,
   entry: globalRecordSchema,
 });
 export const globalHistoryPageSize = 30;
@@ -125,7 +81,7 @@ async function boundedText(response: Response, limit: number): Promise<string | 
 const signIn = 'Sign in again to edit globals.';
 
 /**
- * One request, never repeated: a 503 or a queued name proof answers `retry` ("Sync pending") and
+ * A 503 or a queued name check answers `retry` and
  * the person decides when to try again (S3/S5 ruling: no automatic mutation retries).
  */
 async function call<T>(
@@ -138,13 +94,13 @@ async function call<T>(
     response = await apiRequest(path, init);
   } catch (error) {
     // The outcome is unknown, not failed: Refresh shows whether the change landed.
-    return { kind: 'retry', message: `Sync pending: ${errorMessage(error)}` };
+    return { kind: 'retry', message: errorMessage(error) };
   }
   if (response.status === 401) return { kind: 'forbidden', message: signIn };
   // A write that answered 2xx may have landed even when its reply is unreadable: say so.
   const unreadable = (message: string): GlobalResult<T> =>
     init?.method === 'POST' && response.ok
-      ? { kind: 'retry', message: 'Sync pending: the save could not be confirmed; refresh first.' }
+      ? { kind: 'retry', message: 'The save could not be confirmed. Refresh to check.' }
       : { kind: 'invalid', message };
   let text: string | undefined;
   try {
@@ -161,11 +117,11 @@ async function call<T>(
   }
   if (!parsed)
     return response.status >= 500
-      ? { kind: 'retry', message: `Sync pending: the server answered HTTP ${response.status}.` }
+      ? { kind: 'retry', message: `The server answered HTTP ${response.status}.` }
       : unreadable(`Unexpected globals response (HTTP ${response.status}).`);
   if (parsed.kind !== 'ok') {
     const message =
-      parsed.kind === 'retry' ? (parsed.message ?? 'Sync pending') : (parsed.message ?? '');
+      parsed.kind === 'retry' ? (parsed.message ?? 'Refresh and try again.') : (parsed.message ?? '');
     return { kind: parsed.kind, message: message || 'The globals request was refused.' };
   }
   if (!response.ok) return { kind: 'invalid', message: `Unexpected HTTP ${response.status}.` };
@@ -175,27 +131,11 @@ async function call<T>(
     : unreadable('The globals response did not match the expected shape.');
 }
 
-const http = <
-  T extends { lastFailure?: string | null; sync?: Record<string, { causeIds: string[] }> },
->({
-  sync,
-  ...value
-}: T) => ({
-  ...value,
-  version: 1 as const,
-  lastFailure: value.lastFailure ?? null,
-  causeEntries: Object.fromEntries(
-    Object.entries(sync ?? {}).flatMap(([id, state]) => state.causeIds.map((cause) => [cause, id])),
-  ),
-});
-const map = <A, B>(result: GlobalResult<A>, next: (value: A) => B): GlobalResult<B> =>
-  result.kind === 'ok' ? { kind: 'ok', value: next(result.value) } : result;
 const post = (body: unknown): RequestInit => ({
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
 });
-const cursorQuery = (cursor: string) => `?cursor=${encodeURIComponent(cursor)}`;
 
 function routeOf(mutation: Parameters<GlobalsService['mutate']>[0]['mutation']): string {
   if (mutation.operation === 'create') return '/globals';
@@ -211,35 +151,8 @@ export interface GlobalsHttpTransport extends GlobalsTransport {
 /** Authenticated, bounded HTTP for the S3 GlobalsTransport contract (S2B handler shapes). */
 export function createGlobalsHttpTransport(): GlobalsHttpTransport {
   return {
-    entry: async (id) =>
-      map(await call(`/globals/${encodeURIComponent(id)}`, entryDelta), (value): GlobalEntryDelta =>
-        http(value),
-      ),
-    reviews: async (id, cursor) => {
-      const result = await call(
-        `/globals/${encodeURIComponent(id)}/reviews${cursorQuery(cursor)}`,
-        reviewPage,
-      );
-      if (result.kind !== 'ok') return result;
-      const { impacts, ...rest } = result.value;
-      const keys = Object.keys(impacts);
-      if (keys.length !== 1 || keys[0] !== id)
-        return { kind: 'invalid', message: 'Global review page names another entry.' };
-      return {
-        kind: 'ok',
-        value: { ...http(rest), consumers: impacts[id] } as GlobalReviewPage,
-      };
-    },
-    mutate: async (request) =>
-      map(
-        await call(routeOf(request.mutation), mutationDelta, post(request)),
-        (value): GlobalEntryDelta | GlobalAuditDelta => http(value) as GlobalEntryDelta,
-      ),
-    retrySync: async (request) =>
-      map(
-        await call(`/globals/${encodeURIComponent(request.id)}/retry`, retryDelta, post(request)),
-        ({ entries, ...value }): GlobalEntryDelta => ({ ...http(value), entry: entries[0] }),
-      ),
+    entry: (id) => call(`/globals/${encodeURIComponent(id)}`, entryDelta),
+    mutate: (request) => call(routeOf(request.mutation), entryDelta, post(request)),
     history: async (id, page) =>
       call(`/globals/${encodeURIComponent(id)}/history?page=${page}`, historyPage),
     historyVersion: async (id, commit) => {

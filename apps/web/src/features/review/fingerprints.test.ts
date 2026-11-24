@@ -7,7 +7,7 @@ import type { EditorData } from '../../stores/data';
 afterEach(() => vi.unstubAllGlobals());
 
 const tooltip: Tooltip = {
-  hash: 1,
+  hash: 101,
   associated: [3, 2],
   text: {
     en: { text: 'English', updatedAt: '2026-06-01T00:00:00Z', updatedBy: 'a' },
@@ -21,9 +21,9 @@ const tooltip: Tooltip = {
 };
 
 it('keeps the pending set identical to uncached publishable hashes across saved revisions and alias changes', async () => {
-  const aliases = { 10: { to: 1, kind: 'frame' as const }, 11: { to: 10, kind: 'frame' as const } };
+  const aliases = { 10: { to: 101, kind: 'frame' as const }, 11: { to: 10, kind: 'frame' as const } };
   const original = structuredClone(tooltip);
-  const pushed = { 1: await publishableHash(original, aliases) };
+  const pushed = { 101: await publishableHash(original, aliases) };
   const revisions: Tooltip[] = [
     original,
     {
@@ -41,16 +41,16 @@ it('keeps the pending set identical to uncached publishable hashes across saved 
     },
     { ...original, text: { ...original.text, en: { ...original.text.en!, text: 'New English' } } },
   ];
-  const aliasSnapshots: Aliases[] = [aliases, {}, { 10: { to: 1, kind: 'frame' } }];
+  const aliasSnapshots: Aliases[] = [aliases, {}, { 10: { to: 101, kind: 'frame' } }];
   for (const aliasSnapshot of aliasSnapshots) {
     for (const revision of revisions) {
       const state = {
         items: {},
         categories: [],
         aliases: aliasSnapshot,
-        bundle: { tooltips: { 1: revision }, pushed },
+        bundle: { tooltips: { 101: revision }, pushed },
       } as unknown as EditorData;
-      const expected = (await publishableHash(revision, aliasSnapshot)) === pushed[1] ? [] : [1];
+      const expected = (await publishableHash(revision, aliasSnapshot)) === pushed[101] ? [] : [101];
       expect((await pendingTooltips(state)).map((entry) => entry.tooltip.hash)).toEqual(expected);
       expect((await pendingTooltips(state)).map((entry) => entry.tooltip.hash)).toEqual(expected);
     }
@@ -76,7 +76,7 @@ it('runs the real worker protocol with exact core digests and reuses unchanged r
   }
   vi.stubGlobal('Worker', TestWorker);
   const original = structuredClone(tooltip);
-  const aliases = { 10: { to: 1, kind: 'frame' as const } };
+  const aliases = { 10: { to: 101, kind: 'frame' as const } };
   original.bungieSnapshot = {
     description: 'Metadata that is not published',
     snapshotAt: '2026-01-01T00:00:00Z',

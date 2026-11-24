@@ -9,9 +9,7 @@ import type { GlobalRecord } from '../../../packages/core/src/globals/model.js';
 import { GitHub } from '../src/github.js';
 import { namePaths } from '../src/globals/index.js';
 import {
-  globalPublicationRead,
   globalsSwitch,
-  maxPublicationConsumers,
   observeGlobals,
 } from '../src/globalsRoute.js';
 import { blobOid, Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
@@ -367,33 +365,6 @@ describe('global entry routes (S5 integration)', () => {
     },
   );
 
-  it('reads one publication certificate per consumer, in order, at the same head', async () => {
-    bootstrap();
-    const certificate = { version: 1, marker: 'de' };
-    f.moveData({ [`globals/proofs/publication/${live}/123-de.json`]: certificate });
-    const reader = globalPublicationRead(new GitHub(f.env));
-    const consumers = [
-      { hash: 123, lang: 'de', destination: live },
-      { hash: 123, lang: 'en', destination: live },
-    ];
-    const proof = await reader(f.dataHead, consumers);
-    expect(proof).toEqual({
-      sources: (await observeGlobals(new GitHub(f.env))).sources,
-      sync: current,
-      materializedSources: null,
-      certificates: [certificate, null],
-    });
-    await expect(reader(sha(5), consumers)).rejects.toMatchObject({ status: 409 });
-    await expect(
-      reader(f.dataHead, [{ hash: 123, lang: 'de', destination: 'elsewhere' }]),
-    ).rejects.toMatchObject({ status: 409 });
-    const many = Array.from({ length: maxPublicationConsumers + 1 }, (_, hash) => ({
-      hash,
-      lang: 'en',
-      destination: live,
-    }));
-    await expect(reader(f.dataHead, many)).rejects.toMatchObject({ status: 422 });
-  });
 });
 
 async function observedBlob(path: string): Promise<string | null> {

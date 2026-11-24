@@ -4,10 +4,13 @@ import type { EditorData } from '../../stores/data';
 import { diffGlobals } from '../history/RenderedWordDiff';
 import { publishedCell, publishedGlobals } from './globalsPending';
 import { classifyRendered } from '../history/useRenderedDiff';
-import { publishedOf, rowKey, usesOthers, type RowKey } from './globalRows';
+import { publishedOf, rowKey, type RowKey } from './globalRows';
 import type { PendingTooltip } from './model';
 import { exportedText, usePublished, type Published } from './published';
 import type { RowKinds } from './queueModel';
+
+const usesOthers = (tooltip: Tooltip) =>
+  Object.values(tooltip.text).some((cell) => /^import |#|<title/m.test(cell?.text ?? ''));
 
 type PublishedState = ReturnType<typeof usePublished.getState>;
 
@@ -18,7 +21,6 @@ type PublishedState = ReturnType<typeof usePublished.getState>;
 export const kindWords = [
   'Text changed',
   'No visible change',
-  'Output unchanged',
   'Definition changed',
   'New',
   'Links changed',
@@ -57,8 +59,6 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
     languages.every((lang) => entry.part!.source.before[lang] === entry.part!.source.after[lang])
   )
     return { kind: 'Definition changed' };
-  if (entry.part?.change === 'same-text')
-    return { kind: usesOthers(entry.tooltip) ? 'Definition changed' : 'Output unchanged' };
   if (entry.isNew) return { kind: 'New' };
   return undefined;
 }
@@ -331,7 +331,6 @@ export function kindCounts(kinds: readonly (Kind | undefined)[]): string {
       const phrase: Record<Kind | 'unknown', string> = {
         'Text changed': `with changed text`,
         'No visible change': `with no visible change`,
-        'Output unchanged': `with unchanged output`,
         'Definition changed': `with a changed definition`,
         New: `new`,
         'Links changed': `with changed links`,
