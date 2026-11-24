@@ -52,8 +52,8 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
   const root = 'scripts/publisher/template/.publisher';
   const pin = verifyRuntime(root);
   expect(pin).toEqual({
-    sourceSha: '81a701e75b0a1dd538fa23fabae4432df8fbd0e6',
-    sha256: 'b68f96a728123e44d1a75aa80ec04d3f09879b2493a0eb30c5abb5504e8cb385',
+    sourceSha: 'e55b240d1d91079811ecbf0cf113c06d292b827a',
+    sha256: '1abbede1ec66f19f38a9672a6b09170c65af5ec69e910fdce738cec0b60d5d4c',
     verifierSha256: 'd960337b7435cb3a8464f03aa8221476c3bc571da341d683ab4dc3e58a2a304f',
     capabilities: [
       'elementTags',

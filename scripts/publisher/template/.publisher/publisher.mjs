@@ -28080,26 +28080,27 @@ function changes(input2, ids, names) {
 function impacts(input2, store, ids, scans, withdrawals) {
   const beforeGlobals = projectGlobals(input2.published), afterGlobals = projectGlobals(store);
   const alternativeGlobals = /* @__PURE__ */ new Map();
-  const fallbackAlternatives = (before) => {
+  const fallbackAlternatives = (before, singleton) => {
     return new Map(
       ids.map((id) => {
-        if (!alternativeGlobals.has(id)) {
+        const key = `${singleton}:${id}`;
+        if (!alternativeGlobals.has(key)) {
           try {
             alternativeGlobals.set(
-              id,
+              key,
               projectGlobals(
                 composeGlobalRelease(
                   input2.published,
                   input2.saved,
-                  ids.filter((candidate) => candidate !== id)
+                  singleton ? [id] : ids.filter((candidate) => candidate !== id)
                 )
               )
             );
           } catch {
-            alternativeGlobals.set(id, void 0);
+            alternativeGlobals.set(key, void 0);
           }
         }
-        const globals = alternativeGlobals.get(id);
+        const globals = alternativeGlobals.get(key);
         return [
           id,
           globals && scans.resolve({
@@ -28189,7 +28190,7 @@ function impacts(input2, store, ids, scans, withdrawals) {
       result,
       changes(input2, ids, names).map((change) => change.cause),
       scans,
-      withdrawals && ids.length > 1 ? () => fallbackAlternatives(observedBefore) : void 0
+      withdrawals && ids.length > 1 ? (singleton) => fallbackAlternatives(observedBefore, singleton) : void 0
     );
   });
 }
@@ -28220,16 +28221,25 @@ function expandReleaseDependencies(input2, before, after, impact, causes, scans,
     scans
   );
   if (!globalOnly.complete) throw new Error("Sync pending: global fallback closure is incomplete");
-  let alternatives;
+  let omissions;
+  let singletons;
   for (const row of globalOnly.rows)
     if (row.before?.rendered !== row.after?.rendered && !rows.has(key(row))) {
       const actual = census.rows.find((candidate) => key(candidate) === key(row));
       if (!actual) continue;
-      alternatives ??= counterfactuals?.();
-      const attributable = causes.filter(({ globalId }) => {
-        const alternative = alternatives?.get(globalId);
-        return !alternative || alternative.blockers.size > 0 || alternative.cells.get(key(row))?.result.rendered !== row.after?.rendered;
-      });
+      omissions ??= counterfactuals?.(false);
+      const matching = (candidates) => candidates && [...candidates.values()].every((scan) => scan?.blockers.size === 0) ? new Set(
+        [...candidates].filter(
+          ([, scan]) => scan?.cells.get(key(row))?.result.rendered === row.after?.rendered
+        ).map(([id]) => id)
+      ) : void 0;
+      const unchangedWithout = matching(omissions);
+      let attributable = causes.filter(({ globalId }) => !unchangedWithout?.has(globalId));
+      if (!attributable.length) {
+        singletons ??= counterfactuals?.(true);
+        const unchangedWithOnly = matching(singletons);
+        attributable = causes.filter(({ globalId }) => unchangedWithOnly?.has(globalId));
+      }
       rows.set(key(actual), {
         ...actual,
         reason: "variable-read",
