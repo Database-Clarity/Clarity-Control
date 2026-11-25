@@ -53,6 +53,9 @@ class ActionRepository implements Repository {
   head(ref: string) {
     return ref === D ? this.f.dataHead : this.refs.get(ref);
   }
+  commitParents(commit: string) {
+    return this.f.commitParents.get(commit) ?? [];
+  }
   writeBlob(bytes: string) {
     const oid = createHash('sha1')
       .update(`blob ${Buffer.byteLength(bytes)}\0${bytes}`)
