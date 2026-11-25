@@ -19,6 +19,14 @@ const entries = new Map<number, Entry>();
 const tooltipCommits = new WeakMap<Tooltip, string>();
 let version = 0;
 
+type SavedRows = { tooltips: Tooltip[]; deleted: number[] } | { global: GlobalRecord };
+const savedListeners = new Set<(rows: SavedRows) => void>();
+
+export function subscribeSavedRows(listener: (rows: SavedRows) => void) {
+  savedListeners.add(listener);
+  return () => savedListeners.delete(listener);
+}
+
 export function savedTooltipCommit(tooltip: Tooltip): string | undefined {
   return tooltipCommits.get(tooltip);
 }
@@ -50,6 +58,7 @@ export function rememberSaved(
   }
   for (const hash of deleted) entries.set(hash, { at: now, serverAt, tooltip: null });
   version++;
+  for (const listener of savedListeners) listener({ tooltips, deleted });
 }
 
 /** Global entries this tab saved, with the data head each save produced. */
@@ -58,6 +67,7 @@ const globals = new Map<string, GlobalEntry>();
 
 export function rememberSavedGlobal(entry: GlobalRecord, head: string, now = Date.now()): void {
   globals.set(entry.id, { at: now, head, entry });
+  for (const listener of savedListeners) listener({ global: entry });
 }
 
 /** Globals this tab saved that the loaded bundle does not hold yet. */

@@ -19,7 +19,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { loadGenerator } from '../../services/generator';
 import { loadBundle, type Bundle } from '../../services/bundle';
 import { useReviewSession } from './session';
-import { pendingTooltips } from './model';
+import { pendingTooltips, prepareReviewQueue } from './model';
 import { reviewRoute } from './route';
 import { ReviewSidebar } from './ReviewSidebar';
 import { useReviewQueue } from './queueStore';
@@ -734,6 +734,29 @@ it('does not reload the bundle after a push, so success is never masked by a ref
   expect(useReviewSession.getState().notice).toContain('Pushed 1');
   expect(useReviewSession.getState().error).toBeUndefined();
   expect(counts()).toEqual([0, 0]);
+});
+
+it('keeps matching ticks usable when the background queue is prepared after a publish', async () => {
+  await mountDelayedReview();
+  await waitForReview();
+  const tick = (hash: number) => act(async () =>
+    host.querySelector<HTMLInputElement>(`input[data-review-toggle="${hash}"]`)!.click(),
+  );
+  await tick(10);
+  await push();
+  await waitFor(() => expect(counts()).toEqual([2, 0]));
+  await tick(20);
+
+  const data = useDataStore.getState().data!;
+  // Other consumers can still compare the raw bundle without the acknowledgment.
+  await pendingTooltips(data);
+  await act(async () => {
+    useAuthStore.setState({ user: { ...user, role: 'editor' } });
+    await prepareReviewQueue(data);
+  });
+  expect(counts()).toEqual([2, 1]);
+  expect(useReviewQueue.getState().entries?.map(({ tooltip }) => tooltip.hash)).toEqual([20, 30]);
+  expect(headPublish()!.disabled).toBe(false);
 });
 
 it('keeps partial-live error details and never acknowledges a failed publish', async () => {

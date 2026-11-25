@@ -1,5 +1,8 @@
 import { create } from 'zustand';
+import { publishableHashInput, stableStringify } from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
+import { useDataStore } from '../../stores/data';
+import { subscribeSavedRows } from '../../stores/savedOverlay';
 import { canPushLive } from '../auth/permissions';
 import { rowKey, type RowKey } from './globalRows';
 import type { PendingTooltip } from './model';
@@ -104,22 +107,33 @@ function indexOf(entries: PendingTooltip[]) {
   return index;
 }
 
-function reconcile(
-  state: ReviewQueueState,
-  entries: PendingTooltip[],
-  keep: (row: SavedRow) => boolean = () => true,
-) {
+function reconcile(state: ReviewQueueState, entries: PendingTooltip[]) {
   if (!state.versions.size && !state.decisions.length && !state.message) return { entries };
   const { byKey: index } = indexOf(entries);
-  const valid = (row: SavedRow) => index.get(row.key)?.savedVersion === row.version && keep(row);
-  const versions = new Map([...state.versions].filter(([key, version]) => valid({ key, version })));
-  if (versions.size !== state.versions.size) writeVersions(state.account, versions);
   return {
     entries,
+    ...retainRows(state, (row) => index.get(row.key)?.savedVersion === row.version, entries),
+  };
+}
+
+function retainRows(
+  state: ReviewQueueState,
+  valid: (row: SavedRow) => boolean,
+  entries = state.entries,
+) {
+  const versions = new Map([...state.versions].filter(([key, version]) => valid({ key, version })));
+  if (versions.size !== state.versions.size) writeVersions(state.account, versions);
+  const selected = new Set<number>();
+  if (entries && versions.size) {
+    const { byKey } = indexOf(entries);
+    for (const key of versions.keys()) {
+      const entry = byKey.get(key);
+      if (entry) selected.add(entry.tooltip.hash);
+    }
+  }
+  return {
     versions,
-    selected: versions.size
-      ? new Set([...versions.keys()].map((key) => index.get(key)!.tooltip.hash))
-      : empty,
+    selected: selected.size ? selected : empty,
     decisions: state.decisions.filter(valid),
     message: state.message && valid(state.message) ? state.message : undefined,
   };
@@ -257,11 +271,7 @@ export const useReviewQueue = create<ReviewQueueState>((set, get) => ({
   },
   removePublished: (entries) => {
     const sent = new Map(entries.map((entry) => [rowKey(entry), entry.savedVersion]));
-    set((state) =>
-      state.entries
-        ? reconcile(state, state.entries, ({ key, version }) => sent.get(key) !== version)
-        : state,
-    );
+    set((state) => retainRows(state, ({ key, version }) => sent.get(key) !== version));
   },
   toggleGroup: (id) =>
     set((state) => {
@@ -292,3 +302,34 @@ function syncAccount({ user, loading }: ReturnType<typeof useAuthStore.getState>
 }
 useAuthStore.subscribe(syncAccount);
 syncAccount(useAuthStore.getState());
+
+// Retire changed picks when the save is acknowledged. A reload can otherwise restore an old
+// pick while the bundle still has the old text and the tab's saved overlay is gone.
+subscribeSavedRows((saved) => {
+  const state = useReviewQueue.getState();
+  const tracked = (key: RowKey) =>
+    state.versions.has(key) ||
+    state.decisions.some((row) => row.key === key) ||
+    state.message?.key === key;
+  const bundle = useDataStore.getState().data?.bundle;
+  if ('global' in saved) {
+    const { id } = saved.global;
+    if (!tracked(id)) return;
+    const previous = bundle?.globals?.entries.find((row) => row.id === id);
+    if (!previous || stableStringify(previous) !== stableStringify(saved.global))
+      useReviewQueue.setState(retainRows(state, ({ key }) => key !== id));
+    return;
+  }
+  const changed = new Set<RowKey>(saved.deleted.filter(tracked));
+  for (const tooltip of saved.tooltips) {
+    const { hash } = tooltip;
+    if (!tracked(hash)) continue;
+    const previous =
+      (state.entries && indexOf(state.entries).byKey.get(hash)?.tooltip) ?? bundle?.tooltips[hash];
+    // Compare existing fingerprint inputs for the saved rows only. The pending comparison
+    // still checks aliases and movement once it installs the next snapshot.
+    if (!previous || publishableHashInput(previous) !== publishableHashInput(tooltip))
+      changed.add(hash);
+  }
+  if (changed.size) useReviewQueue.setState(retainRows(state, ({ key }) => !changed.has(key)));
+});

@@ -59,7 +59,6 @@ import styles from './Review.module.scss';
 
 const count = new Intl.NumberFormat('en');
 const noEntries: PendingTooltip[] = [];
-const noSelection: ReadonlySet<number> = new Set();
 
 /** The phone bar's "…" menu; it closes on Escape (focus back on "…"), a press outside, or use. */
 function More({ children }: { children: ReactNode }) {
@@ -143,9 +142,8 @@ export function ReviewPage() {
     prepared && data ? { entries: prepared, data } : undefined,
   );
   const entries = comparison?.entries;
-  const selected = useReviewQueue((state) =>
-    state.entries === entries ? state.selected : noSelection,
-  );
+  const selected = useReviewQueue((state) => state.selected);
+  const versions = useReviewQueue((state) => state.versions);
   const account = useReviewQueue((state) => state.account);
   const decisions = useReviewQueue((state) => state.decisions);
   const message = useReviewQueue((state) => state.message);
@@ -312,8 +310,12 @@ export function ReviewPage() {
   }, [entries === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const chosen = useMemo(
-    () => publishSelection(selected, list, inFlight),
-    [selected, list, inFlight],
+    () =>
+      publishSelection(selected, list, inFlight).filter(
+        (entry) =>
+          entry.savedVersion !== undefined && versions.get(rowKey(entry)) === entry.savedVersion,
+      ),
+    [selected, versions, list, inFlight],
   );
   const previewSelection = useMemo(() => {
     if (!current || current.part || !data?.bundle.globalsPending || !entries) return undefined;
@@ -334,7 +336,10 @@ export function ReviewPage() {
         true,
       );
   }, [chosen, liveAvailable, publisher]);
-  const included = current ? selected.has(current.tooltip.hash) : false;
+  const included =
+    current?.savedVersion !== undefined &&
+    selected.has(current.tooltip.hash) &&
+    versions.get(rowKey(current)) === current.savedVersion;
   const locked = current
     ? pushing || !canPush(user) || !!current.unpublishable || inFlight.has(current.tooltip.hash)
     : true;
@@ -574,10 +579,11 @@ export function ReviewPage() {
       return;
     setError(undefined);
     const isMounted = () => mounted.current;
-    const succeeded = inputs
-      ? await queuePublish(inputs, picked, reviewed, isMounted)
-      : await publishReviewed(picked, reviewed, isMounted);
-    if (succeeded) useReviewQueue.getState().removePublished(picked);
+    if (inputs) {
+      await queuePublish(inputs, picked, reviewed, isMounted);
+    } else {
+      await publishReviewed(picked, reviewed, isMounted);
+    }
   }
 
   const leftoverView = !!current?.markerOnly;

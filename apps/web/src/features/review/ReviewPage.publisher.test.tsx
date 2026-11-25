@@ -430,6 +430,18 @@ it('shows stale and failed outcomes and leaves the tooltips pending', async () =
   expect(useReviewSession.getState().acknowledgments).toEqual({});
 });
 
+it('retains the tick on unchanged text if the Worker refuses the queued publish', async () => {
+  await mount();
+  postAnswer = () => Response.json({ error: 'Upload lock is held' }, { status: 423 });
+  await selectAll();
+  await openPublish();
+  await click('Publish 1');
+  await waitFor(() =>
+    expect(host.querySelector('[aria-label="Publish activity"]')?.textContent).toContain('HTTP 423'),
+  );
+  expect(useReviewQueue.getState().selected.has(10)).toBe(true);
+});
+
 it('keeps the operation and offers Retry once it has waited three minutes', async () => {
   await mount();
   await selectAll();

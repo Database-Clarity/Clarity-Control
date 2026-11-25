@@ -8,7 +8,9 @@ import { pushSelected } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
-import { canPush, type PendingTooltip } from './model';
+import { canPushLive } from '../auth/permissions';
+import type { PendingTooltip } from './model';
+import { useReviewQueue } from './queueStore';
 
 interface Acknowledgment {
   digest: string;
@@ -77,7 +79,7 @@ export async function publishReviewed(
   const user = useAuthStore.getState().user;
   const version = identityVersion;
   const current = () => version === identityVersion;
-  if (!canPush(user) || !entries.length || useReviewSession.getState().pushing) return false;
+  if (!canPushLive(user) || !entries.length || useReviewSession.getState().pushing) return false;
   if (entries.some(({ part }) => part?.pending)) {
     useReviewSession.setState({ error: 'Globals cannot be published from this build.' });
     return false;
@@ -101,6 +103,9 @@ export async function publishReviewed(
     const result = await pushSelected(
       entries.map(({ tooltip }) => tooltip.hash),
       expected,
+    );
+    useReviewQueue.getState().removePublished(
+      entries.filter(({ tooltip }) => result.pushed[tooltip.hash] === expected[tooltip.hash]),
     );
     useReviewSession.setState((state) => ({
       acknowledgments: {

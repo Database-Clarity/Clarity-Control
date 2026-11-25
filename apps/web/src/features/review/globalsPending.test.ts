@@ -3,7 +3,7 @@ import { publishableHash, type GlobalsPending, type Tooltip } from '@clarity/cor
 import { bundleSchema } from '../../services/bundleSchema';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
-import { clearSavedOverlay, rememberSavedGlobal } from '../../stores/savedOverlay';
+import { clearSavedOverlay, rememberSaved, rememberSavedGlobal } from '../../stores/savedOverlay';
 import { editorPath, publishedOf, rowKey } from './globalRows';
 import {
   globalKey,
@@ -19,6 +19,7 @@ import { planReviewedPublish, queuePublish, withNeededGlobals } from './publishA
 import { publishedRows } from './published';
 import { publishDriver } from './publisher';
 import { queueView } from './queueModel';
+import { useReviewQueue } from './queueStore';
 import { acknowledgedGlobals, acknowledgedMarkers, useReviewSession } from './session';
 
 const at = '2026-01-01T00:00:00Z';
@@ -414,6 +415,51 @@ it('holds a global saved after its row was built', async () => {
   const entries = await pendingTooltips(data);
   expect(entries.find(({ name }) => name === 'G_refill')?.unpublishable).toContain('Refresh');
   expect(entries.find(({ name }) => name === 'Fresh')?.unpublishable).toBeUndefined();
+});
+
+it('retires changed saves before a reload can restore ticks from a stale bundle', async () => {
+  const storage = new Map<string, string>();
+  vi.stubGlobal('sessionStorage', {
+    getItem: (name: string) => storage.get(name) ?? null,
+    setItem: (name: string, value: string) => storage.set(name, value),
+    removeItem: (name: string) => storage.delete(name),
+  });
+  const user = { id: 1234, login: 'fixture', role: 'maintainer' as const };
+  useAuthStore.setState({ user, loading: false });
+  try {
+    const data = await state();
+    const queue = useReviewQueue.getState();
+    queue.setEntries(await pendingTooltips(data));
+    queue.toggle(globalKey(ids.refill));
+    queue.toggle(12);
+    queue.toggle(13);
+    expect(useReviewQueue.getState().selected.size).toBe(3);
+
+    const previous = data.bundle.globals!.entries[0]!;
+    const saved = {
+      ...previous,
+      revision: 'r2',
+      definitions: { en: { ...previous.definitions.en!, body: 'Revised after inclusion' } },
+    };
+    rememberSavedGlobal(saved, 'newer-head');
+    const same = structuredClone(data.bundle.tooltips[12]!);
+    same.text.en!.updatedBy = 'another editor';
+    rememberSaved([same, make(13, 'Changed since inclusion')]);
+    expect([...useReviewQueue.getState().selected]).toEqual([12]);
+
+    // A hard reload keeps sessionStorage, but rebuilds all the tab-memory stores.
+    const cachedBundle = structuredClone(data);
+    vi.resetModules();
+    const { useAuthStore: freshAuth } = await import('../../stores/auth');
+    freshAuth.setState({ user, loading: false });
+    const { useReviewQueue: freshQueue } = await import('./queueStore');
+    const { pendingTooltips: freshPending } = await import('./model');
+    freshQueue.getState().setEntries(await freshPending(cachedBundle));
+    expect([...freshQueue.getState().selected]).toEqual([12]);
+  } finally {
+    useReviewQueue.getState().clearSelection();
+    vi.unstubAllGlobals();
+  }
 });
 
 it('finds the renamed dependency by kind and ignores names introduced by published bodies', async () => {
