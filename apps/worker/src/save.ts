@@ -213,6 +213,23 @@ export async function saveChanges(
       }
       return proofFiles.get(key) ?? null;
     };
+    let published: Map<number, unknown>;
+    const readPublished = async (hash: number) => {
+      if (!published) {
+        // A removed English entry leaves no stamp in Current. Batch the rare recovery reads
+        // at the same head; these snapshots are recorded atomically with publication.
+        const hashes = input.changes.flatMap(({ hash, next }, index) => {
+          const currentTooltip = current[index]?.value as Tooltip | undefined;
+          return next.text.en && !currentTooltip?.text?.en ? [hash] : [];
+        });
+        const snapshots = await github.files(
+          hashes.map((hash) => `live/tooltips/${hash}.json`),
+          headCommit,
+        );
+        published = new Map(hashes.map((hash, i) => [hash, snapshots[i]?.value]));
+      }
+      return published.get(hash);
+    };
     const plan = await planSaveChanges(
       input,
       access,
@@ -224,6 +241,7 @@ export async function saveChanges(
         login: user.login,
         headCommit,
         read: readRevision,
+        readPublished,
       },
     );
     if ('conflicts' in plan) return plan;
@@ -247,6 +265,7 @@ interface RevisionHistory {
   login: string;
   headCommit: string;
   read(commit: string, hash: number): Promise<Tooltip | null> | Tooltip | null;
+  readPublished(hash: number): unknown | Promise<unknown>;
 }
 
 /** Stamp-only requests must name a real revision of this exact translation in data history. */
@@ -425,6 +444,22 @@ export async function planSaveChanges(
       continue;
     }
     if (rebased) checkEdit(access, head, merged);
+    if (access.role === 'trial' && !head?.text.en && merged.text.en) {
+      if (!revisionHistory) throw new HttpError(502, 'Could not verify the published English revision');
+      const raw = await revisionHistory.readPublished(change.hash);
+      if (raw !== undefined) {
+        const published = tooltipSchema.parse(raw);
+        if (published.hash !== change.hash)
+          throw new HttpError(502, 'Published tooltip hash mismatch');
+        const live = published.text.en;
+        const next = merged.text.en;
+        if (live && !(Date.parse(next.updatedAt) > Date.parse(live.updatedAt)))
+          throw new HttpError(
+            422,
+            'Save the restored English with a revision newer than published English.',
+          );
+      }
+    }
     // Against the real head, after the merge: what this commit does to the English revision.
     if (
       checkEnglishRevision(access, head, merged, input.noTranslationImpact === true, now) === 'kept'
