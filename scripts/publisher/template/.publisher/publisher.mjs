@@ -32824,8 +32824,8 @@ var GlobalsPublisher = class _GlobalsPublisher {
       requireGlobalsMode(this.publisher, original);
       const tree = { ...original };
       const live = this.publisher.head(this.options.liveBranch);
+      const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
       try {
-        const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
         this.assertPendingChanges(tree, sync);
         await this.intents(tree, head, live);
         await this.releaseObsoleteClaims(tree);
@@ -32857,6 +32857,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
       } catch (error62) {
         if (error62 instanceof RefRace) continue;
         if (error62 instanceof MissingPublishedSnapshot) return head;
+        if (sync.status === "current" && error62 instanceof ConsumerOutputRejected) return head;
         throw error62;
       }
     }
@@ -34943,7 +34944,6 @@ var Publisher = class _Publisher {
       if (!["maintainer", "editor"].includes(permissions2.users[String(payload.requester.id)]?.role))
         throw new Error("Requester revoked");
       requesterCredits(payload.requester);
-      requireGlobalsMode(this, tree);
       return payload;
     }
     if (typeof envelope2.payload !== "string" || typeof envelope2.sig !== "string")
@@ -34961,7 +34961,6 @@ var Publisher = class _Publisher {
     if (!["maintainer", "editor"].includes(permissions.users[String(p.requester.id)]?.role))
       throw new Error("Requester revoked");
     requesterCredits(p.requester);
-    requireGlobalsMode(this, tree);
     return p;
   }
   /** Recovery credits come from the signed envelope, never from an unverified log or receipt. */
@@ -35350,11 +35349,7 @@ var Publisher = class _Publisher {
           }
         }
         const signed = await this.verifyRequest(receipt.requestBlob, opId, tree).catch((error62) => {
-          if (receipt.batchId)
-            throw new ConsumerOutputRejected(
-              error62 instanceof Error ? error62.message : String(error62)
-            );
-          throw error62;
+          throw new ConsumerOutputRejected(error62 instanceof Error ? error62.message : String(error62));
         });
         if (tree[p.request] !== receipt.requestBlob)
           throw new ConsumerOutputRejected(
