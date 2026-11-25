@@ -510,7 +510,6 @@ export class Publisher {
       if (!['maintainer', 'editor'].includes(permissions.users[String(payload.requester.id)]?.role))
         throw new Error('Requester revoked');
       requesterCredits(payload.requester);
-      requireGlobalsMode(this, tree);
       return payload;
     }
     if (typeof envelope.payload !== 'string' || typeof envelope.sig !== 'string')
@@ -541,7 +540,6 @@ export class Publisher {
     if (!['maintainer', 'editor'].includes(permissions.users[String(p.requester.id)]?.role))
       throw new Error('Requester revoked');
     requesterCredits(p.requester);
-    requireGlobalsMode(this, tree);
     return p;
   }
   /** Recovery credits come from the signed envelope, never from an unverified log or receipt. */
@@ -1088,11 +1086,7 @@ export class Publisher {
           }
         }
         const signed = await this.verifyRequest(receipt.requestBlob, opId, tree).catch((error) => {
-          if (receipt.batchId)
-            throw new ConsumerOutputRejected(
-              error instanceof Error ? error.message : String(error),
-            );
-          throw error;
+          throw new ConsumerOutputRejected(error instanceof Error ? error.message : String(error));
         });
         if (tree[p.request] !== receipt.requestBlob)
           throw new ConsumerOutputRejected(

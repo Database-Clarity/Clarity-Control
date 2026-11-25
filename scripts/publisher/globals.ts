@@ -55,7 +55,7 @@ import {
 } from '../../apps/worker/src/globals/model.js';
 import { namePaths, publicGlobalSync } from '../../apps/worker/src/globals/handlers.js';
 import { appCredits, RefRace, type Tree } from './git.js';
-import { Publisher, type Options } from './publisher.js';
+import { ConsumerOutputRejected, Publisher, type Options } from './publisher.js';
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 const livePerksSchema = z.record(z.string(), z.record(z.string(), z.unknown()));
@@ -466,8 +466,8 @@ export class GlobalsPublisher {
       requireGlobalsMode(this.publisher, original);
       const tree = { ...original };
       const live = this.publisher.head(this.options.liveBranch);
+      const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
       try {
-        const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
         this.assertPendingChanges(tree, sync);
         await this.intents(tree, head, live);
         await this.releaseObsoleteClaims(tree);
@@ -499,6 +499,9 @@ export class GlobalsPublisher {
       } catch (error) {
         if (error instanceof RefRace) continue;
         if (error instanceof MissingPublishedSnapshot) return head;
+        // Invalid alias settings cannot prove names or removals. Leave the existing proofs
+        // fenced to their source and let ordinary requests record their own refusal.
+        if (sync.status === 'current' && error instanceof ConsumerOutputRejected) return head;
         throw error;
       }
     }

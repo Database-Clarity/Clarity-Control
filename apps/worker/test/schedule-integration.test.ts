@@ -1,6 +1,11 @@
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { exportLegacy, publishableHash, type Tooltip } from '@clarity/core';
+import {
+  exportLegacy,
+  globalsInPlaceCapability,
+  publishableHash,
+  type Tooltip,
+} from '@clarity/core';
 import {
   buildLegacy,
   deployedLegacyPresets,
@@ -19,6 +24,7 @@ import {
 import publisherConfig from '../../../config/publisher.json';
 import scheduledConfig from '../../../config/scheduled.json';
 import { Publisher, paths, type Options } from '../../../scripts/publisher/publisher.js';
+import { activateGlobalsFixture } from '../../../scripts/publisher/testGlobals.js';
 import { SchedulePreparer } from '../../../scripts/schedule-prepare/prepare.js';
 import { globalTreeOid } from '../../../scripts/publisher/globals.js';
 import { RefRace, type Repository, type Tree } from '../../../scripts/publisher/git.js';
@@ -223,7 +229,6 @@ beforeEach(async () => {
     aliases: {},
     facts: { 123: { name: 'Thing', type: 'perk' }, 124: { name: 'Other', type: 'perk' } },
     now: () => clock,
-    backoff: async () => {},
     runUrl: 'https://github.com/test-org/scratch/actions/runs/1',
   };
   pub = new Publisher(git, options);
@@ -234,6 +239,7 @@ beforeEach(async () => {
       sha256: options.publisherDigest,
       capabilities: [
         'scheduledBatches',
+        'scheduledGlobalsV1',
         'schedulePreparationV1',
         'elementTags',
         'markupBraces',
@@ -283,6 +289,7 @@ beforeEach(async () => {
       ),
     }),
   );
+  activateGlobalsFixture(pub);
   const upstream = globalThis.fetch;
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
@@ -676,14 +683,20 @@ describe('Worker → signed intent → Action → publisher → web', () => {
     expect(f.current()[paths(id).request]).toBeUndefined();
   });
 
-  it('fails closed if globals arrive after admission', async () => {
+  it('fails closed if the installed runtime loses in-place support after admission', async () => {
     const id = await schedule();
-    f.moveData({ 'globals/sync.json': { version: 1 } });
+    const pin = f.current()['.publisher/PIN'] as { capabilities: string[] };
+    f.moveData({
+      '.publisher/PIN': {
+        ...pin,
+        capabilities: pin.capabilities.filter(
+          (capability) => capability !== globalsInPlaceCapability,
+        ),
+      },
+    });
     await prep.drain();
     expect(batch().status).toBe('needs_attention');
-    expect(request(id).reasons?.[0].reason).toBe(
-      'The installed publisher does not support scheduled globals yet',
-    );
+    expect(request(id).reasons?.[0].reason).toContain('Update the installed publisher');
     expect(receipt(id)).toBeUndefined();
     expect(f.current()[paths(id).request]).toBeUndefined();
   });

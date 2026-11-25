@@ -389,7 +389,7 @@ it('report-items jobs rebuild both catalogs for the published bundle, leased and
 });
 
 it('the pipeline step publishes for real only when the installed config says publishWritesEnabled: true', () => {
-  const step = stepScript('Bundle live data and publish (or simulate)', 'publisher-run.yml');
+  const step = stepScript('Prepare editor bundle and publish (or simulate)', 'publisher-run.yml');
   // The former inline preview step, before extracting it into a reusable workflow.
   expect(createHash('sha256').update(step).digest('hex')).toBe(
     'bf431a7d75f50ce32e9ee29686015b0f6cfaadd06e1de3b2aa30e7da8e316385',

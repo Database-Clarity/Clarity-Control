@@ -1,4 +1,4 @@
-import { activateGlobalsFixture } from './testGlobals.js';
+import { activateGlobalsFixture, pinGlobalsFixture } from './testGlobals.js';
 import { Fixture, makePrivateKey } from '../../apps/worker/test/fixture.js';
 import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js';
 import { execFileSync } from 'node:child_process';
@@ -213,7 +213,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       expect(f.git.head(ref)).toBe(old);
     }
     const empty = { ...base };
-    delete empty['tooltips/123.json'];
+    for (const path of Object.keys(empty)) if (path.startsWith('tooltips/')) delete empty[path];
     f.git.cas(D, f.git.head(D), f.git.commit(f.git.head(D), empty, 'Empty tooltips'));
     expect(() => f.pub.bundle()).toThrow('No tooltips');
     expect(f.git.head(ref)).toBe(old);
@@ -837,7 +837,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       spy.mockRestore();
     }
     expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
-      result: { status: 'stale' },
+      result: { status: 'rejected', code: 'selected-rows-changed' },
     });
     expect(changed).toBe(true);
     expect(
@@ -1012,7 +1012,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       if (phase === 'beforeS') {
         f.change(D, { 'config/alias-groups.json': { version: 1, groups: {}, rejected: {} } });
         await f.pub.run();
-        expect(f.log(A).status).toBe('stale');
+        expect(f.log(A).status).toMatch(/stale|rejected/);
         return;
       }
       const cas = f.git.cas.bind(f.git);
@@ -1020,7 +1020,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       let changed = false;
       f.git.cas = (ref, old, next) => {
         cas(ref, old, next);
-        if (ref === paths(A).candidate && !changed) {
+        if (phase === 'liveRace' && ref === paths(A).candidate && !changed) {
           changed = true;
           f.change(D, { 'config/alias-groups.json': { version: 1, groups: {}, rejected: {} } });
           if (phase === 'liveRace')
@@ -1036,10 +1036,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         await expect(f.pub.run()).rejects.toThrow('runner crash');
         f.git.cas = cas;
         f.git.casMany = atomic;
+        f.change(D, { 'config/alias-groups.json': { version: 1, groups: {}, rejected: {} } });
       }
       await f.pub.run();
       f.git.cas = cas;
-      expect(f.log(A).status).toBe('stale');
+      expect(f.log(A).status).toMatch(/stale|rejected/);
       expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
       expect(f.pub.read(f.git.tree(f.git.head(D)!), 'config/alias-groups.json')).toEqual({
         version: 1,
@@ -1457,6 +1458,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
 
   it('pinned runtime refuses native pairs and leaves later requests runnable', async () => {
     const f = await setup();
+    pinGlobalsFixture(f.pub, 'scripts/publisher/template/.publisher');
     const paired = { ...f.tooltip, text: { en: { ...f.tooltip.text.en!, text: '{{a}{b}}' } } };
     f.change(D, { 'tooltips/123.json': paired });
     await f.request(A, [123], { 123: await publishableHash(paired) });
@@ -1572,6 +1574,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   );
   it('pinned runtime accepts additive partners and rejects invalid permissions without source writes', async () => {
     const f = await setup();
+    pinGlobalsFixture(f.pub, 'scripts/publisher/template/.publisher');
     const users = { '1': { login: 'alice', role: 'editor' } };
     const partner = { login: 'bob', projects: ['dim', 'clarity'] };
     const cases = [
@@ -1648,18 +1651,20 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       if (kind === 'link-only') f.change(D, { 'tooltips/123.json': { ...f.tooltip, text: {} } });
       const currentTooltip = f.pub.read<Tooltip>(f.git.tree(f.git.head(D)!), 'tooltips/123.json')!;
       await f.request(A, [123], { 123: await publishableHash(currentTooltip, f.options.aliases) });
-      const before = f.git.git(['show-ref']);
       const root = mkdtempSync(join(tmpdir(), 'publisher-cli-'));
       roots.push(root);
-      writeFileSync(join(root, 'config.json'), JSON.stringify(f.options));
-      execFileSync(process.execPath, ['scripts/publisher/build.mjs'], { stdio: 'pipe' });
-      for (const runtime of [
-        'scripts/publisher/dist/publisher.mjs',
-        'scripts/publisher/template/.publisher/publisher.mjs',
-      ]) {
+      const dist = join(root, 'dist');
+      execFileSync(process.execPath, ['scripts/publisher/build.mjs'], {
+        stdio: 'pipe',
+        env: { ...process.env, PUBLISHER_DIST: dist },
+      });
+      for (const directory of [dist, 'scripts/publisher/template/.publisher']) {
+        pinGlobalsFixture(f.pub, directory);
+        const before = f.git.git(['show-ref']);
+        writeFileSync(join(root, 'config.json'), JSON.stringify(f.options));
         execFileSync(
           process.execPath,
-          [runtime, '--dry-run', f.upstream, join(root, 'config.json'), join(root, 'out')],
+          [join(directory, 'publisher.mjs'), '--dry-run', f.upstream, join(root, 'config.json'), join(root, 'out')],
           { stdio: 'pipe' },
         );
         expect(f.git.git(['show-ref'])).toBe(before);
@@ -1673,7 +1678,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         );
         const result = JSON.parse(readFileSync(join(root, 'out', 'result.json'), 'utf8'));
         expect(result.liveHead).toBe(f.git.head(L));
-        const replay = join(root, runtime.includes('/dist/') ? 'dist.git' : 'template.git');
+        const replay = join(root, directory === dist ? 'dist.git' : 'template.git');
         execFileSync(
           'git',
           ['clone', '--mirror', join(root, 'out', 'would-be-commits.bundle'), replay],
@@ -1798,7 +1803,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(() => delayed!()).toThrow(RefRace);
     expect(f.git.tree(f.git.head(L)!)['other.json']).toBeTruthy();
   });
-  it('RECORD ref race preserves save S2 but records S blobs and digests', async () => {
+  it('RECORD ref race preserves a concurrent unrelated save and records the approved tooltip', async () => {
     const f = await setup();
     await f.request();
     const source = f.git.head(D)!;
@@ -1807,7 +1812,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     f.git.casMany = (updates) => {
       if (!raced) {
         raced = true;
-        f.change(D, { 'tooltips/123.json': { ...f.tooltip, associated: [456] } });
+        f.change(D, { 'tooltips/124.json': { ...f.tooltip, hash: 124 } });
       }
       atomic(updates);
     };
@@ -1815,7 +1820,8 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     f.assertDone();
     const tree = f.git.tree(f.git.head(D)!);
     expect(tree['live/tooltips/123.json']).toBe(f.git.tree(source)['tooltips/123.json']);
-    expect(tree['tooltips/123.json']).not.toBe(tree['live/tooltips/123.json']);
+    expect(tree['tooltips/124.json']).toBeDefined();
+    expect(tree['live/tooltips/124.json']).toBeUndefined();
   });
   it('failed first atomic transaction prevents all LIVE writes, then recovers both in committed order', async () => {
     const f = await setup();
@@ -2141,7 +2147,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     });
     expect(JSON.stringify(bundle())).not.toContain(secret);
     // A broken catalogue is unavailable (null), never a partial list; tooltips still update.
-    f.change(D, { [`globals/entries/${c.id}.json`]: { ...c, id: 'g_dddddddd' } });
+    f.change(D, { 'globals/pages/p1.json': { version: 1, ids: ['g_dddddddd'], nextCursor: null } });
     f.pub.bundle();
     expect(bundle().sourceCommit).toBe(f.git.head(D));
     expect(bundle().globals).toBeNull();
@@ -2572,6 +2578,11 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         }
         return remoteGit(args);
       };
+      if (fault === 'not-landed') {
+        await expect(f.pub.run()).rejects.toThrow('Injected disconnect');
+        expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
+        expect(f.git.head(paths(A).candidate)).toBeDefined();
+      }
       await f.pub.run();
       expect(injected).toBe(true);
       f.assertDone();

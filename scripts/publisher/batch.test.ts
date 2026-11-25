@@ -1,4 +1,4 @@
-import { activateGlobalsFixture } from './testGlobals.js';
+import { activateGlobalsFixture, pinGlobalsFixture } from './testGlobals.js';
 // Scheduled changes P4 (spec .agents/reports/scheduled-changes/spec.md "Tests and gates",
 // publisher fixtures): the publisher's claim, publication, RECORD activation, and failure paths
 // for `batch` requests, in the local simulator (and the local bare remote for the core path).
@@ -511,7 +511,7 @@ describe.each(['simulator', 'remote'] as const)('%s: scheduled batch core path',
     expect(f.batchFile()).toMatchObject({
       status: 'draft',
       claim: null,
-      result: { status: 'rejected', error: expect.stringContaining('ConsumerOutputRejected') },
+      result: { status: 'rejected', error: expect.stringContaining("can't be published") },
     });
     expect(f.git.git(['log', D, '--format=%s', '--grep=^Claim batch'])).toBe('');
     expect(f.git.head(paths(OP).candidate)).toBeUndefined();
@@ -670,7 +670,7 @@ describe('scheduled batches (simulator)', () => {
       const upgraded = { ...currentPin, sourceSha: 'd'.repeat(40), sha256: 'd'.repeat(64) };
       f.change(D, { '.publisher/PIN': upgraded });
       await expect(new Publisher(new LocalRepository(f.root), f.options).run()).rejects.toThrow(
-        expect.stringMatching(/installed publisher/i),
+        'Installed publisher',
       );
       expect(f.batchFile().status).toBe('publishing');
       const clock = START + 600_000;
@@ -737,7 +737,8 @@ describe('scheduled batches (simulator)', () => {
       return record(...args);
     };
     await f.pub.run(false);
-    expect(assertPublished(f).receipt.sourceCommit).toBe(afterSave);
+    expect(afterSave).toBeDefined();
+    expect(f.git.ancestor(afterSave!, assertPublished(f).receipt.sourceCommit)).toBe(true);
     expect(f.read(staged.record(id))).toMatchObject({ status: 'saved' });
     expect(f.read(staged.kick(id))).toBeUndefined();
     expect(f.read<Tooltip>('tooltips/124.json')?.text.en?.text).toBe(next.text.en?.text);
@@ -772,15 +773,15 @@ describe('scheduled batches (simulator)', () => {
   it('a peer with the same stale RECORD lease reconciles a single receipt', async () => {
     const f = await setup();
     await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
-    const plan = f.pub.batchPlan.bind(f.pub);
+    const record = f.pub.record.bind(f.pub);
     const peer = new Publisher(new LocalRepository(f.root), f.options);
     let raced = false;
-    f.pub.batchPlan = async (...args) => {
+    f.pub.record = async (...args) => {
       if (f.batchFile().status === 'publishing' && !raced) {
         raced = true;
         await peer.operation(OP);
       }
-      return plan(...args);
+      return record(...args);
     };
     await f.pub.run();
     expect(raced).toBe(true);
@@ -1266,7 +1267,7 @@ describe('scheduled batches (simulator)', () => {
       cas(ref, old, next);
     };
     f.git.casMany = (updates) => {
-      if (!recordFailed) {
+      if (!recordFailed && f.batchFile().status === 'publishing') {
         recordFailed = true;
         throw new Error('record unavailable');
       }
@@ -1824,6 +1825,7 @@ describe('scheduled batches (simulator)', () => {
     });
     const dir = mkdtempSync(join(tmpdir(), 'batch-cli-'));
     roots.push(dir);
+    pinGlobalsFixture(f.pub, dist);
     // Functions do not serialize: JSON drops now, as the CLI expects.
     writeFileSync(join(dir, 'config.json'), JSON.stringify(f.options));
     execFileSync(

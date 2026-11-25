@@ -1,4 +1,6 @@
-import { inventoryGlobals } from '../../packages/core/src/globals/projection.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { inventoryGlobals, projectGlobals } from '../../packages/core/src/globals/projection.js';
 import {
   globalsInPlaceCapability,
   globalsInPlacePath,
@@ -58,6 +60,9 @@ export function activateGlobalsFixture(pub: Publisher) {
     },
   };
   if (!data['globals/layout.json']) {
+    for (const [hash, tooltip] of Object.entries(projectGlobals(store))) {
+      files['tooltips/' + hash + '.json'] = tooltip;
+    }
     files['globals/layout.json'] = { version: 1, aggregates: store.aggregates };
     files['globals/live/' + liveBranch + '.json'] = { version: 1, destination: liveBranch, store };
     files['globals/sync.json'] = {
@@ -72,4 +77,17 @@ export function activateGlobalsFixture(pub: Publisher) {
   const active = pub.git.commit(legacyData, data, 'Activate fixture globals');
   pub.git.cas(liveRef, legacyLive, migratedLive);
   pub.git.cas(dataRef, legacyData, active);
+}
+
+/** The plain-node CLI verifies the installed fixture PIN against its executable bytes. */
+export function pinGlobalsFixture(pub: Publisher, directory: string) {
+  const ref = 'refs/heads/' + pub.options.dataBranch;
+  const head = pub.head(pub.options.dataBranch);
+  const tree = pub.git.tree(head);
+  const bytes = readFileSync(join(directory, 'PIN'), 'utf8');
+  const pin = JSON.parse(bytes) as { sourceSha: string; sha256: string };
+  tree['.publisher/PIN'] = pub.git.writeBlob(bytes);
+  pub.git.cas(ref, head, pub.git.commit(head, tree, 'Install fixture runtime PIN'));
+  pub.options.publisherSha = pin.sourceSha;
+  pub.options.publisherDigest = pin.sha256;
 }
