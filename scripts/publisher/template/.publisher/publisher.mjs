@@ -31807,14 +31807,13 @@ ${body2}
   }
   return rows;
 }
-function affectedRows(before, after, roots) {
-  const affected = new Set(roots.map(String));
+function publicationReaders(...inputs) {
   const parents = /* @__PURE__ */ new Map();
   const link = (from, to) => {
     if (!parents.has(to)) parents.set(to, /* @__PURE__ */ new Set());
     parents.get(to).add(from);
   };
-  for (const { perks } of [before, after])
+  for (const { perks } of inputs)
     for (const [hash2, row] of Object.entries(perks)) {
       if ("aliasOf" in row) link(hash2, String(row.aliasOf));
       else
@@ -31825,8 +31824,14 @@ function affectedRows(before, after, roots) {
               link(hash2, String(Number(match[1])));
           }
     }
-  for (const root of affected) for (const parent of parents.get(root) ?? []) affected.add(parent);
-  return affected;
+  return (roots) => {
+    const affected = new Set(roots.map(String));
+    for (const root of affected) for (const parent of parents.get(root) ?? []) affected.add(parent);
+    return affected;
+  };
+}
+function affectedRows(before, after, roots) {
+  return publicationReaders(before, after)(roots);
 }
 function provePublication(pub, tree, live, documents, aliases, moves, now, exported, options) {
   assertInPlaceLibraries(live);
@@ -34961,8 +34966,10 @@ function activeSource(pub, tree, input2, aliases = liveTranslationAliases(input2
     const raw = pub.read(tree, path);
     const { data } = tooltipSchema.safeParse(raw);
     if (!data || data.hash !== hash2 || !data.text.en?.text.trim()) return;
-    const digest6 = createHash6("sha256").update(publishableHashInput(data, aliases)).digest("hex");
-    if (digest6 === pushed[hash2]) return raw;
+    for (const context2 of [aliases, {}]) {
+      const digest6 = createHash6("sha256").update(publishableHashInput(data, context2)).digest("hex");
+      if (digest6 === pushed[hash2]) return raw;
+    }
   };
 }
 function translationRoots(pub, tree, liveCommit, input2, previous) {
@@ -35105,6 +35112,8 @@ function context(pub, tree, live) {
   const savedGlobals = new Map(saved.entries.map((entry) => [entry.id, entry]));
   const liveGlobals = new Map(published.store.entries.map((entry) => [entry.id, entry]));
   const beforeOptions = releaseOptions(published.store, saved);
+  let priorLookup;
+  let readers;
   const document = (hash2) => pub.read(tree, snapshotPath(hash2));
   const optionsFor = (options = beforeOptions, drafts = []) => authoredInPlaceOptions(pub, tree, input2, { options, rewritten: /* @__PURE__ */ new Map() }, drafts, aliases);
   const snapshots = (lang, excluded = /* @__PURE__ */ new Set()) => {
@@ -35153,6 +35162,11 @@ function context(pub, tree, live) {
     const { lang } = row;
     const id = row.kind === "tooltip" ? { kind: row.kind, hash: row.hash, lang } : { kind: row.kind, id: row.id, lang };
     const next = { ...input2, perks: { ...input2.perks } };
+    const changed = [];
+    const refill = (rows) => {
+      Object.assign(next.perks, rows);
+      changed.push(...Object.keys(rows).map(Number));
+    };
     let tooltip;
     let global;
     let expected2;
@@ -35212,9 +35226,9 @@ function context(pub, tree, live) {
             value: entry ? filled.updateTracker?.descriptions[lang] : void 0
           }
         );
+        changed.push(hash2);
         if (Boolean(current.editor[lang]?.englishFallback) !== Boolean(filled.editor[lang]?.englishFallback)) {
-          Object.assign(
-            next.perks,
+          refill(
             refillPublishedDocuments(
               input2,
               next,
@@ -35264,8 +35278,7 @@ function context(pub, tree, live) {
             globalFallback = true;
           }
         }
-        Object.assign(
-          next.perks,
+        refill(
           refillPublishedDocuments(
             input2,
             next,
@@ -35277,17 +35290,25 @@ function context(pub, tree, live) {
         );
       }
     }
-    const refilled = Object.keys(next.perks).flatMap((key) => {
-      const hash2 = Number(key);
-      return next.perks[key] !== input2.perks[key] && (row.kind !== "tooltip" || hash2 !== row.hash) ? [hash2] : [];
-    });
-    const changed = row.kind === "tooltip" && tooltip ? [row.hash, ...refilled] : refilled;
-    const lookup = expandAliases(next.perks);
+    const beforeLookup = priorLookup ??= expandAliases(input2.perks);
+    const lookup = Object.create(beforeLookup);
+    for (const hash2 of changed) {
+      const updated = liveEntry(next, hash2);
+      lookup[hash2] = updated;
+      for (const [alias] of incomingAliases(hash2, aliases)) {
+        const prior = beforeLookup[alias];
+        if (prior)
+          lookup[alias] = {
+            ...prior,
+            editor: updated.editor,
+            updateTracker: updated.updateTracker
+          };
+      }
+    }
     const fact = (data, hash2, expanded) => effectFacts(data, hash2, lang, aliases, pub.options.facts, expanded);
     const facts = changed.map((hash2) => [hash2, fact(next, hash2, lookup)]);
     if (changed.length) {
-      const beforeLookup = expandAliases(input2.perks);
-      for (const key of affectedRows(input2, next, changed)) {
+      for (const key of (readers ??= publicationReaders(input2))(changed)) {
         const hash2 = Number(key);
         if (changed.includes(hash2) || !beforeLookup[hash2] && !lookup[hash2]) continue;
         const before2 = beforeLookup[hash2] && fact(input2, hash2, beforeLookup);
@@ -35489,7 +35510,7 @@ async function bundleTranslations(pub, tree, liveCommit, tooltips) {
     moves = pub.movesAt(tree);
   } catch {
   }
-  const pushed = pushedSchema.parse(pub.read(tree, "live/pushed.json"));
+  const reviewAliases = currentAliases && moves && activeAliases(currentAliases, moves);
   for (const [key, tooltip] of Object.entries(tooltips)) {
     const hash2 = Number(key);
     if (hash2 >= 1 && hash2 <= 3 || Object.hasOwn(ctx.aliases, hash2)) continue;
@@ -35506,28 +35527,23 @@ async function bundleTranslations(pub, tree, liveCommit, tooltips) {
         pending = true;
     }
     const verified = pending && ctx.active(hash2);
-    if (!verified || !tooltip.text.en || !currentAliases || !moves || Object.hasOwn(currentAliases, hash2))
+    if (!verified || !tooltip.text.en || !reviewAliases || !moves || Object.hasOwn(reviewAliases, hash2) || isMovedInactive(hash2, moves))
       continue;
     let neutral = tooltip;
-    const { text: _savedText, ...savedFields } = tooltip;
-    const { text: _liveText, ...liveFields } = verified;
-    void _savedText;
-    void _liveText;
-    if (!same(savedFields, liveFields)) continue;
     for (const lang of languages2) {
       if (lang === "en") continue;
       const fallback = translationFallbackIds(verified.text.en, lang).filter(
         (id) => typeof tooltip.text.en?.numbers?.retired[id] === "object" && tooltip.text.en.numbers.retired[id] !== null
       );
-      neutral = (await composeTooltipTranslation(
-        neutral,
-        lang,
-        verified.text[lang],
-        fallback,
-        currentAliases
-      )).tooltip;
+      neutral = (await composeTooltipTranslation(neutral, lang, verified.text[lang], fallback, reviewAliases)).tooltip;
     }
-    if (await inactivePublishableHash(neutral, currentAliases, moves) === pushed[hash2] && await translationEnglishDigest(tooltip.text.en) === await translationEnglishDigest(verified.text.en))
+    if (publishableHashInput(neutral, reviewAliases) === publishableHashInput(verified, ctx.aliases) && translationEnglishGate({
+      kind: "tooltip",
+      hash: hash2,
+      saved: tooltip,
+      live: { status: "active", entry: verified },
+      liveAliases: ctx.aliases
+    }).status === "ready")
       only.tooltips.push(hash2);
   }
   for (const [id, entry] of ctx.savedGlobals) {
@@ -36430,33 +36446,35 @@ var Publisher = class _Publisher {
           );
         const liveMoved = i > 0 && this.head(this.options.liveBranch) !== atomicLive.parent;
         if (source2 !== h || liveMoved) {
+          const advance = this.sourceAdvance(source2, h, tree, opId, signed.kind === "batch");
           if (isTranslationPublishPayload(signed)) {
             if (!this.git.ancestor(source2, h))
               throw new RefRace("Translation publish source diverged");
-            throw new SourceAdvanced(
-              atomicLive.candidate,
-              receipt.requestBlob,
-              source2,
-              h,
-              [],
-              false,
-              true
-            );
+            if (advance !== "bookkeeping" || liveMoved)
+              throw new SourceAdvanced(
+                atomicLive.candidate,
+                receipt.requestBlob,
+                source2,
+                h,
+                [],
+                false,
+                true
+              );
+          } else {
+            if (advance === "blocked" && signed.kind === "batch")
+              throw new RefRace("Claimed batch source no longer matches its publication fence");
+            if (advance === "blocked")
+              throw new ConsumerOutputRejected("Global receipt identity mismatch");
+            if (advance === "rebuild" || liveMoved)
+              throw new SourceAdvanced(
+                atomicLive.candidate,
+                receipt.requestBlob,
+                source2,
+                h,
+                signed.hashes,
+                signed.kind === "batch"
+              );
           }
-          const advance = this.sourceAdvance(source2, h, tree, opId, signed.kind === "batch");
-          if (advance === "blocked" && signed.kind === "batch")
-            throw new RefRace("Claimed batch source no longer matches its publication fence");
-          if (advance === "blocked")
-            throw new ConsumerOutputRejected("Global receipt identity mismatch");
-          if (advance === "rebuild" || liveMoved)
-            throw new SourceAdvanced(
-              atomicLive.candidate,
-              receipt.requestBlob,
-              source2,
-              h,
-              signed.hashes,
-              signed.kind === "batch"
-            );
         }
       }
       const blob = receipt?.requestBlob ?? requestBlob ?? tree[p.request];
@@ -36703,26 +36721,32 @@ var Publisher = class _Publisher {
           throw new Error("Publication already landed. Operator required to finish RECORD.", {
             cause: error62
           });
-        await this.record(
-          opId,
-          void 0,
-          void 0,
-          error62 instanceof TranslationPartRefusal ? {
-            status: "rejected",
-            code: "selected-rows-changed",
-            error: error62.message,
-            rows: error62.rows
-          } : error62 instanceof NamedPartRefusal ? {
-            status: "rejected",
-            code: "selected-rows-changed",
-            error: error62.message,
-            outcomes: error62.outcomes
-          } : { status: "rejected", error: String(error62) },
-          tree[p.request],
-          void 0,
-          void 0,
-          rebuilding?.batch || rebuilding?.scoped || error62 instanceof TranslationPartRefusal ? s : void 0
-        );
+        try {
+          await this.record(
+            opId,
+            void 0,
+            void 0,
+            error62 instanceof TranslationPartRefusal ? {
+              status: "rejected",
+              code: "selected-rows-changed",
+              error: error62.message,
+              rows: error62.rows
+            } : error62 instanceof NamedPartRefusal ? {
+              status: "rejected",
+              code: "selected-rows-changed",
+              error: error62.message,
+              outcomes: error62.outcomes
+            } : { status: "rejected", error: String(error62) },
+            tree[p.request],
+            void 0,
+            void 0,
+            rebuilding?.batch || rebuilding?.scoped || error62 instanceof TranslationPartRefusal ? s : void 0
+          );
+        } catch (race) {
+          if (race instanceof RefRace && error62 instanceof TranslationPartRefusal && attempt < 4)
+            continue;
+          throw race;
+        }
         try {
           if (pending) this.git.cas(p.candidate, pending, void 0);
         } catch {
@@ -37678,6 +37702,13 @@ var Publisher = class _Publisher {
           this.git.cas(dataRef(this.options.dataBranch), sourceCommit, next);
           continue;
         }
+        const bundle = this.git.head(dataRef("editor-data-bundle"));
+        const prior = bundle && this.read(
+          this.git.tree(bundle),
+          "bundle.json"
+        );
+        if (prior && prior.sourceCommit === sourceCommit && prior.translationPublish?.liveCommit === live)
+          return;
         const docs = new GlobalsPublisher(this).documents(tree, "tooltips");
         const value2 = await bundleTranslations(this, tree, live, docs);
         return this.bundle({ sourceCommit, value: value2 });
