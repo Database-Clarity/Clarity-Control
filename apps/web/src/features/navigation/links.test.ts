@@ -58,8 +58,8 @@ describe('workspaceMenu', () => {
     try {
       expect(split(user)).toEqual({ primary: ['/', '/review', '/translations'], more: [] });
       expect(split({ ...user, translationPublish: undefined })).toEqual(without);
-      expect(split({ ...user, languages: ['en'] })).toEqual(without);
-      expect(split({ ...user, languages: [] })).toEqual(without);
+      // The server's capability decides, not the assignments.
+      expect(split({ ...user, languages: [] }).primary).toContain('/review');
       expect(split({ ...user, role: 'trial' }).primary).not.toContain('/review');
     } finally {
       vi.unstubAllEnvs();

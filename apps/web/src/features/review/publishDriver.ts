@@ -465,15 +465,18 @@ export class PublishDriver {
 
   /** Manual Retry: kick one waiting operation. One pipeline run drains the whole queue. */
   async kickWaiting(opId: string): Promise<void> {
-    const waiting = this.current(opId);
-    if (!waiting || this.parked(waiting)) return;
+    const generation = this.generation;
     const claimed = await this.claim(opId, (op, now) =>
       op.status !== 'pending' ||
+      this.parked(op) ||
       (op.kickedAt !== undefined && now - op.kickedAt < publishTiming.manualKickGapMs)
         ? undefined
         : { ...op, kickedAt: now },
     );
-    if (claimed) await this.kick(opId);
+    // The account, or its languages, can change while storage answers.
+    if (!claimed || generation !== this.generation) return;
+    const op = this.current(opId);
+    if (op && !this.parked(op)) await this.kick(opId);
   }
 
   /** Retry for a request someone else queued (seen in the bundle): nothing local to claim, so tab-local gap. */
@@ -1206,6 +1209,7 @@ export class PublishDriver {
     } catch (reason) {
       if (generation !== this.generation) return;
       const status = reason instanceof PublishHttpError ? reason.status : 0;
+      if (status === 403) this.deps.forbidden?.();
       // 409 = no longer pending: it finished meanwhile. Check right away.
       if (status === 409) await this.poll(opId);
       else

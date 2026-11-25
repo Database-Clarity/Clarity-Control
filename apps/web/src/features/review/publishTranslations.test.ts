@@ -249,6 +249,38 @@ it('parks a stored part once the account loses one of its languages', async () =
   });
 });
 
+it('never kicks an operation whose account or languages changed while its claim was stored', async () => {
+  const { driver, api, store, forbidden } = tab();
+  await driver.start('1', ['de', 'fr']);
+  await driver.createTranslations([{ row: row(2, 'fr'), name: 'Tooltip 2' }], 12);
+  await vi.advanceTimersByTimeAsync(0);
+  const { opId } = ops()[0]!;
+  const update = store.update.bind(store);
+  let release = () => {};
+  store.update = async (...args) => {
+    const result = await update(...args);
+    await new Promise<void>((done) => (release = done));
+    return result;
+  };
+  const retry = driver.kickWaiting(opId);
+  await vi.advanceTimersByTimeAsync(0);
+  const held = release;
+  store.update = update;
+  await driver.start('1', ['de']);
+  held();
+  await retry;
+  expect(api.kick).not.toHaveBeenCalled();
+  await driver.kickWaiting(opId);
+  expect(api.kick).not.toHaveBeenCalled();
+  // A refused kick reads the account's assignments again.
+  await driver.start('1', ['de', 'fr']);
+  await vi.advanceTimersByTimeAsync(publishTiming.manualKickGapMs);
+  api.kick.mockRejectedValue(new PublishHttpError(403, 'Permission denied', true));
+  await driver.kickWaiting(opId);
+  expect(api.kick).toHaveBeenCalledTimes(1);
+  expect(forbidden).toHaveBeenCalledTimes(1);
+});
+
 it('releases the rest of a refused part once it is too late to send it by itself', async () => {
   const first = tab();
   first.api.postTranslations.mockResolvedValueOnce(refuse(2));

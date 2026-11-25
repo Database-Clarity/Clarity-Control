@@ -23,13 +23,15 @@ export type Published =
   /** The server's version is not the one a translator's row was prepared from. */
   | { status: 'changed' };
 
-type Entry = Published & { marker: string };
+type Entry = Published & { marker: string; facts?: readonly string[] };
 
 interface Wanted {
   hash: number;
   marker: string;
-  /** A translator's row: is this exactly the version it was prepared from? */
+  /** A translator's rows: is this exactly the version they were prepared from? */
   matches?: (tooltip: Tooltip) => Promise<boolean>;
+  /** The signed facts `matches` checks, one per row; a request with another one checks again. */
+  facts?: readonly string[];
 }
 
 interface PublishedState {
@@ -126,8 +128,12 @@ let generation = 0;
 
 function pump() {
   while (running < parallel && queued.length) {
-    const { hash, marker, matches } = queued.shift()!;
-    if (usePublished.getState().byHash[hash]?.marker !== marker) continue;
+    const { hash, marker, matches, facts } = queued.shift()!;
+    const wanted = () => {
+      const entry = usePublished.getState().byHash[hash];
+      return entry?.marker === marker && entry.facts === facts;
+    };
+    if (!wanted()) continue;
     running++;
     const started = generation;
     void getPushedVersion(hash)
@@ -137,23 +143,21 @@ function pump() {
       }))
       .then(
         (result) => {
-          if (started !== generation || usePublished.getState().byHash[hash]?.marker !== marker)
-            return;
-          if (!result.matched) return put(hash, { status: 'changed', marker });
-          put(hash, { status: 'ready', tooltip: result.tooltip, marker });
+          if (started !== generation || !wanted()) return;
+          if (!result.matched) return put(hash, { status: 'changed', marker, facts });
+          put(hash, { status: 'ready', tooltip: result.tooltip, marker, facts });
           // Only the exact pair is immutable; a server marker newer than ours shows once, unstored.
           if (result.pushedHash === marker.split('@')[0] && result.tooltip)
             void writeStored(hash, { marker, tooltip: result.tooltip });
         },
         (reason: unknown) => {
-          if (started !== generation || usePublished.getState().byHash[hash]?.marker !== marker)
-            return;
+          if (started !== generation || !wanted()) return;
           const error = errorMessage(reason);
           put(
             hash,
             /^API HTTP 409\b/.test(error)
-              ? { status: 'missing', marker }
-              : { status: 'error', error, marker },
+              ? { status: 'missing', marker, facts }
+              : { status: 'error', error, marker, facts },
           );
         },
       )
@@ -181,12 +185,14 @@ export async function loadPublished(
   const wanted = rows.filter(
     (row): row is Wanted =>
       row.marker !== undefined &&
-      (byHash[row.hash]?.marker !== row.marker || (retry && failed(row.hash))),
+      (byHash[row.hash]?.marker !== row.marker ||
+        (retry && failed(row.hash)) ||
+        !!row.facts?.some((fact) => !byHash[row.hash]?.facts?.includes(fact))),
   );
   if (!wanted.length) return;
   usePublished.setState((state) => {
     const next = { ...state.byHash };
-    for (const { hash, marker } of wanted) next[hash] = { status: 'loading', marker };
+    for (const { hash, marker, facts } of wanted) next[hash] = { status: 'loading', marker, facts };
     return { byHash: next };
   });
   const started = generation;
@@ -202,7 +208,12 @@ export async function loadPublished(
       parsed.data.hash === row.hash &&
       (!row.matches || (await row.matches(parsed.data)))
     )
-      hits[row.hash] = { status: 'ready', tooltip: parsed.data, marker: row.marker };
+      hits[row.hash] = {
+        status: 'ready',
+        tooltip: parsed.data,
+        marker: row.marker,
+        facts: row.facts,
+      };
     else queued.push(row);
   }
   if (started !== generation) return;
@@ -210,7 +221,11 @@ export async function loadPublished(
     usePublished.setState((state) => {
       const next = { ...state.byHash };
       for (const [hash, entry] of Object.entries(hits))
-        if (next[Number(hash)]?.marker === entry.marker) next[Number(hash)] = entry;
+        if (
+          next[Number(hash)]?.marker === entry.marker &&
+          next[Number(hash)]?.facts === entry.facts
+        )
+          next[Number(hash)] = entry;
       return { byHash: next };
     });
   pump();
@@ -229,9 +244,14 @@ export function publishedRows(
     if (lane) lanes.set(hash, [...(lanes.get(hash) ?? []), lane]);
     rows.set(hash, { hash, marker });
   }
-  for (const [hash, of] of lanes)
-    rows.get(hash)!.matches = async (tooltip) =>
+  for (const [hash, of] of lanes) {
+    const row = rows.get(hash)!;
+    row.facts = of.map(({ key, row }) =>
+      row?.status === 'ready' ? `${key}:${row.english}:${row.before}` : key,
+    );
+    row.matches = async (tooltip) =>
       (await Promise.all(of.map((lane) => matchesLane(lane, tooltip)))).every(Boolean);
+  }
   return [...rows.values()];
 }
 

@@ -21,7 +21,7 @@ import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useAdvanceSetting } from '../compendium/advanceSetting';
 import { useRawDiff } from '../history/diffPreference';
 import { useLeftQueue } from '../queue/useQueue';
-import { publishLanguages } from '../auth/permissions';
+import { canPublishTranslations, publishLanguages } from '../auth/permissions';
 import { languageLabel } from '../../languageLabels';
 import {
   editorLabel,
@@ -161,7 +161,7 @@ export function ReviewPage() {
   } = useReviewSession();
   // A translator reviews their own languages: one row per entry and language, from the bundle.
   const languages = useMemo(() => publishLanguages(user), [user]);
-  const translator = languages.length > 0;
+  const translator = canPublishTranslations(user);
   const mayPublish = canPush(user) || translator;
   // A bundle can come without them for a while: the list, its ticks, and Publish wait for the next.
   const lanesMissing = translator && !!data && !data.bundle.translationPublish;

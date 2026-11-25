@@ -1,6 +1,6 @@
 import { redirect, type LoaderFunctionArgs } from 'react-router-dom';
 import { useDataStore } from '../../stores/data';
-import { publishLanguages } from '../auth/permissions';
+import { canPublishTranslations, publishLanguages } from '../auth/permissions';
 import { isFolded, routedRow, rowKey } from './globalRows';
 import { filteredLanguage, inLanguage, laneEntries } from './lanes';
 import { preparedPending, type PendingTooltip } from './model';
@@ -48,8 +48,9 @@ export function reviewRoute({ request }: LoaderFunctionArgs) {
   const { user } = useAuthStore.getState();
   const languages = publishLanguages(user);
   // A bundle without the lanes is still being checked: the page settles the route later.
-  if (languages.length && !data.bundle.translationPublish) return null;
-  const entries = languages.length
+  const translator = canPublishTranslations(user);
+  if (translator && !data.bundle.translationPublish) return null;
+  const entries = translator
     ? inLanguage(
         laneEntries(data, languages, acknowledgedTranslations(data)),
         filteredLanguage(params, languages),

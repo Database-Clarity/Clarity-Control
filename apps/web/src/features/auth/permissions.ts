@@ -33,13 +33,14 @@ const none: readonly TranslationLanguage[] = [];
 export function publishLanguages(
   user: Publisher | null | undefined,
 ): readonly TranslationLanguage[] {
-  if (user?.role !== 'translator' || !user.translationPublish || !publisherEnabled()) return none;
-  const languages = user.languages?.filter((lang) => lang !== 'en');
+  if (!canPublishTranslations(user)) return none;
+  const languages = user?.languages?.filter((lang) => lang !== 'en');
   return languages?.length ? languages : none;
 }
 
+/** Their Review is the translators' own, even while no language is assigned. */
 export function canPublishTranslations(user: Publisher | null | undefined): boolean {
-  return publishLanguages(user).length > 0;
+  return user?.role === 'translator' && !!user.translationPublish && publisherEnabled();
 }
 
 export function canPushLive(user: User | null | undefined): boolean {

@@ -26,7 +26,8 @@ import { useKinds } from './kinds';
 import { publishDriver } from './publisher';
 import { usePublishState } from './publishDriver';
 import { prepareReviewQueue } from './model';
-import { resetPublished, usePublished } from './published';
+import { laneEntries } from './lanes';
+import { loadPublished, publishedRows, resetPublished, usePublished } from './published';
 import { useReviewQueue } from './queueStore';
 import { ReviewPage } from './ReviewPage';
 import { useReviewSession } from './session';
@@ -722,10 +723,28 @@ it('leaves no row or tick behind at sign-out or for another account', async () =
 });
 
 it.each([
-  ['the Worker does not offer it', { ...translator, translationPublish: undefined }],
-  ['only English is assigned', { ...translator, languages: ['en' as const] }],
-])('is exactly the read-only page when %s', async (_, user) => {
-  await signIn(user);
+  ['the last language is removed', []],
+  ['only English is assigned', ['en' as const]],
+])('stays a translator’s own page when %s', async (_, languages) => {
+  await signIn(translator);
+  await mount();
+  await waitFor(() => expect(usePublished.getState().byHash[10]?.status).toBe('ready'));
+  await tick('10:de');
+  const asked = () =>
+    vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('live=1')).length;
+  const before = asked();
+  await signIn({ ...translator, languages });
+  await flush();
+  expect(rowKeys()).toEqual([]);
+  expect(host.textContent).toContain('Nothing is waiting to go live.');
+  expect(host.textContent).not.toContain('Sign in as an editor or maintainer to publish.');
+  expect(head()!.disabled).toBe(true);
+  expect(useReviewQueue.getState().versions.size).toBe(0);
+  expect(asked()).toBe(before);
+});
+
+it('is exactly the read-only page when the Worker does not offer it', async () => {
+  await signIn({ ...translator, translationPublish: undefined });
   await mount();
   expect(rowKeys()).toEqual(['10', '20', '30', '40']);
   expect(head()).toBeNull();
@@ -832,6 +851,62 @@ it('never shows or confirms another live version than the signed one', async () 
   await waitFor(() => expect(detail()?.textContent).toContain('Text changed in German'));
   await openConfirm();
   expect(dialog()).not.toBeNull();
+});
+
+it('checks every language’s signed facts, also after a filtered page checked one', async () => {
+  // French was published again under the same marker: German's facts still hold, French's do not.
+  const both = { text: { en, de: { text: 'Alt', ...later }, fr: { text: 'Vieux', ...later } } };
+  const signed = { ...live[10]!, ...both };
+  const newer = {
+    ...signed,
+    text: { ...signed.text, fr: { ...signed.text.fr, updatedBy: 'someone' } },
+  };
+  served = (hash) => (hash === 10 ? newer : live[hash]);
+  bundle.tooltips[10] = {
+    ...signed,
+    text: { ...signed.text, de: { text: 'Neu', ...later }, fr: { text: 'Nouveau', ...later } },
+  };
+  const row10 = async (lang: 'de' | 'fr') =>
+    ready({ hash: 10 }, lang, {
+      snapshot: 'a'.repeat(40),
+      before: await translationBeforeDigest(signed.text[lang]),
+    });
+  bundle.translationPublish!.lanes = lanes([await row10('de'), await row10('fr')]);
+  await signIn({ ...translator, languages: ['de', 'fr'] });
+  await useDataStore.getState().load();
+  // The route of a page filtered to German checks German alone.
+  const german = laneEntries(useDataStore.getState().data!, ['de'], new Set());
+  await loadPublished(publishedRows(german));
+  await vi.waitFor(() => expect(usePublished.getState().byHash[10]?.status).toBe('ready'));
+  await mount('/review?lang=de');
+  await waitFor(() => expect(usePublished.getState().byHash[10]?.status).toBe('changed'));
+  await tick('10:de');
+  await act(async () => useReviewQueue.getState().includeAll([]));
+  const french = useReviewQueue.getState().entries!.find(({ lane }) => lane?.lang === 'fr')!;
+  await act(async () => useReviewQueue.getState().decide(french));
+  await act(async () => head()!.click());
+  expect(dialog()).toBeNull();
+  expect(host.textContent).toContain('Some of these changed after this list was built.');
+});
+
+it('writes the ticks a cold tab drops for a lost language', async () => {
+  const picks = [
+    ['10:de', 'a'],
+    ['40:fr', 'b'],
+  ];
+  sessionStorage.setItem(
+    'clarity-review-inclusions:v1',
+    JSON.stringify({ account: '1/translations', versions: picks }),
+  );
+  useAuthStore.setState({ user: translator, loading: false, load: async () => {} });
+  vi.resetModules();
+  // A fresh store, as after a reload, with the account already settled.
+  const { useReviewQueue: cold } = await import('./queueStore');
+  const { useAuthStore: auth } = await import('../../stores/auth');
+  auth.setState({ user: translator, loading: false });
+  expect([...cold.getState().versions.keys()]).toEqual(['10:de']);
+  expect(sessionStorage.getItem('clarity-review-inclusions:v1')).not.toContain('40:fr');
+  expect(sessionStorage.getItem('clarity-review-inclusions:v1')).toContain('10:de');
 });
 
 it('waits for the comparison before it can be confirmed', async () => {
