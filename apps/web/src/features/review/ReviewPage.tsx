@@ -701,8 +701,12 @@ export function ReviewPage() {
   const currentPublished = current && publishedOf(current, published);
   const classification = current ? kindOf(current, currentPublished, classified) : undefined;
   const retry = useCallback(() => {
-    if (current) void loadPublished(publishedRows([{ ...current, markerOnly: false }]), true);
-  }, [current]);
+    if (!current) return;
+    // A tooltip's languages share one published version: they are checked together.
+    const { lane } = current;
+    const rows = lane ? list.filter((entry) => entry.lane?.hash === lane.hash) : [current];
+    void loadPublished(publishedRows(rows.map((row) => ({ ...row, markerOnly: false }))), true);
+  }, [current, list]);
   const refreshing = reloading || comparing;
   const globalsAhead = useMemo(
     () => !!data?.bundle.globalsPending && savedGlobalsAhead(data.bundle).size > 0,

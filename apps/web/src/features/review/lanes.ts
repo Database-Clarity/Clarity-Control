@@ -255,6 +255,10 @@ export interface LaneComparison {
   source: { before: string | undefined; after: string | undefined };
 }
 
+/** The live facts a row was prepared from, named by the row. */
+export const laneFacts = ({ key, row }: Lane) =>
+  row?.status === 'ready' ? `${key}:${row.english}:${row.before}` : key;
+
 /**
  * Does this published version hold exactly the live facts the row was prepared from? History answers
  * with the newest version, which can be another one under the same marker.

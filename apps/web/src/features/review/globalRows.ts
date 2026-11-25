@@ -2,7 +2,7 @@ import type { Lang } from '@clarity/core';
 import type { GlobalKind } from '../globals/model';
 import type { PendingGlobal } from './globalsPending';
 import type { PendingTooltip } from './model';
-import { publishedFor, type Published } from './published';
+import { publishedFor, publishedForLane, type Published } from './published';
 
 export interface GlobalPart {
   kind: GlobalKind;
@@ -32,7 +32,7 @@ export const routedRow = <T extends PendingTooltip>(rows: readonly T[], routed: 
 
 export const publishedOf = (entry: PendingTooltip, byHash: Parameters<typeof publishedFor>[0]) =>
   entry.lane
-    ? (entry.lane.published ?? publishedFor(byHash, entry.lane.hash!, entry.lane.marker))
+    ? (entry.lane.published ?? publishedForLane(byHash, entry.lane))
     : (entry.part?.published ?? publishedFor(byHash, entry.tooltip.hash, entry.pushed));
 
 /** A translator's row opens in translate mode, on its own language. */

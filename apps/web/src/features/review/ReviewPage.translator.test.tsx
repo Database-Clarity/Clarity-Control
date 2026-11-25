@@ -26,6 +26,7 @@ import { useKinds } from './kinds';
 import { publishDriver } from './publisher';
 import { usePublishState } from './publishDriver';
 import { prepareReviewQueue } from './model';
+import { publishedOf } from './globalRows';
 import { laneEntries } from './lanes';
 import { loadPublished, publishedRows, resetPublished, usePublished } from './published';
 import { useReviewQueue } from './queueStore';
@@ -887,6 +888,50 @@ it('checks every language’s signed facts, also after a filtered page checked o
   await act(async () => head()!.click());
   expect(dialog()).toBeNull();
   expect(host.textContent).toContain('Some of these changed after this list was built.');
+});
+
+it('a Retry of one language leaves no other language unchecked', async () => {
+  const signed = {
+    ...live[10]!,
+    text: { en, de: { text: 'Alt', ...later }, fr: { text: 'Vieux', ...later } },
+  };
+  const newer = {
+    ...signed,
+    text: { ...signed.text, fr: { ...signed.text.fr, updatedBy: 'someone' } },
+  };
+  served = (hash) => (hash === 10 ? newer : live[hash]);
+  bundle.tooltips[10] = {
+    ...signed,
+    text: { ...signed.text, de: { text: 'Neu', ...later }, fr: { text: 'Nouveau', ...later } },
+  };
+  const row10 = async (lang: 'de' | 'fr') =>
+    ready({ hash: 10 }, lang, {
+      snapshot: 'a'.repeat(40),
+      before: await translationBeforeDigest(signed.text[lang]),
+    });
+  bundle.translationPublish!.lanes = lanes([await row10('de'), await row10('fr')]);
+  // The first answer fails; only then does the open German row ask again.
+  historyGate = (hash) => {
+    if (hash === 10) throw new Error('offline');
+  };
+  await signIn({ ...translator, languages: ['de', 'fr'] });
+  await mount('/review?hash=10%3Ade');
+  await waitFor(() => expect(detail()?.textContent).toContain('load the published version'));
+  historyGate = () => undefined;
+  await click('Retry');
+  await waitFor(() => expect(usePublished.getState().byHash[10]?.status).not.toBe('loading'));
+  const french = useReviewQueue.getState().entries!.find(({ lane }) => lane?.lang === 'fr')!;
+  await act(async () => useReviewQueue.getState().decide(french));
+  await act(async () => head()!.click());
+  expect(dialog()).toBeNull();
+  // Even a version checked for German alone never stands for French.
+  const german = laneEntries(useDataStore.getState().data!, ['de', 'fr'], new Set()).filter(
+    ({ lane }) => lane.lang === 'de',
+  );
+  resetPublished();
+  await act(async () => loadPublished(publishedRows(german)));
+  await waitFor(() => expect(usePublished.getState().byHash[10]?.status).toBe('ready'));
+  expect(publishedOf(french, usePublished.getState().byHash)?.status).toBe('loading');
 });
 
 it('writes the ticks a cold tab drops for a lost language', async () => {

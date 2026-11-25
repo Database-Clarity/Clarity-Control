@@ -465,6 +465,7 @@ export class PublishDriver {
 
   /** Manual Retry: kick one waiting operation. One pipeline run drains the whole queue. */
   async kickWaiting(opId: string): Promise<void> {
+    if (!this.current(opId)) return;
     const generation = this.generation;
     const claimed = await this.claim(opId, (op, now) =>
       op.status !== 'pending' ||
@@ -549,9 +550,12 @@ export class PublishDriver {
     change: (op: PublishOp, now: number) => PublishOp | undefined,
   ): Promise<boolean> {
     const now = this.deps.now();
+    const { generation, userId } = this;
     let won = false;
     try {
       await this.deps.store.update(opId, (op) => {
+        // Storage can answer after an account or language change: this claim is then nobody's.
+        if (generation !== this.generation || op.userId !== userId) return undefined;
         const next = change(op, now);
         won = next !== undefined;
         return next;

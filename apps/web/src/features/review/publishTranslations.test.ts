@@ -281,6 +281,29 @@ it('never kicks an operation whose account or languages changed while its claim 
   expect(forbidden).toHaveBeenCalledTimes(1);
 });
 
+it('never writes a claim on another account’s operation', async () => {
+  const { driver, store } = tab();
+  await driver.start('1', ['de']);
+  await driver.createTranslations(items(1), 12);
+  await vi.advanceTimersByTimeAsync(0);
+  const { opId } = ops()[0]!;
+  const update = store.update.bind(store);
+  let release = () => {};
+  store.update = async (...args) => {
+    await new Promise<void>((done) => (release = done));
+    return update(...args);
+  };
+  const retry = driver.kickWaiting(opId);
+  await vi.advanceTimersByTimeAsync(0);
+  const held = release;
+  store.update = update;
+  // Another account with the very same languages.
+  await driver.start('2', ['de']);
+  held();
+  await retry;
+  expect(store.records.get(opId)?.kickedAt).toBeUndefined();
+});
+
 it('releases the rest of a refused part once it is too late to send it by itself', async () => {
   const first = tab();
   first.api.postTranslations.mockResolvedValueOnce(refuse(2));

@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { getPushedVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
-import { matchesLane, type Lane } from './lanes';
+import { laneFacts, matchesLane, type Lane } from './lanes';
 import type { PendingTooltip } from './model';
 
 /**
@@ -49,6 +49,20 @@ export function publishedFor(
   const entry = byHash[hash];
   return entry?.marker === marker ? entry : undefined;
 }
+
+/** The published version of a translator's row, once it is checked against that row's facts. */
+export function publishedForLane(
+  byHash: PublishedState['byHash'],
+  lane: Lane,
+): Published | undefined {
+  const entry = publishedFor(byHash, lane.hash!, lane.marker);
+  return entry?.status === 'ready' &&
+    lane.row?.status === 'ready' &&
+    !byHash[lane.hash!]?.facts?.includes(laneFacts(lane))
+    ? unchecked
+    : entry;
+}
+const unchecked: Published = { status: 'loading' };
 
 /**
  * The text a language goes live with: a translation that falls back goes out in English (the
@@ -246,9 +260,7 @@ export function publishedRows(
   }
   for (const [hash, of] of lanes) {
     const row = rows.get(hash)!;
-    row.facts = of.map(({ key, row }) =>
-      row?.status === 'ready' ? `${key}:${row.english}:${row.before}` : key,
-    );
+    row.facts = of.map(laneFacts);
     row.matches = async (tooltip) =>
       (await Promise.all(of.map((lane) => matchesLane(lane, tooltip)))).every(Boolean);
   }
