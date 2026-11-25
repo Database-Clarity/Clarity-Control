@@ -38,6 +38,7 @@
   },
   "vars": {
     "COMPENDIUM_DECISION_WRITES": "1",
+    "TRANSLATION_PUBLISH": "1",
     "SITE_ORIGIN": "https://database-clarity.github.io",
     "SITE_ORIGINS": "https://database-clarity.github.io,https://control.d2clarity.com",
     "SITE_URL": "https://database-clarity.github.io/Clarity-Control/v2/",
