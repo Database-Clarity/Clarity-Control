@@ -100,6 +100,7 @@ for (const { hash, saved, live } of entries) {
 }
 const cached = new Map<string, string>();
 let subrequests = 0;
+let failRefUpdate = false;
 globalThis.fetch = async (input, init) => {
   subrequests++;
   const url = new URL(String(input));
@@ -132,6 +133,10 @@ globalThis.fetch = async (input, init) => {
     }
     return new Response(response);
   }
+  if (url.pathname.endsWith('/git/refs/heads/data') && failRefUpdate) {
+    failRefUpdate = false;
+    return Response.json({ message: 'DATA head changed' }, { status: 422 });
+  }
   if (/\/git\/(trees|commits|refs\/heads\/data)$/.test(url.pathname))
     return Response.json({ sha: oid });
   throw new Error(`Unexpected CPU upstream path ${url.pathname}`);
@@ -156,8 +161,11 @@ const encoded = Buffer.from(
 ).toString('base64url');
 const session = `${encoded}.${createHmac('sha256', env.SESSION_SECRET!).update(encoded).digest('base64url')}`;
 let serial = 0;
-async function invoke(part: TranslationPublishRow[]) {
-  const opId = ulidPart(Date.now(), 10) + ulidPart(serial++, 16);
+function newOpId() {
+  return ulidPart(Date.now(), 10) + ulidPart(serial++, 16);
+}
+async function invoke(part: TranslationPublishRow[], retry = false, opId = newOpId()) {
+  failRefUpdate = retry;
   const start = subrequests;
   const response: Response = await worker.fetch(
     new Request(`https://cpu.invalid/publish?contract=${translationPublishContract}`, {
@@ -168,7 +176,7 @@ async function invoke(part: TranslationPublishRow[]) {
     env,
     { waitUntil() {} },
   );
-  if (response.status !== 202) throw new Error(await response.text());
+  if (response.status !== (retry ? 503 : 202)) throw new Error(await response.text());
   await response.text();
   return subrequests - start;
 }
@@ -179,17 +187,21 @@ console.log({ coldWallMs: performance.now() - coldStart, coldSubrequests });
 const parts = Array.from({ length: 10 }, (_, i) =>
   rows.slice(i * translationPartRows, (i + 1) * translationPartRows),
 );
-for (const [label, requestParts] of [
-  ['one row', [rows.slice(0, 1)]],
-  [`${selectionSize} rows in automatic parts`, parts],
+const retryId = newOpId();
+await invoke(parts[0]!, true, retryId);
+await invoke(parts[0]!, false, retryId);
+for (const [label, requestParts, retry] of [
+  ['one row', [rows.slice(0, 1)], false],
+  [`${selectionSize} rows in automatic parts`, parts, false],
+  [`${selectionSize} rows, failed CAS and reconciliation per request`, parts, true],
 ] as const) {
-  for (const part of requestParts) await invoke(part);
+  for (const part of requestParts) await invoke(part, retry);
   const samples = [];
   let maxSubrequests = 0;
   for (let sample = 0; sample < 20; sample++) {
     const start = process.cpuUsage();
     for (let i = 0; i < 20; i++) {
-      const count = await invoke(requestParts[i % requestParts.length]!);
+      const count = await invoke(requestParts[i % requestParts.length]!, retry);
       maxSubrequests = Math.max(maxSubrequests, count);
     }
     const spent = process.cpuUsage(start);

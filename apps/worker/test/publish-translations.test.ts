@@ -353,6 +353,23 @@ it('rechecks revoked languages after a CAS race and on retries for an accepted r
   expect(await (await status()).json()).toEqual({ operations: [{ opId: A, status: 'pending' }] });
 });
 
+it('revalidates the reviewed English before a retried write', async () => {
+  f.beforePatch = () =>
+    f.moveData({
+      'tooltips/123.json': {
+        ...saved,
+        text: { ...saved.text, en: tooltip('English changed during admission').text.en },
+      },
+    });
+  expect((await send()).status).toBe(503);
+  const response = await send();
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({
+    details: { rows: [{ reason: 'english-pending' }] },
+  });
+  expect(f.current()[requestPath(A)]).toBeUndefined();
+});
+
 it('reconciles a lost write response and only reveals scoped status and kick to the owner or operators', async () => {
   const upstream = f.fetch.bind(f);
   let timedOut = false;
@@ -423,6 +440,8 @@ it('keeps both translators’ independent requests across a head race', async ()
     }
     return upstream(input, init);
   });
+  expect((await send()).status).toBe(503);
+  expect(f.current()[requestPath(A)]).toBeUndefined();
   expect((await send()).status).toBe(202);
   expect(competing?.status).toBe(202);
   expect(JSON.parse(envelope(A).payload).rows[0].lang).toBe('de');

@@ -672,31 +672,34 @@ describe('durable asynchronous admission', () => {
       const reservation = record();
       const head = f.dataHead;
       expect(f.current()[queuePath]).toBeUndefined();
-      const response = await f.request(
-        `/publish?contract=${translationPublishContract}`,
-        'POST',
-        {
-          opId,
-          scope: 'translations',
-          rows: [
-            {
-              kind: 'tooltip',
-              hash: 123,
-              lang: 'de',
-              expected: await translationExpectedDigest(de),
-              english: await translationEnglishDigest(live.text.en!),
-              before: await translationBeforeDigest(undefined),
-              effects: 'e'.repeat(64),
-            },
-          ],
-        },
-        4,
-      );
+      const scoped = {
+        opId,
+        scope: 'translations',
+        rows: [
+          {
+            kind: 'tooltip',
+            hash: 123,
+            lang: 'de',
+            expected: await translationExpectedDigest(de),
+            english: await translationEnglishDigest(live.text.en!),
+            before: await translationBeforeDigest(undefined),
+            effects: 'e'.repeat(64),
+          },
+        ],
+      };
+      const publish = () =>
+        f.request(`/publish?contract=${translationPublishContract}`, 'POST', scoped, 4);
+      const response = await publish();
       expect(response.status).toBe(409);
       expect(await response.json()).toEqual({ error: 'opId already names another publish intent' });
       expect(f.dataHead).toBe(head);
       expect(record()).toEqual(reservation);
       expect(f.current()[queuePath]).toBeUndefined();
+
+      const scheduledRequest = { payload: JSON.stringify({ kind: 'batch', opId }), sig: 'signed' };
+      f.moveData({ [queuePath]: scheduledRequest });
+      expect((await publish()).status).toBe(409);
+      expect(f.current()[queuePath]).toEqual(scheduledRequest);
     },
   );
 });

@@ -144,6 +144,18 @@ function logged(file: RepoFile | null) {
   return file ? logSchema.parse(file.value) : undefined;
 }
 
+function pendingTranslation(file: RepoFile | null) {
+  if (!file) return undefined;
+  try {
+    const raw = JSON.parse(envelopeSchema.parse(file.value).payload);
+    const payload = translationPublishPayloadSchema.safeParse(raw);
+    if (payload.success) return payload.data;
+  } catch {
+    // An unreadable request still occupies its ID.
+  }
+  return { intentDigest: '' };
+}
+
 async function signRequest(env: Env, value: unknown) {
   const { key } = await signingKey(env);
   const payload = stableStringify(value);
@@ -364,18 +376,14 @@ async function publishTranslations(
     requester: { id: user.id, login: user.login },
   };
   const digest = await translationPublishIntentDigest(intent);
-  for (let attempt = 0; attempt < 3; attempt++) {
+  const admissionPaths = ['config/permissions.json', requestPath, logPath, reservationPath];
+  // One write attempt per invocation. After an ambiguous write, reconcile at a fresh
+  // head without rereading reviewed sources. A new HTTP attempt revalidates before it writes.
+  for (const creating of [true, false]) {
     const snapshot = await github.publishSnapshot(
-      [
-        'config/permissions.json',
-        requestPath,
-        logPath,
-        reservationPath,
-        ...translationReadinessPaths,
-        ...rowPaths,
-      ],
+      creating ? [...admissionPaths, ...translationReadinessPaths, ...rowPaths] : admissionPaths,
       [reservationPath],
-      [{ path: schedulePaths.conflictsDir, depth: 1 }],
+      creating ? [{ path: schedulePaths.conflictsDir, depth: 1 }] : [],
     );
     const [permissions, queued, logFile, reservation, ...sources] = snapshot.files;
     const access = requireAccess(permissionsSchema.parse(permissions?.value), user, [
@@ -387,7 +395,7 @@ async function publishTranslations(
     const log = logged(logFile);
     const decision = classifyPublishIntent(
       digest,
-      log ? undefined : pending(queued),
+      log ? undefined : pendingTranslation(queued),
       log ? { ...log, intentDigest: log.intentDigest ?? '' } : undefined,
     );
     if (decision.status === 'conflict')
@@ -397,7 +405,7 @@ async function publishTranslations(
     if (decision.status === 'pending') return json({ opId, status: 'pending' }, 202);
     // Schedule preparation reserves the publication ID before its signed request exists.
     if (reservation) throw new HttpError(409, 'opId already names another publish intent');
-    if (attempt === 2) break;
+    if (!creating) break;
     if (!translationPublishEnabled(env))
       throw new HttpError(503, 'Translation publishing is not enabled.');
     const roots = translationRoots(sources, env.LIVE_BRANCH);
@@ -421,7 +429,7 @@ async function publishTranslations(
       await github.createPublishRequest(snapshot.head, snapshot.tree, requestPath, envelope, user);
       return json({ opId, status: 'pending' }, 202);
     } catch {
-      // Reconcile the existing request or log, or repeat all checks at the new DATA head.
+      // Reconcile the existing request or log before asking the client to retry.
     }
   }
   throw new HttpError(503, 'Publish create unresolved; retry the same opId and body');
