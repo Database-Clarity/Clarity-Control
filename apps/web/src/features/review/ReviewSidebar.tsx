@@ -8,12 +8,13 @@ import { SkeletonRows } from '../../ui/Skeleton';
 import { languageLabel } from '../../languageLabels';
 import { canPublishTranslations, publishLanguages } from '../auth/permissions';
 import { isFolded, rowKey } from './globalRows';
-import { kindWords, useRowKinds, type Kind } from './kinds';
+import { kindWords, rowKinds, useKinds, useRowKinds, type Kind } from './kinds';
 import { canPush, publishableHashes, type PendingTooltip } from './model';
 import { globalKey } from './globalsPending';
 import { inLanguage } from './lanes';
 import { activeGlobals, activeHashes, activeTranslations, usePublishState } from './publishDriver';
 import { matchesFilter, queueView, type RowKinds } from './queueModel';
+import { usePublished } from './published';
 import { useReviewQueue } from './queueStore';
 import { ReviewQueue } from './ReviewQueue';
 import { useReviewSession } from './session';
@@ -153,7 +154,6 @@ function SavedSidebar() {
   const [searchParams, setSearchParams] = useSearchParams();
   const rows = inLanguage(entries ?? noEntries, searchParams.get('lang'));
   const kinds = useRowKinds(rows);
-  const allKinds = useRowKinds(entries);
   const query = searchParams.get('query') ?? '';
   const kind = searchParams.get('kind') ?? '';
   const view = useMemo(
@@ -209,7 +209,15 @@ function SavedSidebar() {
     else params.delete('lang');
     const shown = inLanguage(entries ?? noEntries, nextLanguage);
     setSearchParams(
-      filterParams(params, shown, shown === rows ? kinds : allKinds, nextQuery, nextKind),
+      filterParams(
+        params,
+        shown,
+        shown === rows
+          ? kinds
+          : rowKinds(shown, usePublished.getState().byHash, useKinds.getState().byHash),
+        nextQuery,
+        nextKind,
+      ),
       { replace: true },
     );
   };
