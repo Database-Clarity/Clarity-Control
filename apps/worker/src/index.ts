@@ -83,9 +83,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     const manages = managedLanguages(config.users[String(user.id)]);
     const role = roleOf(config, user);
     const ready =
-      scoped &&
-      (role === 'maintainer' || role === 'editor' || role === 'translator') &&
-      translationRoots(scoped.files.slice(1), env.LIVE_BRANCH);
+      scoped && role === 'translator' && translationRoots(scoped.files.slice(1), env.LIVE_BRANCH);
     return json({
       id: user.id,
       login: user.login,
