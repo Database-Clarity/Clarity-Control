@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { publishableHash, translationEnglishGate } from '@clarity/core';
+import { composeTooltipTranslation, publishableHash, translationEnglishGate } from '@clarity/core';
 import { config, Fixture, makePrivateKey, tooltip } from './fixture.js';
 
 vi.mock('../../../config/publisher.json', () => ({ default: { enabled: false } }));
@@ -37,11 +37,11 @@ it.each([2, 3, 4])('checks role %s when English is restored after removal', asyn
   const first = await save(live, removed, role === 4 ? 2 : role);
   expect(first.status, await first.clone().text()).toBe(200);
   const second = await save(removed, readded);
-  if (role === 2) {
+  if (role !== 4) {
     expect(second.status, await second.clone().text()).toBe(200);
     expect(fixture.current()['tooltips/123.json']).toEqual(readded);
     expect(fixture.commits[1]?.message).toBe('Edit tooltip\n\nClarity-Changed: 123=en');
-    // Root accepted this trusted-role case. The gate opens, and scoped output uses live.text.en.
+    // Reused stamps can pass the ordering rule. Composition still takes English from LIVE.
     expect(
       translationEnglishGate({
         kind: 'tooltip',
@@ -51,26 +51,13 @@ it.each([2, 3, 4])('checks role %s when English is restored after removal', asyn
         liveAliases: {},
       }),
     ).toEqual({ status: 'ready' });
+    const german = { ...de, text: 'Neue Übersetzung' };
+    const { tooltip: scoped } = await composeTooltipTranslation(live, 'de', german, [], {});
+    expect(scoped).toEqual({ ...live, text: { ...live.text, de: german } });
   } else {
-    expect(second.status, await second.clone().text()).toBe(role === 3 ? 422 : 403);
+    expect(second.status, await second.clone().text()).toBe(403);
     expect(fixture.current()['tooltips/123.json']).toEqual(removed);
     expect(fixture.commits).toHaveLength(1);
-    if (role === 3) {
-      // An older restore would allow a later edit to advance back to the published stamp.
-      const earlier = tooltip(
-        'Changed wording with an older stamp',
-        new Date(Date.parse(live.text.en!.updatedAt) - 1).toISOString(),
-      );
-      earlier.text.de = de;
-      expect((await save(removed, earlier)).status).toBe(422);
-      const fresh = tooltip('changed wording', new Date().toISOString());
-      fresh.text.de = de;
-      const response = await save(removed, fresh);
-      expect(response.status, await response.clone().text()).toBe(200);
-      expect(fixture.current()['tooltips/123.json']).toEqual(fresh);
-      const retry = await save(removed, fresh);
-      expect(retry.status, await retry.clone().text()).toBe(200);
-    }
   }
 });
 

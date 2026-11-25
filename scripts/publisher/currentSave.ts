@@ -167,7 +167,6 @@ export async function drainCurrentSaves(pub: Publisher) {
                 const value = pub.read(pub.git.tree(commit), `tooltips/${hash}.json`);
                 return value === undefined ? null : tooltipSchema.parse(value);
               },
-              readPublished: (hash) => pub.read(tree, `live/tooltips/${hash}.json`),
             },
           );
           if (

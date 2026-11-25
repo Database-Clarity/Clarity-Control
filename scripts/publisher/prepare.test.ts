@@ -428,30 +428,6 @@ async function stagedCurrentFixture(
 
 describe('offline staged Current saves', () => {
   it.each([
-    ['first English', false, AT, 'saved'],
-    ['reused LIVE revision', true, DUE, 'failed'],
-    ['older revision after removal', true, '2029-01-01T00:00:00.000Z', 'failed'],
-    ['new revision after removal', true, AT, 'saved'],
-  ] as const)('checks a trial’s %s at landing', async (_label, hasLive, updatedAt, status) => {
-    const f = await stagedCurrentFixture(1, true, (edits, fixture) => {
-      const live = tip('Published English');
-      live.text.en!.updatedAt = DUE;
-      const base = { ...live, text: {} };
-      const next = tip('New English');
-      next.text.en!.updatedAt = updatedAt;
-      edits[0] = { hash: 123, base, next };
-      fixture.change({
-        'config/permissions.json': { users: { 1: { role: 'trial', login: user.login } } },
-        ...(hasLive ? { 'live/tooltips/123.json': live } : {}),
-      });
-    });
-    await drainCurrentSaves(f.pub);
-    expect(f.read(currentPaths.record(S))).toMatchObject({ status });
-    const edit = f.edits[0]!;
-    expect(f.read('tooltips/123.json')).toEqual(status === 'saved' ? edit.next : edit.base);
-  });
-
-  it.each([
     { inHistory: true, status: 'saved' },
     { inHistory: false, status: 'failed' },
   ])(

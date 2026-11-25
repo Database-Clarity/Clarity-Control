@@ -62,6 +62,11 @@ export type TranslationEnglishGate =
         | 'global-removed';
     };
 
+/**
+ * Orders translation publication by English revision. Scoped publication separately checks
+ * language authorization and uses LIVE English, including when a crafted save reuses a
+ * stamp. It applies only the authorized language's saved entry and verified derived changes.
+ */
 export function translationEnglishGate(input: TranslationEnglishGateInput): TranslationEnglishGate {
   if (input.kind === 'tooltip') {
     if (input.hash >= 1 && input.hash <= 3)
