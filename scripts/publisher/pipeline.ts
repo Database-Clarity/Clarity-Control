@@ -8,12 +8,11 @@ import { LocalRepository } from './git.js';
 import { RemoteRepository } from './remote.js';
 import publisherConfig from '../../config/publisher.json';
 import { Publisher, paths, type Receipt, type Options } from './publisher.js';
-import { GlobalsPublisher } from './globals.js';
-import { globalsFence } from './globalsInPlace.js';
+import { globalsFence, requireGlobalsMode } from './globalsInPlace.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import { drainCurrentSaves } from './currentSave.js';
 
-export type PipelineConfig = Omit<Options, 'now' | 'backoff' | 'publicKey'> & {
+export type PipelineConfig = Omit<Options, 'now' | 'publicKey'> & {
   keyEndpoint: string;
   publishWritesEnabled?: boolean;
 };
@@ -141,6 +140,7 @@ export async function runPipeline(
   mkdirSync(out, { recursive: true });
   const temp = mkdtempSync(join(tmpdir(), 'publisher-pipeline-'));
   let failure: unknown;
+  let active = false;
   const reports: unknown[] = [];
   const publications: NonNullable<ReturnType<typeof publicationIdentity>>[] = [];
   let handoff: ReturnType<typeof pendingProductionHandoff>;
@@ -190,8 +190,9 @@ export async function runPipeline(
         })
       : new LocalRepository(repo);
   }
-  function publishBundle(repo: LocalRepository, options: Options) {
+  async function publishBundle(repo: LocalRepository, options: Options, prepare = false) {
     const pub = new Publisher(repo, options);
+    if (prepare) await pub.prepareBundle();
     let next: string;
     for (let attempt = 0; ; attempt++) {
       const old = repo.head(bundleRef);
@@ -234,6 +235,12 @@ export async function runPipeline(
   const options: Options = { ...config, publicKey: '', now: Date.now };
   try {
     const initial = snapshot('initial');
+    const initialPublisher = new Publisher(initial, options);
+    const initialTree = initial.tree(initialPublisher.head(options.dataBranch));
+    if (globalsFence(initialPublisher, initialTree)?.state !== 'hold') {
+      requireGlobalsMode(initialPublisher, initialTree);
+      active = true;
+    }
     if (config.liveBranch === 'converter') {
       const tree = initial.tree(initial.head('refs/heads/converter')!);
       if (
@@ -245,7 +252,7 @@ export async function runPipeline(
     }
     // In write mode, commit the coalesced materialization before the first public
     // bundle. Dry-run materialization remains in the disposable simulator below.
-    if (!enabled) publishBundle(initial, options);
+    if (active && !enabled) await publishBundle(initial, options);
     const bases = gitAt(initial.path, ['for-each-ref', '--format=%(objectname)', 'refs/heads/'])
       .trim()
       .split('\n');
@@ -273,15 +280,13 @@ export async function runPipeline(
         throw new Error('Worker key fingerprint mismatch');
       options.publicKey = key.publicKey;
       const publisher = new Publisher(initial, options);
-      // GITHUB_TOKEN commits do not trigger another workflow: prepare, globals, bundle,
-      // and publication all happen in this serialized run, after reading latest heads.
-      if (
-        globalsFence(publisher, initial.tree(publisher.head(options.dataBranch)))?.state !== 'hold'
-      ) {
+      // GITHUB_TOKEN commits do not trigger another workflow. Authored upkeep joins bundle
+      // preparation before publication in the same serialized run.
+      if (active) {
         await drainCurrentSaves(publisher);
         await new SchedulePreparer(publisher).drain();
-        await new GlobalsPublisher(publisher).drain();
-        if (enabled) publishBundle(initial, options);
+        if (enabled) await publishBundle(initial, options, true);
+        else await publisher.prepareBundle();
         await publisher.run(false);
       }
     } catch (e) {
@@ -293,14 +298,16 @@ export async function runPipeline(
   } finally {
     try {
       // Bounded catch-up bundle from real data, never simulated RECORDs.
-      const latest = snapshot('catch-up');
-      publishBundle(latest, options);
-      if (enabled && !failure) {
-        const identity = publicationIdentity(latest, config.liveBranch);
-        if (identity) {
-          publications.push(identity);
-          if (config.liveBranch === 'converter' && needsOutputs(latest, identity))
-            handoff = identity;
+      if (active) {
+        const latest = snapshot('catch-up');
+        await publishBundle(latest, options);
+        if (enabled && !failure) {
+          const identity = publicationIdentity(latest, config.liveBranch);
+          if (identity) {
+            publications.push(identity);
+            if (config.liveBranch === 'converter' && needsOutputs(latest, identity))
+              handoff = identity;
+          }
         }
       }
     } catch (e) {

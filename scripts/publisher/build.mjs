@@ -57,13 +57,13 @@ for (const marker of [
 for (const marker of [
   'globals/layout.json',
   'globals/live/',
-  'planGlobalRelease(',
+  'maintainAuthored(',
   'casMany(',
-  'Sync pending: global dependency review required',
+  'Publication requires an active config/globals-in-place.json migration.',
   'globalsConfigWithoutMarksV1',
 ])
   if (!runtime.includes(marker))
-    throw new Error(`Publisher runtime lacks globals release (${marker}); refusing its PIN`);
+    throw new Error(`Publisher runtime lacks authored globals (${marker}); refusing its PIN`);
 for (const marker of [
   'var SchedulePreparer = class',
   'matchesPreparationFence(',
@@ -71,7 +71,7 @@ for (const marker of [
   'verifyPreparedPublication(',
   'Cannot restore superseded publication',
   'Schedule preparation CAS exhausted',
-  'Scheduled global source is not in data branch history',
+  'Schedule source is not in data branch history',
   'Draft batch staging changed during preparation',
   'Signed staged-save manifest mismatch',
 ])
@@ -82,7 +82,11 @@ if (!runtime.includes('withUnpublishedRemovals('))
 for (const marker of ['drainCurrentSaves(', 'Invalid staged Current save signature'])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks staged Current saves (${marker}); refusing its PIN`);
-for (const marker of ['config/globals-in-place.json', 'proveInPlaceInputs(', 'dryRunGlobalsMigration('])
+for (const marker of [
+  'config/globals-in-place.json',
+  'proveInPlaceInputs(',
+  'dryRunGlobalsMigration(',
+])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks in-place globals (${marker}); refusing its PIN`);
 for (const marker of [

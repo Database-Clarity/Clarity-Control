@@ -63,7 +63,7 @@ async function main() {
       maxBuffer,
     });
     const git = new LocalRepository(repo);
-    const options = JSON.parse(readFileSync(config, 'utf8')) as Omit<Options, 'now' | 'backoff'>;
+    const options = JSON.parse(readFileSync(config, 'utf8')) as Omit<Options, 'now'>;
     const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
     const publisher = new Publisher(git, {
       ...options,

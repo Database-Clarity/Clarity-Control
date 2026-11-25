@@ -1,3 +1,4 @@
+import { activateGlobalsFixture } from './testGlobals.js';
 import { Fixture, makePrivateKey } from '../../apps/worker/test/fixture.js';
 import { seedPushGroups, pushTime } from '../../apps/worker/test/push-fixture.js';
 import { execFileSync } from 'node:child_process';
@@ -252,26 +253,6 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(tree['live/tooltips/123.json']).toBeUndefined();
   });
 
-  it('publishes an intentionally emptied reserved global library', async () => {
-    const f = await setup();
-    const global: Tooltip = {
-      hash: 2,
-      text: {},
-      associated: [],
-      custom: { name: 'Variables', categoryId: 'global' },
-    };
-    f.change(D, { 'tooltips/2.json': global });
-    await f.request(A, [2], { 2: await publishableHash(global) });
-    await f.pub.run();
-    const live = f.git.tree(f.git.head(L)!);
-    expect(f.pub.read(live, 'liveDescriptions.json')).toMatchObject({
-      perks: { 2: { editor: {} } },
-    });
-    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
-      result: { status: 'done' },
-    });
-  });
-
   it.each([125, 456])(
     'rejects association-race after target %s becomes text-less',
     async (target) => {
@@ -401,28 +382,16 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     ).not.toHaveProperty('1209885908');
   });
 
-  it('credits Publish, recovered Record, and bundle commits from the signed requester and app', async () => {
+  it('credits Publish, Record, and bundle commits from the signed requester and app', async () => {
     const f = await setup();
     await f.request();
-    const record = f.pub.record.bind(f.pub);
-    f.pub.record = async () => {
-      throw new Error('crash before record');
-    };
-    await expect(f.pub.operation(A)).rejects.toThrow('crash before record');
+    await f.pub.operation(A);
     const live = f.git.head(L)!;
     const identity = (commit: string) =>
       f.git.git(['show', '-s', '--format=%an <%ae>|%cn <%ce>', commit]).trim();
     const expected =
       'alice <1+alice@users.noreply.github.com>|clarity-editor-backend[bot] <clarity-editor-backend[bot]@users.noreply.github.com>';
     expect(identity(live)).toBe(expected);
-    f.pub.record = record;
-    const fingerprint = f.options.keyFingerprint,
-      data = f.git.head(D);
-    f.options.keyFingerprint = 'unverified';
-    await expect(f.pub.operation(A)).rejects.toThrow('Invalid signature or key pin');
-    expect(f.git.head(D)).toBe(data);
-    f.options.keyFingerprint = fingerprint;
-    await f.pub.operation(A);
     expect(identity(f.git.head(D)!)).toBe(expected);
     // Closing a retried request is still attributable to its signed requester.
     await f.request();
@@ -489,17 +458,12 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   it('rejects an unsafe stored candidate before live CAS and continues the queue', async () => {
     const f = await setup();
     await f.request();
-    const cas = f.git.cas.bind(f.git);
-    f.git.cas = (ref, old, next) => {
-      if (ref === L) throw new Error('hold live');
-      cas(ref, old, next);
+    const atomic = f.git.casMany.bind(f.git);
+    f.git.casMany = () => {
+      throw new Error('stop before atomic publication');
     };
-    f.options.backoff = async () => {
-      throw new Error('stop before live');
-    };
-    await expect(f.pub.operation(A)).rejects.toThrow('stop before live');
-    f.git.cas = cas;
-    f.options.backoff = async () => {};
+    await expect(f.pub.operation(A)).rejects.toThrow('stop before atomic publication');
+    f.git.casMany = atomic;
     const live = f.git.head(L),
       candidate = f.git.head(paths(A).candidate)!;
     const tree = f.git.tree(candidate);
@@ -818,10 +782,10 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     });
     f.change(D, { 'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } } });
     await f.request(A, [123], { 123: await inactiveRemovalHash(123) });
-    const cas = f.git.cas.bind(f.git);
+    const atomic = f.git.casMany.bind(f.git);
     let race = true;
-    const spy = vi.spyOn(f.git, 'cas').mockImplementation((ref, old, next) => {
-      if (ref === L && race) {
+    const spy = vi.spyOn(f.git, 'casMany').mockImplementation((updates) => {
+      if (race) {
         race = false;
         const live = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
         f.options.facts[125] = { name: 'Concurrent importer', type: 'perk' };
@@ -837,7 +801,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
           },
         });
       }
-      cas(ref, old, next);
+      atomic(updates);
     });
     try {
       await f.pub.run();
@@ -853,7 +817,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(live.perks[125]).toBeDefined();
   });
 
-  it('inactive: a frozen candidate retains its move when the data file changes before landing', async () => {
+  it('inactive: a frozen candidate rechecks its move when the data file changes before landing', async () => {
     const f = await setup();
     const stamp = { by: 1, at: '2026-11-14T00:00:00Z' };
     f.change(D, { 'config/inactive.json': { 123: stamp } });
@@ -872,7 +836,9 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     } finally {
       spy.mockRestore();
     }
-    f.assertDone(A);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+      result: { status: 'stale' },
+    });
     expect(changed).toBe(true);
     expect(
       f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!.perks[123],
@@ -1039,7 +1005,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   );
 
   it.each(['beforeS', 'liveRace', 'recovery'] as const)(
-    'alias groups: freeze the correct config on %s change',
+    'alias groups: recheck the current config on %s change',
     async (phase) => {
       const f = await aliasSetup();
       await f.request(A, [124], { 124: await publishableHash(f.tooltip, f.aliases()) });
@@ -1050,9 +1016,9 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         return;
       }
       const cas = f.git.cas.bind(f.git);
+      const atomic = f.git.casMany.bind(f.git);
       let changed = false;
       f.git.cas = (ref, old, next) => {
-        if (ref === L && phase === 'recovery') throw new Error('disconnect');
         cas(ref, old, next);
         if (ref === paths(A).candidate && !changed) {
           changed = true;
@@ -1064,22 +1030,17 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         }
       };
       if (phase === 'recovery') {
-        f.options.backoff = async () => {
+        f.git.casMany = () => {
           throw new Error('runner crash');
         };
         await expect(f.pub.run()).rejects.toThrow('runner crash');
         f.git.cas = cas;
-        f.options.backoff = async () => {};
+        f.git.casMany = atomic;
       }
       await f.pub.run();
       f.git.cas = cas;
-      f.assertDone(A);
-      expect(f.live()[124]).toMatchObject({ aliasOf: 123 });
-      const landed = f.git.head(L)!;
-      const receipt = f.pub.receipt(landed, A)!;
-      expect(f.pub.read(f.git.tree(receipt.sourceCommit), 'config/alias-groups.json')).toEqual(
-        f.config,
-      );
+      expect(f.log(A).status).toBe('stale');
+      expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
       expect(f.pub.read(f.git.tree(f.git.head(D)!), 'config/alias-groups.json')).toEqual({
         version: 1,
         groups: {},
@@ -1122,12 +1083,12 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         .update(keys.publicKey.export({ type: 'spki', format: 'der' }))
         .digest('hex'),
       publisherSha: 'a'.repeat(40),
+      publisherDigest: 'c'.repeat(64),
       generatorSha: 'b'.repeat(40),
       aliases: {},
       facts: { 123: { name: 'Thing', type: 'perk' } },
       now: () => pushTime,
       runUrl: 'local://fixture',
-      backoff: async () => {},
     };
     const pub = new Publisher(git, options);
     const tooltip: Tooltip = {
@@ -1164,6 +1125,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         'Seed live',
       ),
     );
+    activateGlobalsFixture(pub);
     function change(ref: string, files: Record<string, unknown>) {
       const h = git.head(ref)!,
         tree = git.tree(h);
@@ -1244,7 +1206,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.pub.run();
     f.assertDone();
   });
-  it.each(['test', 'production', 'rejected', 'partial', 'stale', 'record-retry', 'concurrent'])(
+  it.each(['test', 'production', 'rejected', 'atomic-failure', 'stale', 'concurrent'])(
     'cutover handoff: %s',
     async (scenario) => {
       const liveBranch = scenario === 'test' ? 'converter-v2-test' : 'converter';
@@ -1292,6 +1254,13 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
           {
             ...f.git.tree(data),
             '.publisher/config.json': f.git.writeBlob(encode(config)),
+            '.publisher/PIN': f.git.writeBlob(
+              encode({
+                sourceSha: config.publisherSha,
+                sha256: digest,
+                capabilities: ['globalsRelease', 'globalsInPlaceV1'],
+              }),
+            ),
             '.publisher/publisher.mjs': f.git.writeBlob(runtime),
             '.publisher/verify-publication.mjs': f.git.writeBlob(verifier),
           },
@@ -1327,11 +1296,8 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       const transport = vi
         .spyOn(RemoteRepository.prototype, 'remoteGit')
         .mockImplementation(function (this: RemoteRepository, args) {
-          const publish = args[0] === 'push' && args.at(-1)?.endsWith(`:${liveRef}`);
-          const record = args[0] === 'push' && args.at(-1)?.endsWith(`:${D}`);
-          if (inject && scenario === 'partial' && publish) throw new Error('Rejected push');
-          if (inject && scenario === 'record-retry' && record)
-            throw new Error('RECORD unavailable');
+          const publish = args[0] === 'push' && args.includes('--atomic');
+          if (inject && scenario === 'atomic-failure' && publish) throw new Error('Rejected push');
           if (inject && scenario === 'concurrent' && publish) {
             inject = false;
             f.change(liveRef, { 'concurrent.json': { retained: true } });
@@ -1344,7 +1310,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
                 : arg,
             ),
           );
-          if (inject && scenario === 'stale' && record) {
+          if (inject && scenario === 'stale' && publish) {
             inject = false;
             f.change(liveRef, { 'later.json': { retained: true } });
           }
@@ -1353,14 +1319,12 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       publisherConfig.enabled = true;
       try {
         const task = runPipeline(checkout, config, out, true);
-        if (['partial', 'record-retry'].includes(scenario)) {
+        if (scenario === 'atomic-failure') {
           await expect(task).rejects.toThrow();
           expect(existsSync(output)).toBe(false);
-          if (scenario !== 'record-retry') return;
-          const landed = f.git.head(liveRef);
+          expect(f.pub.receipt(f.git.head(liveRef)!, A)).toBeUndefined();
           inject = false;
           await runPipeline(checkout, config, out, true);
-          expect(f.git.head(liveRef)).toBe(landed);
         } else await task;
         const lines = readFileSync(output, 'utf8');
         const production = liveBranch === 'converter' && !['rejected', 'stale'].includes(scenario);
@@ -1554,14 +1518,13 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   it('malformed request JSON cannot block receipt recovery or later valid requests', async () => {
     const f = await setup();
     await f.request();
-    const cas = f.git.cas.bind(f.git);
-    f.git.cas = (ref, old, next) => {
-      if (ref === D) throw new Error('RECORD unavailable');
-      cas(ref, old, next);
+    const atomic = f.git.casMany.bind(f.git);
+    f.git.casMany = () => {
+      throw new Error('RECORD unavailable');
     };
     await expect(f.pub.run()).rejects.toThrow('RECORD unavailable');
     const landed = f.git.head(L);
-    f.git.cas = cas;
+    f.git.casMany = atomic;
     await f.request(B);
     const h = f.git.head(D)!,
       tree = f.git.tree(h);
@@ -1584,49 +1547,23 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     });
     expect(f.pub.receipt(f.git.head(L)!, B)).toBeUndefined();
   });
-  it('records a successful sixth push immediately, with only five backoffs', async () => {
-    const f = await setup();
-    await f.request();
-    const cas = f.git.cas.bind(f.git);
-    let pushes = 0,
-      backoffs = 0;
-    f.options.backoff = async () => {
-      backoffs++;
-    };
-    f.git.cas = (ref, old, next) => {
-      if (ref === L && ++pushes < 6) throw new Error('disconnect');
-      cas(ref, old, next);
-    };
-    await f.pub.run();
-    f.assertDone();
-    expect(pushes).toBe(6);
-    expect(backoffs).toBe(5);
-    expect(f.git.head(paths(A).candidate)).toBeUndefined();
-  });
   it.each([false, true])(
     'RECORD closes a changed request blob as duplicate/conflict (conflict=%s)',
     async (conflict) => {
       const f = await setup();
       const { envelope, payload } = await f.request();
-      const cas = f.git.cas.bind(f.git);
-      let swapped = false;
-      f.git.cas = (ref, old, next) => {
-        cas(ref, old, next);
-        if (ref === L && !swapped) {
-          swapped = true;
-          f.change(D, {
-            [paths(A).request]: {
-              ...envelope,
-              payload: stableStringify({
-                ...payload,
-                createdAt: '2027-01-01T00:00:00.000Z',
-                intentDigest: conflict ? 'f'.repeat(64) : payload.intentDigest,
-              }),
-            },
-          });
-        }
-      };
-      await f.pub.run();
+      await f.pub.operation(A);
+      f.change(D, {
+        [paths(A).request]: {
+          ...envelope,
+          payload: stableStringify({
+            ...payload,
+            createdAt: '2027-01-01T00:00:00.000Z',
+            intentDigest: conflict ? 'f'.repeat(64) : payload.intentDigest,
+          }),
+        },
+      });
+      await f.pub.operation(A);
       f.assertDone();
       expect(
         f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log.replace('.json', '.dup-1.json')),
@@ -1760,20 +1697,19 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       }
     },
   );
-  it('exhausted unresolved publication blocks later work and resumes the exact candidate', async () => {
+  it('unresolved atomic publication blocks later work and resumes the exact candidate', async () => {
     const f = await setup();
     await f.request();
     await f.request(B);
-    const cas = f.git.cas.bind(f.git);
-    f.git.cas = (ref, old, next) => {
-      if (ref === L) throw new Error('disconnect');
-      cas(ref, old, next);
+    const atomic = f.git.casMany.bind(f.git);
+    f.git.casMany = () => {
+      throw new Error('disconnect');
     };
-    await expect(f.pub.run()).rejects.toThrow('Publish unresolved');
+    await expect(f.pub.run()).rejects.toThrow('disconnect');
     const c = f.git.head(paths(A).candidate);
     expect(c).toBeTruthy();
     expect(f.git.head(paths(B).candidate)).toBeUndefined();
-    f.git.cas = cas;
+    f.git.casMany = atomic;
     await f.pub.run();
     f.assertDone();
     f.assertDone(B);
@@ -1782,61 +1718,29 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         .candidateCommit,
     ).toBe(c);
   });
-  it.each(['landed', 'not-landed', 'delayed-success'])(
-    'reconciles ambiguous push: %s',
-    async (mode) => {
-      const f = await setup();
-      await f.request();
-      const cas = f.git.cas.bind(f.git);
-      let pending: (() => void) | undefined,
-        intercepted = false;
-      f.git.cas = (ref, old, next) => {
-        if (ref === L && !intercepted) {
-          intercepted = true;
-          if (mode === 'landed') cas(ref, old, next);
-          if (mode === 'delayed-success') pending = () => cas(ref, old, next);
-          throw new Error('Transport timeout');
-        }
-        if (ref === L && pending) {
-          pending();
-          pending = undefined;
-        }
-        cas(ref, old, next);
-      };
-      await f.pub.run();
-      expect(intercepted).toBe(true);
-      f.assertDone();
-    },
-  );
   it.each([true, false])(
-    'runner crash with ambiguous push (landed=%s), unconditional recovery after revocation',
+    'reconciles a lost atomic acknowledgement and rechecks authority when unlanded (%s)',
     async (landed) => {
       const f = await setup();
       await f.request();
-      const cas = f.git.cas.bind(f.git);
-      f.git.cas = (ref, old, next) => {
-        if (ref === L) {
-          if (landed) cas(ref, old, next);
-          throw new Error('disconnect');
-        }
-        cas(ref, old, next);
+      const atomic = f.git.casMany.bind(f.git);
+      f.git.casMany = (updates) => {
+        if (landed) atomic(updates);
+        throw new Error('disconnect');
       };
-      f.options.backoff = async () => {
-        throw new Error('runner crash');
-      };
-      await expect(f.pub.run()).rejects.toThrow('runner crash');
+      await expect(f.pub.run()).rejects.toThrow('disconnect');
       const candidate = f.git.head(paths(A).candidate)!;
       expect(candidate).toBeTruthy();
-      f.git.cas = cas;
-      f.options.backoff = undefined;
+      f.git.casMany = atomic;
       f.change(D, { 'config/permissions.json': { users: {} } });
-      f.options.now = () => pushTime + 999999999;
       await f.pub.run();
-      f.assertDone();
-      expect(
-        f.pub.read<{ candidateCommit: string }>(f.git.tree(f.git.head(D)!), paths(A).log)!
-          .candidateCommit,
-      ).toBe(candidate);
+      if (landed) f.assertDone();
+      else {
+        expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
+        expect(f.pub.read(f.git.tree(f.git.head(D)!), paths(A).log)).toMatchObject({
+          result: { status: 'rejected' },
+        });
+      }
     },
   );
   it.each(['ambiguous', 'exists'])('uses persisted candidate: %s', async (mode) => {
@@ -1844,25 +1748,23 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.request();
     const cas = f.git.cas.bind(f.git);
     let stored = '';
-    let deadRun = mode === 'exists';
+    const atomic = f.git.casMany.bind(f.git);
     f.git.cas = (ref, old, next) => {
       if (ref === paths(A).candidate && !stored) {
         stored = next!;
         cas(ref, old, next);
         throw new Error(mode);
       }
-      if (ref === L && deadRun) throw new Error('disconnect before LIVE update');
       cas(ref, old, next);
     };
     if (mode === 'exists') {
-      f.options.backoff = async () => {
+      f.git.casMany = () => {
         throw new Error('crash');
       };
       await expect(f.pub.run()).rejects.toThrow();
       expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
       expect(f.git.head(paths(A).candidate)).toBe(stored);
-      deadRun = false;
-      f.options.backoff = undefined;
+      f.git.casMany = atomic;
     }
     await f.pub.run();
     f.assertDone();
@@ -1882,15 +1784,14 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   it('rebases only after LIVE advances and rejects a late original push', async () => {
     const f = await setup();
     await f.request();
-    const cas = f.git.cas.bind(f.git);
+    const atomic = f.git.casMany.bind(f.git);
     let delayed: (() => void) | undefined;
-    f.git.cas = (ref, old, next) => {
-      if (ref === L && !delayed) {
-        delayed = () => cas(ref, old, next);
+    f.git.casMany = (updates) => {
+      if (!delayed) {
+        delayed = () => atomic(updates);
         f.change(L, { 'other.json': { other: true } });
-        throw new Error('timeout');
       }
-      cas(ref, old, next);
+      atomic(updates);
     };
     await f.pub.run();
     f.assertDone();
@@ -1901,35 +1802,34 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     const f = await setup();
     await f.request();
     const source = f.git.head(D)!;
-    const cas = f.git.cas.bind(f.git);
+    const atomic = f.git.casMany.bind(f.git);
     let raced = false;
-    f.git.cas = (ref, old, next) => {
-      if (ref === D && !raced) {
+    f.git.casMany = (updates) => {
+      if (!raced) {
         raced = true;
         f.change(D, { 'tooltips/123.json': { ...f.tooltip, associated: [456] } });
       }
-      cas(ref, old, next);
+      atomic(updates);
     };
-    await f.pub.run();
+    await f.pub.run(false);
     f.assertDone();
     const tree = f.git.tree(f.git.head(D)!);
     expect(tree['live/tooltips/123.json']).toBe(f.git.tree(source)['tooltips/123.json']);
     expect(tree['tooltips/123.json']).not.toBe(tree['live/tooltips/123.json']);
   });
-  it('failed first RECORD prevents the second live write, then recovers both in committed order', async () => {
+  it('failed first atomic transaction prevents all LIVE writes, then recovers both in committed order', async () => {
     const f = await setup();
     await f.request(B);
     await f.request(A);
     expect(f.pub.queue(f.git.head(D)!)).toEqual([B, A]);
-    const cas = f.git.cas.bind(f.git);
-    f.git.cas = (ref, old, next) => {
-      if (ref === D) throw new Error('record unavailable');
-      cas(ref, old, next);
+    const atomic = f.git.casMany.bind(f.git);
+    f.git.casMany = () => {
+      throw new Error('record unavailable');
     };
     await expect(f.pub.run()).rejects.toThrow('record unavailable');
-    expect(f.pub.receipt(f.git.head(L)!, B)).toBeTruthy();
+    expect(f.pub.receipt(f.git.head(L)!, B)).toBeUndefined();
     expect(f.pub.receipt(f.git.head(L)!, A)).toBeUndefined();
-    f.git.cas = cas;
+    f.git.casMany = atomic;
     await f.pub.run();
     f.assertDone(A);
     f.assertDone(B);
@@ -2197,7 +2097,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         'bundle.json',
       )!;
     f.pub.bundle();
-    expect(bundle()).not.toHaveProperty('globals');
+    expect(bundle().globals).toBeNull();
     const record = (id: string, name: string) => ({
       version: 1,
       id,

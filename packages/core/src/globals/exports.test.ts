@@ -7,7 +7,7 @@ import { globalRecordSchema, validGlobalName } from './model.js';
 import { inventoryGlobals, projectGlobals } from './projection.js';
 import { rewriteGlobalReferences } from './references.js';
 import { assertGlobalTransition } from './transition.js';
-import { composeGlobalRelease, planGlobalRelease } from '../globalsRelease/index.js';
+import { composeGlobalRelease } from '../globalsRelease/index.js';
 
 const tooltip = (hash: number, text: string): Tooltip => ({
   hash,
@@ -132,7 +132,7 @@ it('uses real resolver imports for direct, nested, title, alias, and deleted exp
   expect(result.rows.every((row) => row.reason === 'aggregate-import')).toBe(true);
 });
 
-it('composes approved exports over published entries without leaking another saved body', async () => {
+it('composes approved exports over published entries without leaking another saved body', () => {
   const docs = [
     tooltip(1, 'export Barrier (\nOld barrier\n)\nexport Overload (\nOld overload\n)'),
     tooltip(2, ''),
@@ -151,20 +151,4 @@ it('composes approved exports over published entries without leaking another sav
   expect(projectGlobals(composed)[1].text.en!.text).toBe(
     'export Barrier (\nNew barrier\n)\nexport Overload (\nOld overload\n)',
   );
-  const authored = snapshot(
-    Object.values({ ...snapshot(docs).tooltips, ...projectGlobals(saved) }),
-    'authored',
-  );
-  const plans = await planGlobalRelease({
-    saved,
-    published,
-    authored,
-    live: snapshot(docs),
-    causes: [],
-    destination: 'live',
-  });
-  expect(plans).toHaveLength(1);
-  expect(plans[0].hashes).toEqual([1, 2, 3, 40]);
-  expect(plans[0].rows[0].view.after?.rendered).toContain('New barrier');
-  expect(plans[0].ids).toHaveLength(2);
 });

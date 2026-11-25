@@ -1,13 +1,12 @@
 import { expect, it } from 'vitest';
 import fixture from './contract.fixture.json';
-import { globalStoreSchema, globalReviewSchema, validGlobalName } from './model.js';
+import { globalStoreSchema, validGlobalName } from './model.js';
 import { globalImpactSchema } from './impactModel.js';
 import { inventoryGlobals } from './projection.js';
 import { assertGlobalTransition } from './transition.js';
 
-it('freezes strict portable storage, review, and impact fixtures', () => {
+it('freezes strict portable storage and impact fixtures', () => {
   expect(globalStoreSchema.parse(fixture.store)).toEqual(fixture.store);
-  expect(globalReviewSchema.parse(fixture.review)).toEqual(fixture.review);
   expect(globalImpactSchema.parse(fixture.impact)).toEqual(fixture.impact);
   expect(globalStoreSchema.safeParse({ ...fixture.store, surprise: true }).success).toBe(false);
 });

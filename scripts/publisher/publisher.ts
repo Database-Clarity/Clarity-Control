@@ -70,7 +70,6 @@ import { nameProofRequestSchema } from '../../apps/worker/src/globals/model.js';
 import { snippetsPath } from '../../packages/core/src/customSnippets.js';
 import { langSchema } from '../../packages/core/src/languages.js';
 import { marksPath } from '../../packages/core/src/marks.js';
-import { publicationSourcesPath } from '../../packages/core/src/globalsRelease/admission.js';
 import {
   appCredits,
   requesterCredits,
@@ -89,13 +88,10 @@ import {
   unpublishedMessage,
   withEvent,
 } from './batch.js';
-import { setTimeout } from 'node:timers/promises';
 import {
   bundleGlobals,
   GlobalsPublisher,
-  GlobalReleaseRejected,
   hasGlobals,
-  type GlobalRelease,
   type GlobalReleaseReceipt,
 } from './globals.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
@@ -124,9 +120,6 @@ import {
   verifyPreparedPublication,
   type PreparedPublication,
 } from '../schedule-prepare/intents.js';
-
-// Five unresolved retries total ~2.5 min. Simulator fixtures inject a no-wait backoff.
-export const publishBackoff = () => setTimeout(30_000);
 
 const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
 
@@ -182,8 +175,6 @@ type Failure = {
   /** Known authored-content refusal; never inferred from a generic repository error. */
   proposalRejected?: true;
   retryable?: true;
-  /** Route an unclaimed globals refusal through the existing needs-attention preparation. */
-  globals?: true;
 };
 /** A pending request as the queue orders it, read WITHOUT verification (ordering only). */
 type QueueEntry =
@@ -221,7 +212,6 @@ export interface Options {
   aliasFacts?: { generatorSha: string; items: AliasItems };
   now: () => number;
   runUrl: string;
-  backoff?: (attempt: number) => Promise<void>;
 }
 export class ConsumerOutputRejected extends Error {
   constructor(message: string) {
@@ -261,12 +251,10 @@ class NamedPartRefusal extends ConsumerOutputRejected {
     super(message);
   }
 }
-const derivedGlobalPath = (path: string) => /^globals\/(?:proofs|review-pages)\//.test(path);
 type EmptyOutputs = Map<LegacyPreset, Set<string>>;
 export class Publisher {
   private checkedOutput?: { key: string; after: EmptyOutputs };
   private candidateOutput?: { commit: string; pin: string; after: EmptyOutputs };
-  private reviewedRelease?: { key: string; release: GlobalRelease };
   constructor(
     readonly git: Repository,
     readonly options: Options,
@@ -553,7 +541,7 @@ export class Publisher {
     if (!['maintainer', 'editor'].includes(permissions.users[String(p.requester.id)]?.role))
       throw new Error('Requester revoked');
     requesterCredits(p.requester);
-    requireGlobalsMode(this, tree, p.kind === 'push' && !!p.globals);
+    requireGlobalsMode(this, tree);
     return p;
   }
   /** Recovery credits come from the signed envelope, never from an unverified log or receipt. */
@@ -791,12 +779,12 @@ export class Publisher {
         return true;
       if (
         /^tooltips\/(?:0|[1-9]\d*)\.json$/.test(path) ||
-        /^globals\/(?:layout\.json$|sync\.json$|catalog\.json$|(?:entries|causes|intents|names|reviews|projections|pages)\/)/.test(
+        /^globals\/(?:layout\.json$|sync\.json$|catalog\.json$|(?:entries|causes|intents|names|projections|pages)\/)/.test(
           path,
         ) ||
         (reviewed[globalsInPlacePath] &&
           path === globalsReleasePaths.published(this.options.liveBranch)) ||
-        derivedGlobalPath(path) ||
+        /^globals\/proofs\/(?:clashes|removal)\//.test(path) ||
         path.startsWith('schedule/') ||
         [snippetsPath, inactiveMovesPath, aliasGroupsPath, sandboxPointersPath].includes(path)
       ) {
@@ -854,10 +842,6 @@ export class Publisher {
     }
     return rebuild ? 'rebuild' : 'bookkeeping';
   }
-  private releaseKey(requestBlob: string, data: string, live: string) {
-    const { publisherSha, publisherDigest, generatorSha } = this.options;
-    return JSON.stringify([requestBlob, data, live, publisherSha, publisherDigest, generatorSha]);
-  }
   private assertRequestedDigests(
     entries: Entry[],
     hashes: number[],
@@ -875,8 +859,16 @@ export class Publisher {
         );
     }
   }
-  private async verifyReceiptDigests(receipt: Receipt, atomic = false) {
+  private async verifyReceiptDigests(receipt: Receipt) {
+    if (!receipt.inPlace || receipt.globals)
+      throw new ConsumerOutputRejected(
+        'Use the pre-migration publisher to recover a legacy receipt.',
+      );
     const frozen = this.git.tree(receipt.sourceCommit);
+    if (
+      this.read<{ sourceSha: string }>(frozen, '.publisher/PIN')?.sourceSha !== receipt.publisherSha
+    )
+      throw new ConsumerOutputRejected('Receipt does not match its frozen publisher PIN');
     const signed = await this.verifyRequest(receipt.requestBlob, receipt.opId, frozen);
     const options =
       receipt.generatorSha === this.options.generatorSha
@@ -890,29 +882,22 @@ export class Publisher {
     const moves = this.movesAt(frozen);
     const pushed = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
     if (
-      Boolean(frozen[globalsInPlacePath]) !== Boolean(receipt.inPlace) ||
-      (receipt.inPlace && receipt.globals)
-    )
-      throw new ConsumerOutputRejected('Receipt does not match the reviewed shared text.');
-    if (
       signed.intentDigest !== receipt.intentDigest ||
       stableStringify(signed.requester) !== stableStringify(receipt.requester)
     )
       throw new ConsumerOutputRejected('Receipt does not match the signed publication intent');
     if (
-      !receipt.globals &&
       receipt.entries.length !==
-        new Set(signed.hashes.map((hash) => resolveAlias(hash, aliases))).size
+      new Set(signed.hashes.map((hash) => resolveAlias(hash, aliases))).size
     )
       throw new ConsumerOutputRejected('Receipt does not match the requested rows');
     if (signed.kind === 'push') {
-      if (!atomic || receipt.inPlace)
-        this.assertRequestedDigests(
-          receipt.entries,
-          signed.hashes,
-          (hash) => signed.expected[hash],
-          aliases,
-        );
+      this.assertRequestedDigests(
+        receipt.entries,
+        signed.hashes,
+        (hash) => signed.expected[hash],
+        aliases,
+      );
     } else {
       const members = batchMembers(this, frozen, signed.batchId);
       if (
@@ -952,8 +937,6 @@ export class Publisher {
         aliases,
       );
     }
-    // Atomic RECORD checks these bytes against the approved composition at the current head.
-    if (atomic && !receipt.inPlace) return;
     // Recovery verifies the frozen bytes independently of the receipt's claimed markers.
     try {
       const documents: Tooltip[] = [];
@@ -964,7 +947,7 @@ export class Publisher {
           (await inactivePublishableHash(document, aliases, moves)) !== entry.digest
         )
           throw new Error(`Tooltip ${entry.hash} does not match its receipt marker`);
-        if (signed.kind === 'push' && !receipt.globals) {
+        if (signed.kind === 'push') {
           const source =
             this.read<unknown>(frozen, `tooltips/${entry.hash}.json`) ??
             (isMovedInactive(entry.hash, moves)
@@ -975,30 +958,57 @@ export class Publisher {
         }
         documents.push(document);
       }
-      const inPlace = this.inPlaceOptions(frozen, signed, receipt.liveParent);
-      const neutral = inPlace && neutralRenameHashes(this, frozen, receipt.entries, inPlace.rewritten);
-      const publishable = neutral?.size ? documents.filter(({ hash }) => !neutral.has(hash)) : documents;
-      const selected = selectedInactiveMoves(moves, publishable.map(({ hash }) => hash), aliases);
-      const active = inPlace
-        ? publishable.filter(({ hash }) => !isMovedInactive(hash, selected))
-        : publishable;
-      const globalsInPlace = inPlace && authoredInPlaceOptions(
-        this, frozen, inPlace.live, inPlace, active, activeAliases(aliases, selected),
+      const verifier =
+        options === this.options
+          ? this
+          : new Publisher(this.git, {
+              ...this.options,
+              generatorSha: options.generatorSha,
+              aliases: options.aliases,
+              facts: options.facts,
+              aliasFacts: options.aliasFacts,
+              sandboxConflicts: options.sandboxConflicts,
+            });
+      const inPlace = verifier.inPlaceOptions(frozen, signed, receipt.liveParent, false);
+      const neutral = neutralRenameHashes(this, frozen, receipt.entries, inPlace.rewritten);
+      const publishable = neutral?.size
+        ? documents.filter(({ hash }) => !neutral.has(hash))
+        : documents;
+      const selected = selectedInactiveMoves(
+        moves,
+        publishable.map(({ hash }) => hash),
+        aliases,
       );
-      if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
-      if (inPlace && signed.kind === 'batch') assertScheduledGlobalNames(active, inPlace);
+      const active = publishable.filter(({ hash }) => !isMovedInactive(hash, selected));
+      const globalsInPlace = authoredInPlaceOptions(
+        verifier,
+        frozen,
+        inPlace.live,
+        inPlace,
+        active,
+        activeAliases(aliases, selected),
+      );
+      assertInPlaceDocuments(active, globalsInPlace);
+      if (signed.kind === 'batch') assertScheduledGlobalNames(active, inPlace);
       const exported = exportWithInactiveMoves(
         publishable,
         receipt.now,
         options.facts,
         aliases,
         selected,
-        globalsInPlace && { globalsInPlace },
+        { globalsInPlace },
       );
-      if (inPlace && globalsInPlace && publishable.length) {
-        refillImportedTooltips(this, frozen, inPlace, active, activeAliases(aliases, selected), exported);
+      if (publishable.length) {
+        refillImportedTooltips(
+          verifier,
+          frozen,
+          inPlace,
+          active,
+          activeAliases(aliases, selected),
+          exported,
+        );
         provePublication(
-          this,
+          verifier,
           frozen,
           inPlace.live,
           publishable,
@@ -1012,8 +1022,7 @@ export class Publisher {
       const output = this.publicationOutput(inPlace, exported);
       if (
         stableStringify(output.exported) !== stableStringify(receipt.exported) ||
-        stableStringify(output.inPlace ?? null) !==
-          stableStringify(receipt.inPlace ?? null) ||
+        stableStringify(output.inPlace) !== stableStringify(receipt.inPlace) ||
         stableStringify(
           receipt.entries
             .filter(({ hash, digest }) => !neutral?.has(hash) && pushed[hash] !== digest)
@@ -1037,16 +1046,16 @@ export class Publisher {
     failureHead?: string,
   ) {
     const p = paths(opId);
-    const inPlace = receipt && (await this.verifyReceiptDigests(receipt, atomicLive !== undefined));
+    let inPlace: Awaited<ReturnType<Publisher['verifyReceiptDigests']>> | undefined;
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch),
         tree = this.git.tree(h);
+      requireGlobalsMode(this, tree);
       if (tree[p.log]) return;
+      if (receipt) inPlace ??= await this.verifyReceiptDigests(receipt);
       if (
         receipt &&
-        (Boolean(tree[globalsInPlacePath]) !== Boolean(receipt.inPlace) ||
-          (receipt.inPlace &&
-            tree[globalsInPlacePath] !== this.git.tree(receipt.sourceCommit)[globalsInPlacePath]))
+        tree[globalsInPlacePath] !== this.git.tree(receipt.sourceCommit)[globalsInPlacePath]
       )
         throw new ConsumerOutputRejected('Publication is fenced by a different shared text mode.');
       if (failureHead && failureHead !== h) throw new RefRace('Batch refusal source moved');
@@ -1085,14 +1094,11 @@ export class Publisher {
             );
           throw error;
         });
-        if (receipt.inPlace && tree[p.request] !== receipt.requestBlob)
+        if (tree[p.request] !== receipt.requestBlob)
           throw new ConsumerOutputRejected(
             'Publication changed before landing; review the tooltip again.',
           );
-        const liveMoved =
-          signed.kind === 'batch' &&
-          i > 0 &&
-          this.head(this.options.liveBranch) !== atomicLive.parent;
+        const liveMoved = i > 0 && this.head(this.options.liveBranch) !== atomicLive.parent;
         if (source !== h || liveMoved) {
           const advance = this.sourceAdvance(source, h, tree, opId, signed.kind === 'batch');
           if (advance === 'blocked' && signed.kind === 'batch')
@@ -1108,100 +1114,6 @@ export class Publisher {
               signed.hashes,
               signed.kind === 'batch',
             );
-        }
-        if (!receipt.inPlace) {
-          let documents: Tooltip[] | undefined;
-          let entryOnlyAggregates: number[] = [];
-          if (signed.kind === 'batch') {
-            const plan = await this.batchPlan(
-              tree,
-              signed,
-              this.aliasesAt(tree),
-              source,
-              atomicLive.parent,
-            );
-            if (
-              'failure' in plan ||
-              stableStringify(plan.globals ?? null) !== stableStringify(receipt.globals ?? null)
-            )
-              throw new ConsumerOutputRejected('Scheduled global receipt identity mismatch');
-            documents = plan.entries.map((entry) =>
-              tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob))),
-            );
-          } else {
-            const reviewed = this.reviewedRelease;
-            const release = await new GlobalsPublisher(this).validate(
-              receipt.globals,
-              tree,
-              source,
-              atomicLive.parent,
-              source === h &&
-                reviewed?.key === this.releaseKey(receipt.requestBlob, h, atomicLive.parent)
-                ? reviewed.release
-                : undefined,
-            );
-            documents = release?.documents;
-            entryOnlyAggregates = release?.entryOnlyAggregates ?? [];
-          }
-          if (
-            !documents ||
-            ((signed.kind === 'push' || receipt.globals) &&
-              stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots)) ||
-            stableStringify(signed.requester) !== stableStringify(receipt.requester) ||
-            receipt.publisherSha !== this.options.publisherSha ||
-            receipt.generatorSha !== this.options.generatorSha
-          )
-            throw new ConsumerOutputRejected('Global receipt identity mismatch');
-          const aliases = this.aliasesAt(tree);
-          if (signed.kind === 'push')
-            this.assertRequestedDigests(
-              receipt.entries,
-              signed.hashes.filter(
-                (hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases)),
-              ),
-              (hash) => signed.expected[hash],
-              aliases,
-            );
-          const moves = selectedInactiveMoves(
-            this.movesAt(tree),
-            documents.map((document) => document.hash),
-            aliases,
-          );
-          const exported = exportWithInactiveMoves(
-            documents,
-            receipt.now,
-            this.options.facts,
-            aliases,
-            moves,
-          );
-          if (
-            stableStringify(exported) !== stableStringify(receipt.exported) ||
-            documents.length !== receipt.entries.length
-          )
-            throw new ConsumerOutputRejected(
-              receipt.globals
-                ? 'Global receipt export mismatch'
-                : 'Publication receipt export mismatch',
-            );
-          for (const document of documents) {
-            const entry = receipt.entries.find((entry) => entry.hash === document.hash);
-            if (
-              !entry ||
-              entry.digest !== (await inactivePublishableHash(document, aliases, moves)) ||
-              stableStringify(document) !==
-                stableStringify(JSON.parse(this.git.blob(entry.tooltipBlob)))
-            )
-              throw new ConsumerOutputRejected('Global receipt dependency mismatch');
-          }
-          const markers = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
-          if (
-            stableStringify(
-              receipt.entries
-                .filter((entry) => markers[entry.hash] !== entry.digest)
-                .map((entry) => entry.hash),
-            ) !== stableStringify(receipt.changed)
-          )
-            throw new ConsumerOutputRejected('Global receipt upload marker mismatch');
         }
       }
       const blob = receipt?.requestBlob ?? requestBlob ?? tree[p.request];
@@ -1227,7 +1139,8 @@ export class Publisher {
         : undefined;
       if (receipt) {
         const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
-        const neutral = inPlace && neutralRenameHashes(this, tree, receipt.entries, inPlace.rewritten);
+        const neutral =
+          inPlace && neutralRenameHashes(this, tree, receipt.entries, inPlace.rewritten);
         if (inPlace && receipt.inPlace?.globals.length) {
           rewritePushed(this, tree, pushed, inPlace.rewritten);
           for (const [hash, tooltip] of inPlace.rewritten)
@@ -1242,9 +1155,6 @@ export class Publisher {
           tree[`live/tooltips/${e.hash}.json`] = e.tooltipBlob;
         }
         tree['live/pushed.json'] = this.git.writeBlob(json(pushed));
-        if (receipt.globals) {
-          await new GlobalsPublisher(this).record(tree, receipt.globals, h, candidate!);
-        }
       }
       if (tree[p.request] && tree[p.request] !== blob) {
         let strayIntent: string | undefined;
@@ -1289,8 +1199,7 @@ export class Publisher {
         batchTimes.landedAt = landedAt;
         batchTimes.landedAtSource = 'cas';
       }
-      if (receipt && inPlace)
-        await new GlobalsPublisher(this).recordInPlaceProofs(tree, h, candidate!);
+      if (receipt && inPlace) await new GlobalsPublisher(this).recordProofs(tree, h, candidate!);
       // A commit cannot contain its own SHA. recordCommit is deliberately null; resolve it via log blob history.
       tree[p.log] = this.git.writeBlob(
         json({
@@ -1342,6 +1251,7 @@ export class Publisher {
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch),
         t = this.git.tree(h);
+      requireGlobalsMode(this, t);
       if (!t[p.request]) return;
       const original = this.read<{ intentDigest: string }>(t, p.log)!;
       let intent: string | undefined;
@@ -1387,6 +1297,7 @@ export class Publisher {
     for (let attempt = 0; ; attempt++) {
       let s = this.head(this.options.dataBranch);
       let tree = this.git.tree(s);
+      requireGlobalsMode(this, tree);
       try {
         if (rebuilding && !tree[p.log]) {
           if (rebuilding.batch && !tree[p.request]) return;
@@ -1396,24 +1307,7 @@ export class Publisher {
               this.sourceAdvance(rebuilding.head, s, tree, opId, rebuilding.batch) === 'blocked')
           )
             throw new RefRace('Manual publish source no longer matches the retry fence');
-          const checked = await new GlobalsPublisher(this).drain(s);
-          const materialized = this.git.tree(checked);
-          const previous = this.git.tree(rebuilding.source);
-          const paths = new Set([...Object.keys(previous), ...Object.keys(tree)]);
-          const sources = publicationSourcesPath(this.options.liveBranch);
-          if (
-            tree[sources] &&
-            tree[sources] === materialized[sources] &&
-            [...paths].some(
-              (path) =>
-                derivedGlobalPath(path) &&
-                previous[path] !== tree[path] &&
-                tree[path] !== materialized[path],
-            )
-          )
-            throw new NamedPartRefusal(
-              `Could not verify the global proofs for ${this.partNames(previous, rebuilding.hashes)}. Nothing in this part went live. Review before publishing again.`,
-            );
+          const checked = await new GlobalsPublisher(this).maintainAuthored(s);
           s = this.head(this.options.dataBranch);
           tree = this.git.tree(s);
           if (
@@ -1421,7 +1315,7 @@ export class Publisher {
             !tree[p.log] &&
             this.sourceAdvance(checked, s, tree, opId, rebuilding.batch) !== 'bookkeeping'
           )
-            throw new RefRace('Manual publish source moved after sync');
+            throw new RefRace('Manual publish source moved during authored globals upkeep');
         }
         return await this.publishOperation(opId, s, tree, runtime, rebuilding);
       } catch (error) {
@@ -1548,7 +1442,7 @@ export class Publisher {
           blob,
           r.sourceCommit,
           s,
-          r.globals?.roots ?? r.entries.map(({ hash }) => hash),
+          r.entries.map(({ hash }) => hash),
           true,
         );
     }
@@ -1663,49 +1557,17 @@ export class Publisher {
           await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
           return;
         }
-        let globals: GlobalReleaseReceipt | undefined;
-        let entryOnlyAggregates: number[] = [];
-        if (hasGlobals(tree) && !tree[globalsInPlacePath]) {
-          try {
-            const release = await new GlobalsPublisher(this).release(tree, s, payload.hashes, live);
-            if (!release) throw new Error('Missing global release');
-            this.reviewedRelease = {
-              key: this.releaseKey(blob, s, live),
-              release: structuredClone(release),
-            };
-            globals = release.receipt;
-            entryOnlyAggregates = release.entryOnlyAggregates;
-            tooltips.splice(0, tooltips.length, ...release.documents);
-            entries.splice(
-              0,
-              entries.length,
-              ...(await Promise.all(
-                release.documents.map(async (tooltip) => ({
-                  hash: tooltip.hash,
-                  digest: await inactivePublishableHash(tooltip, aliases, moves),
-                  tooltipBlob: this.git.writeBlob(json(tooltip)),
-                })),
-              )),
-            );
-          } catch (error) {
-            throw new ConsumerOutputRejected(
-              error instanceof GlobalReleaseRejected
-                ? error.message
-                : 'Sync pending: global dependency review required',
-            );
-          }
-        }
         this.assertRequestedDigests(
           entries,
-          payload.hashes.filter(
-            (hash) => !entryOnlyAggregates.includes(resolveAlias(hash, aliases)),
-          ),
+          payload.hashes,
           (hash) => payload.expected[hash],
           aliases,
         );
         const inPlace = this.inPlaceOptions(tree, payload, live);
-        const neutral = inPlace && neutralRenameHashes(this, tree, entries, inPlace.rewritten);
-        const publishable = neutral?.size ? tooltips.filter(({ hash }) => !neutral.has(hash)) : tooltips;
+        const neutral = neutralRenameHashes(this, tree, entries, inPlace.rewritten);
+        const publishable = neutral?.size
+          ? tooltips.filter(({ hash }) => !neutral.has(hash))
+          : tooltips;
         const checked = this.checkAndExport(tree, publishable, aliases, inPlace);
         if ('error' in checked) {
           await this.record(
@@ -1735,142 +1597,62 @@ export class Publisher {
             .map(({ hash }) => hash),
           requester: payload.requester,
           intentDigest: payload.intentDigest,
-          ...(globals ? { globals } : {}),
-          ...(checked.inPlace ? { inPlace: checked.inPlace } : {}),
+          inPlace: checked.inPlace,
         };
         candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
       }
     }
-    let rebases = 0;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      candidate = this.candidate(opId, blob);
-      if (!candidate) {
-        const landed = this.receipt(this.head(this.options.liveBranch), opId);
-        if (
-          landed?.opId === opId &&
-          landed.requestBlob === blob &&
-          this.git.tree(this.head(this.options.dataBranch))[p.log]
-        )
-          return;
-        throw new Error('Candidate disappeared');
-      }
-      const { c, r } = candidate,
-        l = this.head(this.options.liveBranch);
-      const found = this.receipt(l, opId);
-      if (found || this.git.ancestor(c, l)) {
-        await this.record(opId, found ?? r, c, undefined, undefined, {
-          at: this.options.now(),
-          source: 'observed',
-        });
-        try {
-          this.git.cas(p.candidate, c, undefined);
-        } catch {
-          /* best effort */
-        }
+    candidate = this.candidate(opId, blob);
+    if (!candidate) {
+      const landed = this.receipt(this.head(this.options.liveBranch), opId);
+      if (landed?.requestBlob === blob && this.git.tree(this.head(this.options.dataBranch))[p.log])
         return;
-      }
-      try {
-        const mode = requireGlobalsMode(this, this.git.tree(this.head(this.options.dataBranch)));
-        if (Boolean(mode) !== Boolean(r.inPlace)) throw new Error('Publication mode changed.');
-      } catch (error) {
-        throw new ConsumerOutputRejected(String(error));
-      }
-      if (l === r.liveParent) {
-        // A candidate may predate this safety gate; validate it again before any live CAS.
-        const checked = this.merge(l, r);
-        const candidateBytes = this.git.blob(this.git.tree(c)['liveDescriptions.json']);
-        if (candidateBytes !== checked.bytes)
-          throw new ConsumerOutputRejected(
-            'stored candidate differs from its checked receipt; nothing published',
-          );
-        if (
-          r.batchId ||
-          r.globals ||
-          r.inPlace ||
-          hasGlobals(this.git.tree(this.head(this.options.dataBranch)))
-        ) {
-          try {
-            await this.record(
-              opId,
-              r,
-              c,
-              undefined,
-              undefined,
-              { at: this.options.now(), source: 'cas' },
-              { parent: l, candidate: c, ...(r.batchId ? { runtime } : {}) },
-            );
-          } catch (error) {
-            if (
-              r.batchId ||
-              error instanceof RefRace ||
-              error instanceof SourceAdvanced ||
-              error instanceof ConsumerOutputRejected
-            )
-              throw error;
-            throw new ConsumerOutputRejected(
-              'Global publication changed or requires recovery; nothing partially published',
-            );
-          }
-          try {
-            this.git.cas(p.candidate, c, undefined);
-          } catch {
-            /* best effort */
-          }
-          return;
-        }
-        await this.verifyReceiptDigests(r);
-        let pushed = false;
-        try {
-          this.git.cas(dataRef(this.options.liveBranch), l, c);
-          pushed = true;
-        } catch {
-          /* unresolved: SAME candidate next attempt */
-        }
-        if (pushed) {
-          await this.record(opId, r, c, undefined, undefined, {
-            at: this.options.now(),
-            source: 'cas',
-          });
-          try {
-            this.git.cas(p.candidate, c, undefined);
-          } catch {
-            /* best effort */
-          }
-          return;
-        }
-      } else {
-        if (r.inPlace) {
-          const head = this.head(this.options.dataBranch);
-          throw new SourceAdvanced(
-            c,
-            blob,
-            r.sourceCommit,
-            head,
-            r.entries.map(({ hash }) => hash),
-            !!r.batchId,
-          );
-        }
-        if (r.batchId && r.globals) {
-          const head = this.head(this.options.dataBranch);
-          if (
-            this.sourceAdvance(r.sourceCommit, head, this.git.tree(head), opId, true) !== 'blocked'
-          )
-            throw new SourceAdvanced(c, blob, r.sourceCommit, head, r.globals.roots, true);
-        }
-        if (r.globals || hasGlobals(this.git.tree(this.head(this.options.dataBranch))))
-          throw new ConsumerOutputRejected('Global live inputs changed; review publication again');
-        if (++rebases > 3) throw new Error('Rebase limit');
-        const next = this.buildCandidate(l, r);
-        try {
-          this.git.cas(p.candidate, c, next);
-        } catch {
-          /* reread on next iteration */
-        }
-        continue;
-      }
-      if (attempt < 5) await (this.options.backoff ?? publishBackoff)(attempt);
+      throw new Error('Candidate disappeared');
     }
-    throw new Error('Publish unresolved; no later operation may run');
+    const { c, r } = candidate;
+    const l = this.head(this.options.liveBranch);
+    const found = this.receipt(l, opId);
+    if (found || this.git.ancestor(c, l)) {
+      await this.record(opId, found ?? r, c, undefined, undefined, {
+        at: this.options.now(),
+        source: 'observed',
+      });
+    } else {
+      requireGlobalsMode(this, this.git.tree(this.head(this.options.dataBranch)));
+      if (!r.inPlace || r.globals)
+        throw new ConsumerOutputRejected(
+          'Use the pre-migration publisher to recover a legacy candidate.',
+        );
+      if (l !== r.liveParent)
+        throw new SourceAdvanced(
+          c,
+          blob,
+          r.sourceCommit,
+          this.head(this.options.dataBranch),
+          r.entries.map(({ hash }) => hash),
+          !!r.batchId,
+        );
+      const checked = this.merge(l, r);
+      const candidateBytes = this.git.blob(this.git.tree(c)['liveDescriptions.json']);
+      if (candidateBytes !== checked.bytes)
+        throw new ConsumerOutputRejected(
+          'stored candidate differs from its checked receipt; nothing published',
+        );
+      await this.record(
+        opId,
+        r,
+        c,
+        undefined,
+        undefined,
+        { at: this.options.now(), source: 'cas' },
+        { parent: l, candidate: c, ...(r.batchId ? { runtime } : {}) },
+      );
+    }
+    try {
+      this.git.cas(p.candidate, c, undefined);
+    } catch {
+      /* RECORD owns the terminal result. */
+    }
   }
   /**
    * The manual-publish content checks and the export, shared by `push` and `batch` (same order,
@@ -1880,10 +1662,10 @@ export class Publisher {
     tree: Tree,
     tooltips: Tooltip[],
     aliases: Aliases,
-    inPlace?: ReturnType<Publisher['inPlaceOptions']>,
+    inPlace: ReturnType<Publisher['inPlaceOptions']>,
   ):
     | { error: string; proposalRejected?: true; retryable?: true }
-    | ({ now: number } & Pick<Receipt, 'exported' | 'inPlace'>) {
+    | ({ now: number } & ReturnType<Publisher['publicationOutput']>) {
     const moves = selectedInactiveMoves(
       this.movesAt(tree),
       tooltips.map((t) => t.hash),
@@ -1914,20 +1696,27 @@ export class Publisher {
     const now = this.options.now();
     let exported: ReturnType<typeof exportLegacy>;
     try {
-      const globalsInPlace = inPlace && authoredInPlaceOptions(
-        this, tree, inPlace.live, inPlace, active, activeAliases(aliases, moves),
+      const globalsInPlace = authoredInPlaceOptions(
+        this,
+        tree,
+        inPlace.live,
+        inPlace,
+        active,
+        activeAliases(aliases, moves),
       );
-      if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
-      exported = exportWithInactiveMoves(
-        tooltips,
-        now,
-        this.options.facts,
-        aliases,
-        moves,
-        globalsInPlace && { globalsInPlace },
-      );
-      if (inPlace && globalsInPlace && tooltips.length) {
-        refillImportedTooltips(this, tree, inPlace, active, activeAliases(aliases, moves), exported);
+      assertInPlaceDocuments(active, globalsInPlace);
+      exported = exportWithInactiveMoves(tooltips, now, this.options.facts, aliases, moves, {
+        globalsInPlace,
+      });
+      if (tooltips.length) {
+        refillImportedTooltips(
+          this,
+          tree,
+          inPlace,
+          active,
+          activeAliases(aliases, moves),
+          exported,
+        );
         provePublication(
           this,
           tree,
@@ -1941,12 +1730,12 @@ export class Publisher {
         );
       }
     } catch (error) {
-      if (inPlace)
-        return {
-          error: inPlacePublishError(error, this, tree, inPlace.baseline, inPlace),
-          proposalRejected: true,
-        };
-      throw new ConsumerOutputRejected(String(error));
+      if (error instanceof ConsumerOutputRejected && !(error instanceof ProposalOutputRejected))
+        return { error: error.message, retryable: true };
+      return {
+        error: inPlacePublishError(error, this, tree, inPlace.baseline, inPlace),
+        proposalRejected: true,
+      };
     }
     // Fail closed: exportLegacy lowers element-tagged text to today's `<solar/>Scorch`, and
     // `#{d}` and `<enhanced/>` to `#d` and `#e`. An export that still holds a tagged span, a
@@ -1959,12 +1748,16 @@ export class Publisher {
       };
     return { now, ...this.publicationOutput(inPlace, exported) };
   }
-  private inPlaceOptions(tree: Tree, payload: PublishRequestPayload, live: string) {
+  private inPlaceOptions(
+    tree: Tree,
+    payload: PublishRequestPayload,
+    live: string,
+    checkInstalledPin = true,
+  ) {
     try {
       const selection = payload.kind === 'push' ? (payload.globals ?? []) : [];
-      const fence = requireGlobalsMode(this, tree, selection.length > 0);
-      if (!fence) return;
-      this.assertBatchRuntime(tree);
+      const fence = requireGlobalsMode(this, tree);
+      if (checkInstalledPin) this.assertBatchRuntime(tree);
       const pin = this.read<{ capabilities: string[] }>(tree, '.publisher/PIN');
       if (!pin?.capabilities.includes(globalsInPlaceCapability))
         throw new Error('Update the installed publisher before publishing shared text.');
@@ -1994,10 +1787,9 @@ export class Publisher {
     }
   }
   private publicationOutput(
-    plan: ReturnType<typeof planInPlaceRelease> | undefined,
+    plan: ReturnType<typeof planInPlaceRelease>,
     exported: Receipt['exported'],
-  ): Pick<Receipt, 'exported' | 'inPlace'> {
-    if (!plan) return { exported };
+  ): Pick<Receipt, 'exported'> & Required<Pick<Receipt, 'inPlace'>> {
     return {
       exported: { ...plan.refills, ...exported },
       inPlace: {
@@ -2034,7 +1826,6 @@ export class Publisher {
     tree: Tree,
     payload: BatchPublishPayload,
     aliases: Aliases,
-    revision = this.head(this.options.dataBranch),
     live = this.head(this.options.liveBranch),
   ): Promise<
     | { failure: Failure }
@@ -2043,7 +1834,6 @@ export class Publisher {
         now: number;
         exported: ReturnType<typeof exportLegacy>;
         changed: number[];
-        globals?: GlobalReleaseReceipt;
         inPlace?: Receipt['inPlace'];
       }
   > {
@@ -2133,87 +1923,26 @@ export class Publisher {
     }
     if (outcomes.some((o) => o.status !== 'accepted'))
       return { failure: { status: 'stale', outcomes } };
-    let documents = tooltips;
-    let globals: GlobalReleaseReceipt | undefined;
-    const prepared = this.read<PreparedPublication>(tree, paths(payload.opId).request);
-    if (!hasGlobals(tree) && prepared?.sourceIntent) {
-      const source = verifiedSource(this, prepared.sourceIntent);
-      if (hasGlobals(source.tree))
-        return {
-          failure: {
-            status: 'rejected',
-            error:
-              'Global metadata was removed after scheduling; return to draft and schedule again',
-            globals: true,
-          },
-        };
-    }
-    if (hasGlobals(tree) && !tree[globalsInPlacePath]) {
-      try {
-        new SchedulePreparer(this).pin(tree);
-        const pin = this.read<{ capabilities: string[] }>(tree, '.publisher/PIN');
-        if (!pin?.capabilities.includes('scheduledGlobalsV1'))
-          throw new Error('The installed publisher does not support scheduled globals yet');
-        if (members.some((member) => member.hash === 1 || member.hash === 2 || member.hash === 3))
-          throw new Error('Use global entry mutations instead of scheduled aggregate edits');
-        const envelope = prepared;
-        if (!envelope?.sourceIntent)
-          throw new Error('Scheduled globals require a signed preparation source; schedule again');
-        const source = verifiedSource(this, envelope.sourceIntent);
-        const release = await new GlobalsPublisher(this).release(
-          tree,
-          revision,
-          payload.hashes,
-          live,
-          {
-            source: source.intent.sourceCommit,
-            documents: tooltips,
-          },
-        );
-        documents = release!.documents;
-        globals = release!.receipt;
-      } catch (error) {
-        return {
-          failure: {
-            status: 'rejected',
-            error: error instanceof Error ? error.message : String(error),
-            globals: true,
-          },
-        };
-      }
-    }
     let inPlace;
     try {
       inPlace = this.inPlaceOptions(tree, payload, live);
-      if (inPlace) assertScheduledGlobalNames(documents, inPlace);
+    } catch (error) {
+      return { failure: { status: 'rejected', error: String(error), retryable: true } };
+    }
+    try {
+      assertScheduledGlobalNames(tooltips, inPlace);
     } catch (error) {
       return { failure: { status: 'rejected', error: String(error) } };
     }
-    const checked = this.checkAndExport(tree, documents, aliases, inPlace);
+    const checked = this.checkAndExport(tree, tooltips, aliases, inPlace);
     if ('error' in checked) return { failure: { status: 'rejected', ...checked } };
     const entries: Entry[] = [];
-    for (const tooltip of documents)
+    for (const tooltip of tooltips)
       entries.push({
         hash: tooltip.hash,
         digest: await inactivePublishableHash(tooltip, aliases, moves),
         tooltipBlob: this.git.writeBlob(json(tooltip)),
       });
-    if (globals) {
-      const expected = new Map(
-        await Promise.all(
-          tooltips.map(
-            async (tooltip) =>
-              [tooltip.hash, await inactivePublishableHash(tooltip, aliases, moves)] as const,
-          ),
-        ),
-      );
-      try {
-        this.assertRequestedDigests(entries, payload.hashes, (hash) => expected.get(hash), aliases);
-      } catch (error) {
-        if (!(error instanceof ConsumerOutputRejected)) throw error;
-        return { failure: { status: 'rejected', error: error.message } };
-      }
-    }
     return {
       entries,
       now: checked.now,
@@ -2221,8 +1950,7 @@ export class Publisher {
       changed: entries
         .filter(({ hash, digest }) => pushed[hash] !== digest)
         .map(({ hash }) => hash),
-      ...(checked.inPlace ? { inPlace: checked.inPlace } : {}),
-      ...(globals ? { globals } : {}),
+      inPlace: checked.inPlace,
     };
   }
   /**
@@ -2387,15 +2115,8 @@ export class Publisher {
       )
         return fail({ status: 'rejected', error: 'The batch changed after publishing started.' });
     }
-    const plan = await this.batchPlan(tree, payload, aliases, s, live);
+    const plan = await this.batchPlan(tree, payload, aliases, live);
     if ('failure' in plan) {
-      if (plan.failure.globals && !claimed && batch.preparedRequestId) {
-        await new SchedulePreparer(this).drain(true);
-        const latest = batchSchema.parse(
-          this.read(this.git.tree(this.head(this.options.dataBranch)), path),
-        );
-        if (latest.opId === opId && latest.status === 'needs_attention') return;
-      }
       const { failure } = plan;
       if (claimed && failure.status === 'stale' && failure.outcomes?.length) {
         const affected = failure.outcomes.filter(({ status }) => status !== 'accepted');
@@ -2428,8 +2149,7 @@ export class Publisher {
       intentDigest: payload.intentDigest,
       batchId: payload.batchId,
       contentRevision: payload.contentRevision,
-      ...(plan.globals ? { globals: plan.globals } : {}),
-      ...(plan.inPlace ? { inPlace: plan.inPlace } : {}),
+      inPlace: plan.inPlace,
     };
     // A refused batch must not leave even a claim commit behind.
     this.merge(live, receipt);
@@ -2464,20 +2184,6 @@ export class Publisher {
         // claimed and drains first): run() re-reads the queue and re-validates from the top.
         return undefined;
       }
-    }
-    if (receipt.globals && sourceCommit !== s) {
-      // CLAIM changes only scheduling metadata. Rebind the head-bound release certificate
-      // to S' while preserving the immutable signed dependency pin.
-      const frozen = await this.batchPlan(
-        this.git.tree(sourceCommit),
-        payload,
-        aliases,
-        sourceCommit,
-        live,
-      );
-      if ('failure' in frozen)
-        throw new ConsumerOutputRejected(frozen.failure.error ?? 'Scheduled global claim changed');
-      receipt.globals = frozen.globals;
     }
     return { ...receipt, sourceCommit };
   }
@@ -2544,11 +2250,6 @@ export class Publisher {
     if (receipt.batchId !== payload.batchId) throw new Error('Receipt batch mismatch');
     const frozen = this.git.tree(receipt.sourceCommit);
     const members = batchMembers(this, frozen, payload.batchId);
-    if (
-      receipt.globals &&
-      stableStringify(receipt.globals.roots) !== stableStringify(payload.hashes)
-    )
-      throw new Error('Global batch receipt roots differ from its signed members');
     const batch = batchSchema.parse(this.read<unknown>(tree, path));
     if (batch.status !== 'publishing' || batch.opId !== opId || batch.claim?.opId !== opId)
       throw new Error(`Batch ${batch.id} is not claimed by ${opId}; operator required`);
@@ -2631,8 +2332,9 @@ export class Publisher {
     const h = this.head(this.options.dataBranch),
       t = this.git.tree(h),
       oldTree = old ? this.git.tree(old) : {};
-    const fence = globalsFence(this, t);
-    if (fence?.state === 'hold') return;
+    const mode = globalsFence(this, t);
+    if (mode?.state === 'hold') return;
+    const fence = mode ?? requireGlobalsMode(this, t);
     const prior = old ? this.read<{ sourceCommit: string }>(oldTree, 'bundle.json') : undefined;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
@@ -2690,13 +2392,13 @@ export class Publisher {
     } catch {
       // Invalid JSON and invalid shapes must not wedge terminal rejection or bundle refresh.
     }
-    const inPlace = fence && bundleInPlaceReview(this, t, fence, tooltips);
+    const inPlace = bundleInPlaceReview(this, t, fence, tooltips);
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, 'config/permissions.json')),
-      pushed: inPlace?.pushed ?? pushedSchema.parse(this.read(t, 'live/pushed.json')),
+      pushed: inPlace.pushed,
       // Preserve malformed config too: omitting it would resurrect archived members in readers.
       // Raw invalid JSON becomes null, which the web schema rejects, without wedging the queue.
       ...(t[aliasGroupsPath]
@@ -2716,14 +2418,10 @@ export class Publisher {
         : {}),
       publishQueue,
       ...(scheduledQueue.length ? { scheduledQueue } : {}),
-      ...(inPlace
-        ? {
-            globalsPending: inPlace.globalsPending,
-            globalsReviewImports: inPlace.reviewImports,
-            ...(Object.keys(inPlace.reviewDefinitions).length
-              ? { globalsReviewDefinitions: inPlace.reviewDefinitions }
-              : {}),
-          }
+      globalsPending: inPlace.globalsPending,
+      globalsReviewImports: inPlace.reviewImports,
+      ...(Object.keys(inPlace.reviewDefinitions).length
+        ? { globalsReviewDefinitions: inPlace.reviewDefinitions }
         : {}),
       // The globals catalogue at this same head; null (never a partial list) when malformed,
       // so the editor says it is unavailable without stopping the bundle or the queue.
@@ -2750,15 +2448,20 @@ export class Publisher {
     );
     this.git.cas(ref, old, c);
   }
-  async run(syncGlobals = true) {
+  async prepareBundle() {
+    await new GlobalsPublisher(this).maintainAuthored();
+  }
+
+  async run(prepare = true) {
     const start = this.options.now();
     const runtime = this.git.tree(this.head(this.options.dataBranch));
     if (globalsFence(this, runtime)?.state === 'hold') return;
+    requireGlobalsMode(this, runtime);
     try {
-      if (syncGlobals) {
+      if (prepare) {
         await drainCurrentSaves(this);
         await new SchedulePreparer(this).drain();
-        await new GlobalsPublisher(this).drain();
+        await this.prepareBundle();
       }
       await new SchedulePreparer(this).drain(true);
       if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();

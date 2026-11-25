@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { globalStoreSchema } from '../globals/model.js';
 
-/** Bump this contract before changing an identity input or its interpretation. */
-export const globalsReleaseVersion = 1;
 const oid = z.string().regex(/^[a-f0-9]{40}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const globalSourcesSchema = z

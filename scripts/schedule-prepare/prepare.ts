@@ -282,7 +282,7 @@ export class SchedulePreparer {
       ]),
       pushed,
     );
-    const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree), head);
+    const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree));
     if ('failure' in plan) {
       const Rejection = plan.failure.proposalRejected
         ? ProposalRejected

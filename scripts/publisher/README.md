@@ -89,22 +89,19 @@ exact accepted schedule authorized by its signed owner policy; other failures ne
 and remove the due entry. Infrastructure Retry uses the existing authenticated pipeline kick.
 The `scheduledGlobalsV1` capability permits asynchronous schedules with Globals metadata.
 The `globalsExportsV1` capability adds per-entry exports and the ordered hash-1 projection.
-The original signed schedule source pins the globals used by the batch's composed roots,
-including nested imports and conservative title preparation, through the real resolver.
-Preparation rechecks ready batches before their due time; changed pins or owed global reviews
-require attention and a fresh schedule, and claim rechecks the same contract. Batch roots,
-approved dependencies, Globals state, activation, and markers join one atomic LIVE/RECORD
-transaction. The Worker refuses globals schedules, scheduled saves, and Retry when the
-installed runtime lacks this capability, globalsRelease, or schedulePreparationV1.
-The prepared `globalsRelease` capability uses `globals/layout.json` and an exact
-`globals/live/<destination>.json` baseline. One serialized Action drain materializes reviews
-and name proofs; failed sync retains causes and rows, and refreshes only occupied-name proofs
-so authors can repair a definition. Global releases require atomic Git updates of LIVE and
-RECORD, and never export unrelated saved definitions. Storage bootstrap, workflow installation,
-and activation remain separate owner gates; this template update performs none of them.
-The later publish transport must enforce forward-only LIVE/data refs and serialized execution;
-candidate ref swaps/deletes require exact old OIDs. Unresolved pushes wait 30 seconds between
-attempts (five waits maximum); successful writes record immediately. Tests inject a no-wait backoff.
+Scheduled batches use the shared definitions already published to LIVE. Preparation, claim,
+and atomic landing recheck the candidate with the current resolver. A batch that reads a shared
+definition absent from LIVE needs attention until the definition is published and the batch is
+scheduled again. The Worker checks installed scheduling and Globals capabilities at admission.
+Ordinary publication requires an active `config/globals-in-place.json` for the selected
+destination. Bundle preparation applies authored rename intents, maintains projections under
+`globals/layout.json`, and refreshes name and removal proofs. Review approvals select shared
+definitions by stable ID and digest. Their refills, `globals/live/<destination>.json`, and RECORD
+land in one atomic Git transaction. The installed `globalsRelease` capability remains a floor
+for readers of the catalogue and proof formats.
+The transport enforces forward-only LIVE and DATA refs and serialized execution. Candidate
+ref swaps and deletions require exact old OIDs. Read historical receipts through the verifier.
+Drain legacy candidates and complete their RECORDs with the pre-switch publisher before migration.
 The local simulator deliberately fails closed on non-100644 modes; a real transport must preserve
 all existing tree modes before it can be enabled. Queue ordering and receipt lookup use first-parent
 Git addition history rather than enumerating historical trees.
@@ -207,7 +204,7 @@ This rebuild also carries the previous bundle's other files (the report catalogs
 bundle.json `globals` holds the globals catalogue at the bundle's sourceCommit: every entry in
 catalogue page order plus the public sync header (the Worker's publicGlobalSync), or null when
 the catalogue files are malformed. The editor reads its finder lists from it; the Worker serves
-only the opened entry, its reviews, and writes. Install this build before deploying that editor.
+only the opened entry and handles writes.
 It merges maintainer sandbox picks (config/sandbox-pointers.json, core mergeSandboxPointers with
 the config's generator `sandboxConflicts`) into the aliases it digests and exports, carries the
 picks in bundle.json, and its PIN declares `sandboxPointers`, which the Worker's

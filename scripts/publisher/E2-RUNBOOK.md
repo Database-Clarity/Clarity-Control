@@ -34,15 +34,16 @@ deploy compatible Worker and web builds and enable asynchronous admission with o
 Never downgrade the preparation reader or claim fence while requests or claims remain.
 Before accepting globals schedules, scheduled saves, or Retry, install a verified
 `scheduledGlobalsV1` runtime retaining `globalsRelease`, `globalsExportsV1`, `schedulePreparationV1`, and every
-existing capability. Root performs this installation in the authorized globals go-live
-sequence. Pinned global edits and owed reviews move affected batches to Needs attention;
-return them to draft and schedule again after review. Never rewrite their signed source
-to adopt newer definitions. Both claim and atomic LIVE/RECORD recheck the closure.
+existing capability. Root performs this installation in the authorized Globals go-live
+sequence. Shared names absent from LIVE move affected batches to Needs attention. Publish
+those definitions through Review to make them available for a fresh schedule. Claim and
+atomic LIVE/RECORD both recheck the batch against the published definitions.
 For the scheduled save-race fix, deploy the compatible Worker and web builds before
 installing the publisher PIN. They read both preparation failures and refused claims in
 Needs attention. Keep both readers in place while refused-claim records exist. Older
 open tabs retain the batch in the list and need a reload to read the new detail.
-The Action prepares intents before Globals, bundles, and drains publication in the same run.
+The Action prepares intents, maintains authored Globals during bundle preparation, and drains
+publication in the same run.
 Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the manual fallback
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.
 No installation, activation, or external data write is authorized by generating this template.
@@ -54,8 +55,9 @@ Expected publisher.mjs SHA-256: `19afb9fba4dfd982930946858ef6722d763a944396b640b
 
 Before cut-over, drain old requests and candidates with the previously
 installed runtime. Finish or unschedule any batches that can still publish.
-The new Worker requires an active `config/globals-in-place.json` before it
-accepts publication or scheduling for a repository with a globals catalogue.
+Ordinary publication, bundle generation, and scheduled publication require an active
+`config/globals-in-place.json` for the target branch. Use the migration dry run to verify
+the proposed switch from pre-migration data.
 
 Run `publisher.mjs --globals-migration-dry-run <local repository> <config.json>
 <artifact directory> <migration-inputs.json>` with the proposed runtime

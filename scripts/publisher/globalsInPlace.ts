@@ -59,7 +59,7 @@ import { ZodError } from 'zod';
 import { type Tree } from './git.js';
 import { GlobalsPublisher } from './globals.js';
 import { unloweredEntry } from './consumerOutput.js';
-import type { Publisher, Receipt } from './publisher.js';
+import { ConsumerOutputRejected, type Publisher, type Receipt } from './publisher.js';
 
 export function globalsFence(pub: Publisher, tree: Tree): GlobalsInPlaceFence | undefined {
   if (!tree[globalsInPlacePath]) return undefined;
@@ -69,11 +69,12 @@ export function globalsFence(pub: Publisher, tree: Tree): GlobalsInPlaceFence | 
   return fence;
 }
 
-export function requireGlobalsMode(pub: Publisher, tree: Tree, globals = false) {
+export function requireGlobalsMode(pub: Publisher, tree: Tree) {
   const fence = globalsFence(pub, tree);
-  if (fence?.state === 'hold')
+  if (!fence)
+    throw new Error('Publication requires an active config/globals-in-place.json migration.');
+  if (fence.state === 'hold')
     throw new Error('Publication is paused for the shared text migration.');
-  if (!fence && globals) throw new Error('Review shared definitions with the current publisher.');
   return fence;
 }
 
@@ -257,8 +258,13 @@ export function provePublication(
           );
   }
   const raw = exportGlobalsProof(documents, now, pub.options.facts, aliases, moves, options);
-  const merge = (entries: Receipt['exported']) =>
-    pub.mergePublicationPerks(tree, live.perks, entries, hashes) as LegacyInput['perks'];
+  const merge = (entries: Receipt['exported']) => {
+    try {
+      return pub.mergePublicationPerks(tree, live.perks, entries, hashes) as LegacyInput['perks'];
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
+  };
   proveInPlaceInputs(
     live,
     { ...live, perks: merge(raw) },
@@ -732,7 +738,9 @@ function selectedRelease(
     let priorOptions: GlobalsInPlaceOptions | undefined;
     const priorDocument = (hash: number) => {
       const row = live.perks[hash];
-      const doc = liveDocs.find((doc) => doc.hash === (row && 'aliasOf' in row ? row.aliasOf : hash));
+      const doc = liveDocs.find(
+        (doc) => doc.hash === (row && 'aliasOf' in row ? row.aliasOf : hash),
+      );
       if (doc) return rewriteTooltip(doc, priorRename);
     };
     for (const row of Object.values(live.perks)) {

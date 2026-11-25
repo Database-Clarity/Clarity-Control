@@ -61,23 +61,6 @@
       }
     ]
   },
-  "review": {
-    "version": 1,
-    "consumer": {
-      "hash": 42,
-      "lang": "en",
-      "destination": "live"
-    },
-    "causes": [
-      {
-        "globalId": "g_fixture0001",
-        "beforeRevision": "r1",
-        "afterRevision": "r2"
-      }
-    ],
-    "contentDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "dependencyDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-  },
   "impact": {
     "version": 1,
     "beforeRevision": "source1",

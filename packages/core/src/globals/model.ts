@@ -208,32 +208,9 @@ export const globalCauseSchema = z
     afterRevision: globalRevisionSchema.nullable(),
   })
   .strict();
-export const globalReviewSchema = z
-  .object({
-    version: z.literal(1),
-    consumer: globalConsumerSchema,
-    causes: z.array(globalCauseSchema).min(1),
-    contentDigest: globalDigestSchema,
-    dependencyDigest: globalDigestSchema,
-    acknowledgement: z
-      .object({
-        by: z.string().min(1),
-        at: timestampSchema,
-        contentDigest: globalDigestSchema,
-        dependencyDigest: globalDigestSchema,
-        /** Binds the before/after rendered review, including its complete cause set. */
-        impactDigest: globalDigestSchema,
-        decision: z.enum(['edited', 'no-text-change']),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
-
 export type GlobalRecord = z.infer<typeof globalRecordSchema>;
 export type GlobalDefinition = z.infer<typeof globalDefinitionSchema>;
 export type GlobalStore = z.infer<typeof globalStoreSchema>;
 export type GlobalSegment = z.infer<typeof globalSegmentSchema>;
 export type GlobalConsumer = z.infer<typeof globalConsumerSchema>;
 export type GlobalCause = z.infer<typeof globalCauseSchema>;
-export type GlobalReview = z.infer<typeof globalReviewSchema>;

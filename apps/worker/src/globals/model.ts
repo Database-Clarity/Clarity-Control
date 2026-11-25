@@ -1,15 +1,12 @@
 import { z } from 'zod';
 import { langSchema } from '../../../../packages/core/src/languages.js';
 import {
-  globalConsumerSchema,
   globalDigestSchema,
   globalIdSchema,
   globalKindSchema,
   globalRecordSchema,
-  globalReviewSchema,
   globalRevisionSchema,
 } from '../../../../packages/core/src/globals/model.js';
-import { globalImpactRowSchema } from '../../../../packages/core/src/globals/impactModel.js';
 
 export const limits = {
   requestBytes: 16_384,
@@ -160,62 +157,6 @@ export const removalSchema = z
       .strict(),
   })
   .strict();
-export const rowSchema = z
-  .object({
-    ...proof,
-    id: token,
-    review: globalReviewSchema,
-    impactDigest: globalDigestSchema,
-    projected: z.literal(false),
-    view: globalImpactRowSchema
-      .extend({
-        variant: z.number().int().nonnegative(),
-        name: z.string().max(256),
-        category: z.string().max(128),
-        line: z.number().int().positive().nullable(),
-        path: z.array(z.string().max(128)).max(32).nullable(),
-        direct: z.boolean().nullable(),
-        archived: z.boolean(),
-        beforeSource: z.string().max(8192),
-        afterSource: z.string().max(8192),
-      })
-      .strict(),
-  })
-  .strict()
-  .refine(
-    (v) =>
-      v.review.causes.length <= limits.causes &&
-      JSON.stringify(v.review.consumer) === JSON.stringify(v.view.consumer) &&
-      JSON.stringify(v.review.causes) === JSON.stringify(v.view.causes),
-    'Review manifest mismatch',
-  )
-  .refine((v) => {
-    if ((v.review.acknowledgement?.by.length ?? 0) > 128) return false;
-    // Reserve the largest accepted audit before a materialized row becomes readable.
-    // Control characters are the worst JSON byte expansion for a 128-character login.
-    const maximumAudit = {
-      by: '\u0000'.repeat(128),
-      at: '9999-12-31T23:59:59.999Z',
-      contentDigest: v.review.contentDigest,
-      dependencyDigest: v.review.dependencyDigest,
-      impactDigest: v.impactDigest,
-      decision: 'no-text-change',
-    };
-    return (
-      globalFileBytes({ ...v, review: { ...v.review, acknowledgement: maximumAudit } }) <=
-      limits.entryBytes
-    );
-  }, 'Review must reserve acknowledgement capacity');
-export const publicationSchema = z
-  .object({
-    ...proof,
-    consumer: globalConsumerSchema,
-    causeIds: z.array(token).max(limits.causes),
-    independent: z.boolean(),
-    // Offline producer has checked all current ledger acknowledgements and resolver blockers.
-    approved: z.literal(true),
-  })
-  .strict();
 export const pageSchema = z
   .object({
     version: z.literal(1),
@@ -255,7 +196,6 @@ export type Mutation = z.infer<typeof mutationSchema>['mutation'];
 export const paths = {
   sync: 'globals/sync.json',
   entry: (id: string) => `globals/entries/${id}.json`,
-  row: (id: string) => `globals/reviews/${id}.json`,
   page: (cursor: string) => `globals/pages/${cursor}.json`,
   removal: (id: string, lang?: string) => `globals/proofs/removal/${id}-${lang ?? 'all'}.json`,
 };

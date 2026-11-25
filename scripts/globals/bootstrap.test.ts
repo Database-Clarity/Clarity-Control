@@ -6,10 +6,7 @@ import { bootstrapFiles, json, sha256 } from './bootstrap-model.js';
 import { legacyGlobalsCensus, legacySnapshot } from './census.js';
 import { main, OfflineGit } from './bootstrap.js';
 import type { Tooltip } from '../../packages/core/src/schemas.js';
-import {
-  changedGlobalIds,
-  planGlobalRelease,
-} from '../../packages/core/src/globalsRelease/index.js';
+import { changedGlobalIds } from '../../packages/core/src/globalsRelease/index.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
 import { projectGlobals } from '../../packages/core/src/globals/projection.js';
 
@@ -66,7 +63,7 @@ it('adds only exports to installed stores and refuses existing identity/projecti
   expect(() => bootstrapFiles(drift, live, 'test', {}, existing)).toThrow('identity/projection');
 });
 
-it('preserves recipes, absence, empty values, #e, and stable IDs across independent inventories', async () => {
+it('preserves recipes, absence, empty values, #e, and stable IDs across independent inventories', () => {
   const saved = inventory(),
     live = inventory(documents(), 'published');
   const result = bootstrapFiles(saved, live, 'converter-v2-test');
@@ -80,24 +77,6 @@ it('preserves recipes, absence, empty values, #e, and stable IDs across independ
   expect(result.identityEvidence.every((v) => v.shared)).toBe(true);
   expect(changedGlobalIds(result.liveStore, result.savedStore)).toEqual([]);
   expect(bootstrapFiles(saved, live, 'converter-v2-test', result.ids).files).toEqual(result.files);
-  const snapshot = {
-    repository: 'owner/data',
-    revision: 'r1',
-    aliases: {},
-    mode: 'authored' as const,
-    tooltips: saved.documents,
-    types: { 1: 'Test', 2: 'Test', 3: 'Test', 40: 'Test' },
-  };
-  expect(
-    await planGlobalRelease({
-      saved: result.savedStore,
-      published: result.liveStore,
-      authored: snapshot,
-      live: { ...snapshot, mode: 'live' },
-      causes: [],
-      destination: 'converter-v2-test',
-    }),
-  ).toEqual([]);
   const different = documents();
   different[2].text.en!.updatedAt = '2026-02-01T00:00:00Z';
   const edited = bootstrapFiles(inventory(different), live, 'converter-v2-test', result.ids);

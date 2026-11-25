@@ -29,7 +29,8 @@ jobs:
       # Publishes for real only when the installed config says publishWritesEnabled: true; the
       # runtime also needs its baked build switch ON (config/publisher.json at the PIN source), so
       # a dry-run install of an enabled build, or an enabled config on a dry-run build, never writes.
-      - name: Bundle live data and publish (or simulate)
+      # Authored global changes are materialized in bundle preparation within this step.
+      - name: Prepare editor bundle and publish (or simulate)
         id: publish
         env:
           ARTIFACT_DIR: ${{ runner.temp }}/publisher-dry-run

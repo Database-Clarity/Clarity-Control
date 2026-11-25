@@ -1,3 +1,4 @@
+import { activateGlobalsFixture } from './testGlobals.js';
 // Scheduled changes P4 (spec .agents/reports/scheduled-changes/spec.md "Tests and gates",
 // publisher fixtures): the publisher's claim, publication, RECORD activation, and failure paths
 // for `batch` requests, in the local simulator (and the local bare remote for the core path).
@@ -104,6 +105,7 @@ async function setup(transport: 'simulator' | 'remote' = 'simulator') {
       .update(keys.publicKey.export({ type: 'spki', format: 'der' }))
       .digest('hex'),
     publisherSha: 'a'.repeat(40),
+    publisherDigest: 'c'.repeat(64),
     generatorSha: 'b'.repeat(40),
     aliases: {},
     facts: {
@@ -113,7 +115,6 @@ async function setup(transport: 'simulator' | 'remote' = 'simulator') {
     },
     now: () => clock.now,
     runUrl: 'local://fixture',
-    backoff: async () => {},
   };
   const pub = new Publisher(git, options);
   const published = tip();
@@ -149,6 +150,7 @@ async function setup(transport: 'simulator' | 'remote' = 'simulator') {
       'Seed live',
     ),
   );
+  activateGlobalsFixture(pub);
   const signEnvelope = (payload: object) => {
     const bytes = stableStringify(payload);
     return {
@@ -647,7 +649,11 @@ describe('scheduled batches (simulator)', () => {
     'recovers after a publisher install over a crashed %s',
     async (stage) => {
       const f = await setup();
-      const currentPin = { sourceSha: f.options.publisherSha, sha256: 'a'.repeat(64) };
+      const currentPin = {
+        sourceSha: f.options.publisherSha,
+        sha256: f.options.publisherDigest,
+        capabilities: ['globalsRelease', 'globalsInPlaceV1'],
+      };
       f.change(D, { '.publisher/PIN': currentPin });
       await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }]);
       const cas = f.git.cas.bind(f.git);
@@ -661,10 +667,10 @@ describe('scheduled batches (simulator)', () => {
           throw new Error('runner stopped');
         };
       await expect(f.pub.run()).rejects.toThrow();
-      const upgraded = { sourceSha: 'd'.repeat(40), sha256: 'd'.repeat(64) };
+      const upgraded = { ...currentPin, sourceSha: 'd'.repeat(40), sha256: 'd'.repeat(64) };
       f.change(D, { '.publisher/PIN': upgraded });
       await expect(new Publisher(new LocalRepository(f.root), f.options).run()).rejects.toThrow(
-        'installed publisher',
+        expect.stringMatching(/installed publisher/i),
       );
       expect(f.batchFile().status).toBe('publishing');
       const clock = START + 600_000;
@@ -700,7 +706,7 @@ describe('scheduled batches (simulator)', () => {
       '.publisher/PIN': {
         sourceSha: f.options.publisherSha,
         sha256: f.options.publisherDigest,
-        capabilities: [currentSaveStagingCapability],
+        capabilities: [currentSaveStagingCapability, 'globalsRelease', 'globalsInPlaceV1'],
       },
       [staged.record(id)]: { ...upload, status: 'uploading' },
       [staged.part(id, 0)]: bytes.toString('base64'),
@@ -1325,7 +1331,7 @@ describe('scheduled batches (simulator)', () => {
     expect(batched.read('live/pushed.json')).toEqual(manual.read('live/pushed.json'));
   });
 
-  it.each(['landed, RECORD failed', 'frozen candidate'] as const)(
+  it.each(['landed, acknowledgement lost', 'frozen candidate'] as const)(
     'sec N1: a push in flight (%s) drains before a "Publish now" batch committed after its run began',
     async (state) => {
       const f = await setup();
@@ -1333,34 +1339,20 @@ describe('scheduled batches (simulator)', () => {
       const saved = tip({ text: { en: entry('reviewed'), fr: entry('sauvé') } });
       f.change(D, { 'tooltips/123.json': saved });
       await f.push(PUSH1, [123], '2030-03-17T17:55:10.000Z');
-      const cas = f.git.cas.bind(f.git);
-      let failed = false;
-      f.git.cas = (ref, old, next) => {
-        if (state === 'frozen candidate' && ref === L) throw new Error('crash');
-        if (
-          state !== 'frozen candidate' &&
-          ref === D &&
-          !failed &&
-          f.pub.receipt(f.git.head(L)!, PUSH1)
-        ) {
-          failed = true;
-          throw new Error('record unavailable');
-        }
-        cas(ref, old, next);
-      };
-      f.options.backoff = async () => {
+      const atomic = f.git.casMany.bind(f.git);
+      f.git.casMany = (updates) => {
+        if (state !== 'frozen candidate') atomic(updates);
         throw new Error('runner crash');
       };
-      await expect(f.pub.run()).rejects.toThrow();
-      f.git.cas = cas;
-      f.options.backoff = async () => {};
+      await expect(f.pub.run()).rejects.toThrow('runner crash');
+      f.git.casMany = atomic;
       // "Publish now" signed at 17:55:00 (before the push) whose commit landed after run 1 began.
       await f.schedule([{ hash: 123, base: tip(), proposed: proposedEn() }], {
         notBefore: '2030-03-17T17:55:00.000Z',
         createdAt: '2030-03-17T17:55:00.000Z',
       });
       f.clock.now = Date.parse('2030-03-17T17:56:00.000Z');
-      expect(f.pub.queue(f.head())).toEqual([PUSH1, OP]);
+      expect(f.pub.queue(f.head())).toEqual(state === 'frozen candidate' ? [PUSH1, OP] : [OP]);
       await f.pub.run();
       assertPublished(f);
       // Root condition: live = the push, then the batch, each exactly once.
@@ -1443,35 +1435,36 @@ describe('scheduled batches (simulator)', () => {
   it.each([
     { hash: 123, base: tip(), field: 'text.en', name: 'Thing' },
     { hash: 125, base: null, field: '$exists', name: 'New' },
-  ])('an edit after claim conflicting on $field needs attention without a receipt', async ({
-    hash, base, field, name,
-  }) => {
-    const f = await setup();
-    const path = `tooltips/${hash}.json`;
-    const proposed = tip({ text: { en: entry('batch text') } }, hash);
-    const theirs = tip({ text: { en: entry('someone else') } }, hash);
-    await f.schedule([{ hash, base, proposed }]);
-    const atomic = f.git.casMany.bind(f.git);
-    let saved = false;
-    f.git.casMany = (updates) => {
-      if (!saved) {
-        saved = true;
-        f.change(D, { [path]: theirs });
-      }
-      atomic(updates);
-    };
-    await f.pub.run();
-    expect(f.read<Tooltip>(path)).toEqual(theirs);
-    expect(f.read(`live/${path}`)).toEqual(base ?? undefined);
-    expect(f.receipts()).toHaveLength(0);
-    expect(f.batchFile()).toMatchObject({
-      status: 'needs_attention',
-      result: {
-        error: expect.stringContaining(`for ${name}`),
-        outcomes: [{ hash, fields: [field] }],
-      },
-    });
-  });
+  ])(
+    'an edit after claim conflicting on $field needs attention without a receipt',
+    async ({ hash, base, field, name }) => {
+      const f = await setup();
+      const path = `tooltips/${hash}.json`;
+      const proposed = tip({ text: { en: entry('batch text') } }, hash);
+      const theirs = tip({ text: { en: entry('someone else') } }, hash);
+      await f.schedule([{ hash, base, proposed }]);
+      const atomic = f.git.casMany.bind(f.git);
+      let saved = false;
+      f.git.casMany = (updates) => {
+        if (!saved) {
+          saved = true;
+          f.change(D, { [path]: theirs });
+        }
+        atomic(updates);
+      };
+      await f.pub.run();
+      expect(f.read<Tooltip>(path)).toEqual(theirs);
+      expect(f.read(`live/${path}`)).toEqual(base ?? undefined);
+      expect(f.receipts()).toHaveLength(0);
+      expect(f.batchFile()).toMatchObject({
+        status: 'needs_attention',
+        result: {
+          error: expect.stringContaining(`for ${name}`),
+          outcomes: [{ hash, fields: [field] }],
+        },
+      });
+    },
+  );
 
   it('R15: failure returns to draft; a rebase and a reschedule with a new opId publish', async () => {
     const f = await setup();
@@ -1831,7 +1824,7 @@ describe('scheduled batches (simulator)', () => {
     });
     const dir = mkdtempSync(join(tmpdir(), 'batch-cli-'));
     roots.push(dir);
-    // Functions do not serialize: JSON drops now and backoff, as the CLI expects.
+    // Functions do not serialize: JSON drops now, as the CLI expects.
     writeFileSync(join(dir, 'config.json'), JSON.stringify(f.options));
     execFileSync(
       process.execPath,
