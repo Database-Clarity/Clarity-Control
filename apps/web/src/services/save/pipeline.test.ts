@@ -77,6 +77,33 @@ describe('validation is scoped to text the change edits', () => {
     ]);
     await expect(prepareChanges([change], user, editorData())).rejects.toThrow('Validation');
   });
+  it('clearing English that was published warns editors and maintainers, and only them', async () => {
+    const french = { ...english, text: 'French', sourceUpdatedAt: english.updatedAt };
+    const base = { ...tooltip, text: { ...tooltip.text, fr: french } };
+    const change = { hash: 123, base, next: { ...base, text: { fr: french, en: entry(' ') } } };
+    const data = editorData();
+    data.bundle.pushed = { 123: 'a'.repeat(64) };
+    expect(validateChanges([change], data, {}, true).filter(({ lang }) => lang === 'en')).toEqual([
+      expect.objectContaining({ severity: 'warning', message: core.clearedEnglishMessage }),
+    ]);
+    const clearing = { clearing: true };
+    const [prepared] = await prepareChanges([change], user, data, undefined, clearing);
+    expect(prepared!.next.text.en!.text).toBe(' ');
+    expect(prepared!.next.text.fr).toEqual(french);
+    // Not asked for (a batch), never published, a trial, and a translator: as before.
+    expect(errors(validateChanges([change], data))).toHaveLength(1);
+    expect(errors(validateChanges([change], editorData(), {}, true))).toHaveLength(1);
+    // Published without English: its first English, not published yet, has nothing to remove.
+    const gained = { ...data, bundle: { ...data.bundle, englishChanged: [123] } };
+    expect(errors(validateChanges([change], gained, {}, true))).toHaveLength(1);
+    await expect(prepareChanges([change], user, data)).rejects.toThrow('Validation');
+    await expect(
+      prepareChanges([change], { ...user, role: 'trial' }, data, undefined, clearing),
+    ).rejects.toThrow('Only editors and maintainers can clear the English text.');
+    await expect(prepareChanges([change], translator, data, undefined, clearing)).rejects.toThrow(
+      'you cannot edit English',
+    );
+  });
   it('an error in unchanged French does not block an English edit, but edited French does', () => {
     const base = { ...tooltip, text: { en: entry('Old'), fr: entry('import main from 999') } };
     const english = { ...base, text: { ...base.text, en: entry('New') } };
@@ -642,9 +669,11 @@ vi.mock('./validationWorker', () => ({
   requestSaveValidation: async (
     changes: import('../api').Change[],
     data: import('../../stores/data').EditorData,
+    fallback?: import('./fallback').LiveFallback,
+    clearing?: boolean,
   ) => {
     const { validateChanges } = await import('./validation');
-    return validateChanges(changes, data);
+    return validateChanges(changes, data, fallback, clearing);
   },
 }));
 

@@ -29,7 +29,12 @@ import {
   globalsInPlacePath,
   type GlobalsPending,
 } from '../../packages/core/src/globals/inPlaceReview.js';
-import { inactivePublishableHash } from '../../packages/core/src/inactiveMoves.js';
+import {
+  clearedReviewHash,
+  inactivePublishableHash,
+  inactiveRemovalHash,
+} from '../../packages/core/src/inactiveMoves.js';
+import { publishableHash } from '../../packages/core/src/publishableHash.js';
 import type { Tooltip } from '../../packages/core/src/schemas.js';
 import {
   batchSchema,
@@ -275,6 +280,7 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
     hashes: number[],
     opId = A,
     globals?: { id: string; expected: string }[],
+    reviewed: Record<number, string> = {},
   ) => {
     const aliases = pub.aliasesAt(current());
     const expected = Object.fromEntries(
@@ -295,7 +301,7 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
         liveBranch: options.liveBranch,
         requester: { id: 1, login: 'alice' },
         hashes,
-        expected,
+        expected: { ...expected, ...reviewed },
         ...(globals ? { globals } : {}),
       },
       () => now,
@@ -1142,6 +1148,60 @@ describe('in-place shared text publication', () => {
     const localized = live(f).perks[141];
     expect('editor' in localized && localized.editor.de).toEqual({ main: '80', secondary: '80' });
   });
+
+  it('removes a cleared tooltip that a shared text in the same part would refill', async () => {
+    const f = await inPlaceFixture();
+    const published = f.read('live/tooltips/141.json') as Tooltip;
+    const marker = await publishableHash(published);
+    const cleared = {
+      ...published,
+      text: { ...published.text, en: { ...published.text.en!, text: '' } },
+    };
+    f.change({ 'live/pushed.json': { 141: marker }, 'tooltips/141.json': cleared });
+    const before = live(f);
+    const row = pending(f).find(({ name }) => name === 'Beta')!;
+    expect(row.affected).toEqual([141]);
+    await f.request([141], A, selection(row), { 141: await clearedReviewHash(cleared, marker) });
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result).toMatchObject({ status: 'done', globals: [f.entry.id] });
+    const perks = Object.fromEntries(
+      Object.entries(before.perks).filter(([hash]) => hash !== '141'),
+    );
+    expect(live(f).perks).toEqual(perks);
+    expect(f.read('live/pushed.json')).toEqual({ 141: await inactiveRemovalHash(141) });
+    expect(f.read('live/tooltips/141.json')).toEqual(cleared);
+  });
+
+  it.each([false, true])(
+    'removes a cleared tooltip while a rename of its shared text waits (same part=%s)',
+    async (together) => {
+      const f = await inPlaceFixture();
+      const published = f.read('live/tooltips/141.json') as Tooltip;
+      const cleared = {
+        ...published,
+        text: { ...published.text, en: { ...published.text.en!, text: '' } },
+      };
+      f.change({
+        'live/pushed.json': { 141: await publishableHash(published) },
+        'tooltips/141.json': cleared,
+        [f.entryPath]: { ...f.entry, name: 'Renamed' },
+      });
+      const before = live(f);
+      const row = pending(f).find(({ name }) => name === 'Renamed')!;
+      // As Review computes it, from the bundle.
+      const bundle = f.pub.read<{ pushed: Record<string, string>; tooltips: Record<string, Tooltip> }>(
+        f.git.tree(f.pub.head('editor-data-bundle')),
+        'bundle.json',
+      )!;
+      const reviewed = await clearedReviewHash(bundle.tooltips[141]!, bundle.pushed[141]);
+      await f.request([141], A, together ? selection(row) : undefined, { 141: reviewed });
+      await f.pub.run(false);
+      expect(f.read(paths(A).log).result).toMatchObject({ status: 'done' });
+      expect(live(f).perks[141]).toBeUndefined();
+      expect(live(f).perks[140]).toEqual(before.perks[140]);
+      expect(f.read('live/pushed.json')).toEqual({ 141: await inactiveRemovalHash(141) });
+    },
+  );
 
   it('uses published bodies for ordinary requests and requires approvals for new names', async () => {
     const f = await inPlaceFixture();

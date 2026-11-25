@@ -17,9 +17,12 @@ describe('requireEnglish (editor empty-English diagnostic)', () => {
   it('requires written English, so clearing it (or undoing back to blank) is an error', () => {
     expect(requireEnglish(123, 'en', 'Saved', 'Saved')).toBe(true);
     expect(requireEnglish(123, 'en', 'Saved', '')).toBe(true);
+    expect(requireEnglish(123, 'en', 'Saved', '', true)).toBe('clears');
+    expect(requireEnglish(123, 'en', '', '  ', true)).toBe(true);
   });
   it('is constant for translations and exempts the reserved global documents', () => {
     expect(requireEnglish(123, 'fr', '', '')).toBe(true);
+    expect(requireEnglish(123, 'fr', '', '', true)).toBe(true);
     expect(requireEnglish(2, 'en', 'x', '')).toBe(false);
     expect(requireEnglish(3, 'en', '', '')).toBe(false);
   });

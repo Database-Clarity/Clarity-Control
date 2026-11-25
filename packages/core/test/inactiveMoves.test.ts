@@ -2,7 +2,11 @@ import { expect, it } from 'vitest';
 import { exportLegacy, mergeLivePerks } from '../src/exportLegacy.js';
 import {
   activeAliases,
+  clearedReviewHash,
+  clearedState,
   exportWithInactiveMoves,
+  inactiveMovesSchema,
+  withClearedMoves,
   inactivePublishableHash,
   inactiveRemovalHash,
   selectedInactiveMoves,
@@ -40,6 +44,66 @@ it.each([true, false])(
     expect(selected[77] !== undefined).toBe(!inactive);
   },
 );
+
+it('cleared: only a published English text that is gone is a removal', async () => {
+  const removal = await inactiveRemovalHash(42);
+  const marker = await publishableHash(tooltip());
+  const { en } = tooltip().text;
+  const german = { ...tooltip(), text: { de: en } };
+  for (const empty of [
+    { ...tooltip(), text: {} },
+    { ...tooltip(), text: { en: { ...en!, text: ' \n' } } },
+    german,
+  ]) {
+    expect(clearedState(empty, marker, removal, true)).toBe('removal');
+    expect(clearedState(empty, removal, removal, false)).toBe('removed');
+    // Published without English, never published, and the global libraries keep their rules.
+    expect(clearedState(empty, marker, removal, false)).toBeUndefined();
+    expect(clearedState(empty, undefined, removal, true)).toBeUndefined();
+    expect(clearedState({ ...empty, hash: 2 }, marker, removal, true)).toBeUndefined();
+  }
+  expect(clearedState(tooltip(), marker, removal, true)).toBeUndefined();
+
+  // The derived move removes the row and its stubs, names the clear, and is never storable.
+  const cleared = withClearedMoves({}, [42]);
+  expect(await inactivePublishableHash(german, aliases, cleared)).toBe(removal);
+  expect(exportWithInactiveMoves([german, other()], 0, undefined, aliases, cleared)).toEqual(
+    exportLegacy([other()], 0),
+  );
+  const importer = other('import main from 77');
+  expect(() => exportWithInactiveMoves([german, importer], 0, undefined, aliases, cleared)).toThrow(
+    /imports cleared tooltip/,
+  );
+  const live = exportLegacy([tooltip(), importer], 0, undefined, aliases);
+  expect(() => applyInactiveLive(live, cleared, [42], aliases)).toThrow(/imports cleared tooltip/);
+  // A row that has its own published text is another publication, whatever the generator lists.
+  const own = { 42: live[42], 77: live[77], 99: exportLegacy([other()], 0)[99] };
+  const listed = { ...aliases, 99: { to: 42, kind: 'frame' as const } };
+  expect(applyInactiveLive(own, cleared, [42], listed)).toEqual({ 99: own[99] });
+  expect(inactiveMovesSchema.safeParse(cleared).success).toBe(false);
+  const review = await clearedReviewHash(german, marker);
+  expect(await clearedReviewHash(german, marker)).toBe(review);
+  expect(await clearedReviewHash(german, removal)).not.toBe(review);
+  expect(await clearedReviewHash({ ...german, text: {} }, marker)).not.toBe(review);
+  expect(withClearedMoves(moves, [])).toBe(moves);
+});
+
+it('cleared: takes a newly grouped name member exactly as an Inactive move does', () => {
+  // Any publish turns that member's own row into a stub (mergeLivePerks); the clear takes the stub.
+  const grouped = { 77: { to: 42, kind: 'name' as const } };
+  const catalog = { 42: { name: 'A', type: 'x' }, 77: { name: 'A', type: 'x' } };
+  const live = { 42: exportLegacy([tooltip()], 0)[42], 77: { ...other(), editor: {} } };
+  const remove = (state: InactiveMoves) =>
+    applyInactiveLive(
+      mergeLivePerks(live, {}, undefined, { aliases: grouped, catalog }),
+      state,
+      [42],
+      grouped,
+      live,
+    );
+  expect(remove(withClearedMoves({}, [42]))).toEqual(remove(moves));
+  expect(remove(moves)).toEqual({});
+});
 
 it('admits batches only after their canonical and alias move decisions are already published', async () => {
   const original = await publishableHash(tooltip(), aliases);

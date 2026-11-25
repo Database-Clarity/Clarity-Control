@@ -1,5 +1,6 @@
 import {
   exportWithInactiveMoves,
+  withoutEnglish,
   exportLegacy,
   globalPublishedSchema,
   activeAliases,
@@ -268,9 +269,17 @@ export function provePublication(
           );
   }
   const raw = exportGlobalsProof(documents, now, pub.options.facts, aliases, moves, options);
+  // `moves` adds the selected cleared removals to the stored ones.
+  const allMoves = { ...pub.movesAt(tree), ...moves };
   const merge = (entries: Receipt['exported']) => {
     try {
-      return pub.mergePublicationPerks(tree, live.perks, entries, hashes) as LegacyInput['perks'];
+      return pub.mergePublicationPerks(
+        tree,
+        live.perks,
+        entries,
+        hashes,
+        allMoves,
+      ) as LegacyInput['perks'];
     } catch (error) {
       throw new ConsumerOutputRejected(String(error));
     }
@@ -1250,7 +1259,10 @@ export function bundleInPlaceReview(
   if (renames.length) {
     for (const document of publishedDocuments(pub, tree, input, false)) {
       const updated = rewriteTooltip(document, renames);
-      if (updated !== document) rewritten.set(document.hash, updated);
+      // A review of a clear names the published marker itself: its text is never rename-only.
+      const saved = current[document.hash];
+      const clears = saved && withoutEnglish(saved) && !withoutEnglish(document);
+      if (updated !== document && !clears) rewritten.set(document.hash, updated);
     }
     rewritePushed(pub, tree, pushed, rewritten);
     const pendingIds = new Set(pending.map(({ id }) => id));

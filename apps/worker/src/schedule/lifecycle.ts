@@ -226,6 +226,7 @@ export async function scheduleBatch(
           aliases,
           active,
           scope,
+          { moves },
         )
       : new Map();
     aliases = scope?.aliases ?? aliases;

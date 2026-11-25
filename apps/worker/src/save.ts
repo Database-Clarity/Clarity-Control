@@ -4,6 +4,7 @@ import {
   aliasGroupsPath,
   languages,
   carryNumberTranslations,
+  clearsEnglish,
   hashSchema,
   globalsInPlacePath,
   isTranslatable,
@@ -26,6 +27,7 @@ import { RefRace, type GitHub } from './github.js';
 import { consumerAliasScope, withSandboxPointers } from './sandboxPointers.js';
 import { body, HttpError, json } from './http.js';
 import {
+  clearedSaveMessage,
   checkEdit,
   checkEnglishRevision,
   checkTranslationStamps,
@@ -34,6 +36,7 @@ import {
 } from './permissions.js';
 import type { Identity } from './types.js';
 import { refuseInPlaceSave } from './globals/inPlace.js';
+import { clearedStates } from './inactiveMoves.js';
 
 export const currentSaveRoles: Access['role'][] = ['maintainer', 'editor', 'trial', 'translator'];
 
@@ -227,6 +230,16 @@ export async function saveChanges(
       },
     );
     if ('conflicts' in plan) return plan;
+    const clears = input.changes.filter(({ base, next }) => clearsEnglish(base, next));
+    const cleared = await clearedStates(
+      github,
+      headCommit,
+      clears.map(({ next }) => next),
+      {},
+    );
+    for (const { hash } of clears)
+      if (cleared.get(hash)?.state !== 'removal')
+        throw new HttpError(422, clearedSaveMessage(hash));
     if (snapshot.files[1]) for (const tooltip of plan.tooltips) refuseInPlaceSave(tooltip);
     if (!Object.keys(plan.writes).length)
       return { commit: headCommit, tooltips: plan.tooltips, savedAt: Date.now() };

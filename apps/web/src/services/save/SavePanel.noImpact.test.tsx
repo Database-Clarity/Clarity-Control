@@ -134,7 +134,7 @@ describe('"No translation impact" in the save review', () => {
       expect.anything(),
       expect.anything(),
       undefined,
-      { noTranslationImpact: false },
+      { noTranslationImpact: false, clearing: true },
     );
     expect(mocks.save).toHaveBeenCalledWith(expect.anything(), 'Update 1 tooltip(s)', false);
     // German is based on English from 2026-01-01: a new English revision now puts it over the
@@ -151,7 +151,7 @@ describe('"No translation impact" in the save review', () => {
       expect.anything(),
       expect.anything(),
       undefined,
-      { noTranslationImpact: true },
+      { noTranslationImpact: true, clearing: true },
     );
     expect(mocks.save).toHaveBeenCalledWith(expect.anything(), 'Update 1 tooltip(s)', true);
     // Ticked, English keeps its revision: nothing falls back, the review revalidates without it.

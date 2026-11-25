@@ -35,7 +35,7 @@ import {
   storedAliasGroups,
   storedSandboxPointers,
 } from './sandboxPointers.js';
-import { storedInactiveMoves } from './inactiveMoves.js';
+import { clearedStates, storedInactiveMoves } from './inactiveMoves.js';
 import type { Identity } from './types.js';
 
 /**
@@ -149,6 +149,9 @@ async function loadAtHead(
     snapshots[`live/tooltips/${hash}.json`] = tooltip;
     exportedHashes[hash] = await inactivePublishableHash(tooltip, aliases, moves);
   }
+  // A clear needs one fence over both branches, which only the publisher has.
+  const [cleared] = (await clearedStates(github, head, tooltips, moves)).keys();
+  if (cleared !== undefined) throw new HttpError(422, `Tooltip ${cleared} has no text to publish`);
   for (const hash of canonicalHashes)
     if (expected && expected[hash] !== exportedHashes[hash])
       throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
@@ -169,6 +172,7 @@ async function loadAtHead(
       aliases,
       active,
       scope,
+      { moves },
     );
   aliases = scope?.aliases ?? aliases;
   // A malformed marker is reported by the marker step below; here it just means "all changed".

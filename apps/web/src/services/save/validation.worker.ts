@@ -11,11 +11,12 @@ self.onmessage = (
     revision: number;
     changes: Change[];
     fallback?: LiveFallback;
+    clearing?: boolean;
     data?: EditorData;
     plan?: { message: string; noTranslationImpact: boolean };
   }>,
 ) => {
-  const { id, revision, changes, fallback, data, plan } = event.data;
+  const { id, revision, changes, fallback, clearing, data, plan } = event.data;
   try {
     if (data) snapshot = { revision, data };
     if (!snapshot || snapshot.revision !== revision)
@@ -23,7 +24,7 @@ self.onmessage = (
     self.postMessage(
       plan
         ? { id, chunks: saveChunks(changes, snapshot.data, plan.message, plan.noTranslationImpact) }
-        : { id, issues: validateChanges(changes, snapshot.data, fallback) },
+        : { id, issues: validateChanges(changes, snapshot.data, fallback, clearing) },
     );
   } catch (error) {
     self.postMessage({ id, error: error instanceof Error ? error.message : String(error) });

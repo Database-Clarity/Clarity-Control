@@ -139,6 +139,16 @@ reads removed text. Edit/publish that importer first, or select its edit/removal
 target. Selections containing a removal stay in one dependency group within the existing Worker
 caps, so a previously saved importer edit and its target removal cannot split across chunks.
 
+Clearing the English text of a published tooltip (PIN capability `clearedRemovals`) publishes the
+same way: the saved text is the decision, nothing is added to `config/inactive.json`, and the
+published marker is the same removal marker. Only a row whose last published version
+(`live/tooltips`) has English counts, so an entry published empty stays as it is. It takes its own
+row and the live stubs that point at it, including a newly grouped name member, which any publish
+turns into a stub. Its saved
+translations stay saved and unpublished. The bundle names the tooltips whose saved text gained or
+lost its English since their publish (`englishChanged`, absent while there are none). Batches never
+carry a clear, and a removed tooltip publishes again once it has English.
+
 Request creation is head-bound CAS. A caller must consult `classifyPublishIntent` at each fresh head;
 creation timestamps are checked only for a new operation. No coalescing is implemented; scheduled
 batches (`kind: 'batch'`) are described in "Scheduled batches (P4)" below.
@@ -192,8 +202,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `f44a85a3926e14f692b4243156538af55545d894` (v2).
-Runtime SHA-256: `127615670bcff7bc7ff9992acbb42f87cabc092be6e6198c46e5c9f475e2da4b`.
+Current template source: `53591a2a52ff1e7cba0c9a21442e729360620525` (v2).
+Runtime SHA-256: `767bbbb9208e1c44f6dc6d0d3c353ca0a638015db4ea45bf69a79b716875bd0a`.
 
 The `exoticTags` capability declares lowering of `<exotic … />` to the compatible
 `yellow` consumer style, including comment-split keywords. While publishing is enabled,

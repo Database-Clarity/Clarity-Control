@@ -7,8 +7,6 @@ import {
   activeAliases,
   exportWithInactiveMoves,
   applyInactiveLive,
-  inactiveMovesPath,
-  inactiveMovesSchema,
   inactivePublishableHash,
   isMovedInactive,
   selectedInactiveMoves,
@@ -200,16 +198,18 @@ async function ordinaryParity() {
   const picks = atSource(sandboxPointersPath);
   const groups = atSource(aliasGroupsPath);
   const aliases = Publisher.aliasesAt(config, groups, picks);
-  const moves = git('ls-tree', '--name-only', receipt.sourceCommit, '--', inactiveMovesPath).trim()
-    ? inactiveMovesSchema.parse(read(receipt.sourceCommit, inactiveMovesPath))
-    : {};
+  const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
+  const payload = JSON.parse(request.payload);
+  const source = new Publisher(readOnly, config as Options);
+  const moves =
+    payload.kind === 'push'
+      ? source.movesWithCleared(sourceTree(), tooltips)
+      : source.movesAt(sourceTree());
   // Digests include incoming aliases: verify with the same merged aliases the publisher used.
   for (let i = 0; i < tooltips.length; i++)
     if ((await inactivePublishableHash(tooltips[i], aliases, moves)) !== receipt.entries[i].digest)
       throw new Error('Receipt digest mismatch');
   const hashes = tooltips.map((tooltip) => tooltip.hash);
-  const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
-  const payload = JSON.parse(request.payload);
   const fence = globalsInPlaceFenceSchema.optional().parse(atSource(globalsInPlacePath));
   if (Boolean(receipt.inPlace) !== Boolean(fence) || (fence && fence.state !== 'active'))
     throw new Error('Receipt belongs to a different shared-text mode');

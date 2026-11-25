@@ -1,4 +1,6 @@
 import {
+  clearedEnglishMessage,
+  clearsEnglish,
   countConflicts,
   emptyEnglishMessage,
   hasTooltipText,
@@ -14,6 +16,7 @@ import {
   type TooltipValidationIssue,
 } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
+import { publishedEnglish } from '../publishedEnglish';
 import type { EditorData } from '../../stores/data';
 import type { Change } from '../api';
 import { saveDependencies } from './dependencies';
@@ -84,6 +87,8 @@ export function validateChanges(
   changes: Change[],
   data: EditorData,
   fallback: LiveFallback = {},
+  /** Whether this save may clear the English text of a published tooltip. */
+  clearing = false,
 ): TooltipValidationIssue[] {
   const tooltips = { ...data.bundle.tooltips };
   for (const change of changes) {
@@ -139,7 +144,13 @@ export function validateChanges(
         .map((issue) =>
           !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
             ? { ...issue, message: noTooltipYet }
-            : issue,
+            : clearing &&
+                issue.lang === 'en' &&
+                issue.message === emptyEnglishMessage &&
+                clearsEnglish(base, next) &&
+                publishedEnglish(data, next.hash)
+              ? { ...issue, severity: 'warning' as const, message: clearedEnglishMessage }
+              : issue,
         )
         .filter(
           (issue) =>

@@ -91,7 +91,10 @@ export const publishDriver = new PublishDriver({
         ...Object.fromEntries(
           op.hashes.map((hash) => [
             hash,
-            { digest: op.expected[hash]!, previous: op.previous[hash] ?? undefined },
+            {
+              digest: op.markers?.[hash] ?? op.expected[hash]!,
+              previous: op.previous[hash] ?? undefined,
+            },
           ]),
         ),
       },

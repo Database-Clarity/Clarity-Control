@@ -9,6 +9,7 @@ import {
 import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
 import { isFolded, type GlobalPart } from './globalRows';
 import type { Lane } from './lanes';
+import { clearedTooltips } from './cleared';
 import { globalEntries } from './globalsPending';
 import { heldSetBonus } from './setBonusHold';
 import { useReviewQueue } from './queueStore';
@@ -45,6 +46,8 @@ export interface PendingTooltip {
   /** Saved version from the existing pending comparison; absent if the saved text is unavailable. */
   savedVersion?: string;
   inactiveChange?: 'remove' | 'restore';
+  /** The removal is of cleared English text, not of a move to Inactive. */
+  cleared?: true;
   inactiveAliases?: number[];
   /** The pending definition of a global row. */
   part?: GlobalPart;
@@ -188,18 +191,27 @@ async function computePending(
     if (!sources[hash] && (isMovedInactive(hash, moves) || pushed[hash]))
       sources[hash] = { hash, text: {}, associated: [] };
   }
+  const cleared = await clearedTooltips(data, pushed);
   const tooltips = Object.values(sources).filter(
     (tooltip) =>
-      (!isTextlessDescription(tooltip) || isMovedInactive(tooltip.hash, moves)) &&
+      (isMovedInactive(tooltip.hash, moves) ||
+        cleared.get(tooltip.hash) === 'removal' ||
+        (!isTextlessDescription(tooltip) && !cleared.has(tooltip.hash))) &&
       resolveAlias(tooltip.hash, data.aliases) === tooltip.hash &&
       // Globals filled into tooltips have no files of their own to publish.
       !globalAggregates.includes(tooltip.hash),
   );
   const digests = await fingerprintDigests(tooltips, activeAliases(data.aliases, moves));
+  // A row can compare with a removal marker: a move, a clear, or text typed back after a clear.
+  const compared = tooltips.filter(({ hash }, index) => {
+    const marker = pushed[hash];
+    const saved = digests[index]!;
+    return marker !== undefined && marker !== saved.hash && marker !== saved.bare;
+  });
   const removals = new Map(
     await Promise.all(
-      Object.keys(moves).map(
-        async (key) => [Number(key), await inactiveRemovalHash(Number(key))] as const,
+      [...new Set([...Object.keys(moves).map(Number), ...compared.map(({ hash }) => hash)])].map(
+        async (hash) => [hash, await inactiveRemovalHash(hash)] as const,
       ),
     ),
   );
@@ -210,7 +222,8 @@ async function computePending(
   const built = (data.tooltipSnapshot ?? data.bundle).tooltips;
   const entries = tooltips.map((tooltip, index) => {
     const pushedMarker = pushed[tooltip.hash];
-    const removing = isMovedInactive(tooltip.hash, moves);
+    const clearing = cleared.has(tooltip.hash);
+    const removing = clearing || isMovedInactive(tooltip.hash, moves);
     const saved = digests[index];
     if ((removing ? removals.get(tooltip.hash) : saved.hash) === pushedMarker) return null;
     const item = data.items[tooltip.hash];
@@ -251,6 +264,7 @@ async function computePending(
         : restoring
           ? { inactiveChange: 'restore' as const }
           : {}),
+      ...(clearing ? { cleared: true as const } : {}),
       ...(inactiveAliases.length ? { inactiveAliases } : {}),
       ...(translationOnly
         ? listed

@@ -92,6 +92,8 @@ export const usePublishState = create<PublishState>(() => ({
 export interface PublishInput {
   hash: number;
   digest: string;
+  /** The marker this row publishes as, where the reviewed digest is another one (a clear). */
+  marker?: string;
   previous: string | undefined;
   /** Publication proofs required by this row, one per stored language or removal. */
   consumers?: number;
@@ -322,6 +324,13 @@ export class PublishDriver {
         hashes: chunk.map((input) => input.hash),
         expected: Object.fromEntries(chunk.map((input) => [input.hash, input.digest])),
         previous: Object.fromEntries(chunk.map((input) => [input.hash, input.previous ?? null])),
+        ...(chunk.some(({ marker }) => marker)
+          ? {
+              markers: Object.fromEntries(
+                chunk.flatMap(({ hash, marker }) => (marker ? [[hash, marker]] : [])),
+              ),
+            }
+          : {}),
         // First, so the parts that use a new global find it published.
         ...(chunks.length === 0 && globals.length ? { globals } : {}),
         ...(switched ? { switched: true as const } : {}),
@@ -688,6 +697,9 @@ export class PublishDriver {
           hashes: part.flatMap((op) => op.hashes),
           expected: Object.assign({}, ...part.map((op) => op.expected)),
           previous: Object.assign({}, ...part.map((op) => op.previous)),
+          ...(part.some((op) => op.markers)
+            ? { markers: Object.assign({}, ...part.map((op) => op.markers)) }
+            : {}),
           ...(globals.length ? { globals } : {}),
           ...(first.switched ? { switched: true as const } : {}),
           status: 'created',

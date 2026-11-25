@@ -4,6 +4,7 @@ import {
   type Lang,
   type MarkupGlobals,
   type NumberMap,
+  type RequireEnglish,
   type ValidationIssue,
 } from '@clarity/core';
 import { StateEffect, StateField } from '@codemirror/state';
@@ -22,7 +23,7 @@ export function validateEditorText(
   text: string,
   lang: Lang,
   globals: MarkupGlobals,
-  requireEnglish = true,
+  requireEnglish: RequireEnglish = true,
   selfHash?: number,
 ) {
   const importFree = !hasImportDependencies(text, globals);
@@ -71,7 +72,7 @@ const asyncDiagnostics = StateField.define({
 export function validationDiagnostics(
   lang: Lang,
   globals: MarkupGlobals,
-  requireEnglish = true,
+  requireEnglish: RequireEnglish = true,
   selfHash: () => number | undefined = () => undefined,
   sourceText: () => string | undefined = () => undefined,
   sourceNumbers: () => NumberMap | undefined = () => undefined,

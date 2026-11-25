@@ -7,6 +7,7 @@ type Reply = { id: number; issues?: TooltipValidationIssue[]; chunks?: Change[][
 type Request = {
   changes: Change[];
   fallback?: LiveFallback;
+  clearing?: boolean;
   plan?: { message: string; noTranslationImpact: boolean };
 };
 
@@ -83,21 +84,22 @@ export function requestSaveValidation(
   changes: Change[],
   data: EditorData,
   fallback: LiveFallback = {},
+  clearing = false,
 ): Promise<TooltipValidationIssue[]> {
   let cache = results.get(data);
   if (!cache) results.set(data, (cache = new Map()));
   const live = Object.keys(fallback).length ? fallback : undefined;
-  const key = live
-    ? `${JSON.stringify(changes)}\n${JSON.stringify(live)}`
-    : JSON.stringify(changes);
+  const key = `${JSON.stringify(changes)}${live ? `\n${JSON.stringify(live)}` : ''}${clearing ? '\nclearing' : ''}`;
   const cached = cache.get(key);
   if (cached) return cached;
-  const promise = request(data, { changes, ...(live ? { fallback: live } : {}) }).then(
-    ({ issues }) => {
-      if (!issues) throw new Error('Save validation result missing.');
-      return issues;
-    },
-  );
+  const promise = request(data, {
+    changes,
+    ...(live ? { fallback: live } : {}),
+    ...(clearing ? { clearing } : {}),
+  }).then(({ issues }) => {
+    if (!issues) throw new Error('Save validation result missing.');
+    return issues;
+  });
   cache.set(key, promise);
   if (cache.size > 16) cache.delete(cache.keys().next().value!);
   // Failed jobs can be retried on reopening the review.

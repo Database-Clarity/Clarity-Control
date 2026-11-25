@@ -33,7 +33,14 @@ export const inactiveMovesSchema = z.record(
     })
     .strict(),
 );
-export type InactiveMoves = z.infer<typeof inactiveMovesSchema>;
+/**
+ * `cleared` is never stored: it marks a removal derived from a published tooltip's cleared English
+ * (`withClearedMoves`), so the same removal path applies and its refusals name the cleared text.
+ */
+export type InactiveMoves = Record<
+  string,
+  z.infer<typeof inactiveMovesSchema>[string] & { cleared?: true }
+>;
 
 /** Item identity is deliberate: moving an alias suppresses that stub alone. */
 export function isMovedInactive(hash: number, moves: InactiveMoves | undefined): boolean {
@@ -64,12 +71,74 @@ export async function inactivePublishableHash(
   return publishableHash(tooltip, activeAliases(aliases, moves));
 }
 
+/** The published removal marker is the SHA-256 of this text. */
+export const inactiveRemovalInput = (hash: number) => stableStringify({ inactive: hash });
+
 /** Stable published removal marker, including for an item with no stored tooltip. */
 export async function inactiveRemovalHash(hash: number): Promise<string> {
-  const bytes = new TextEncoder().encode(stableStringify({ inactive: hash }));
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return sha256(inactiveRemovalInput(hash));
+}
+
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
+
+export const clearedRemovalsCapability = 'clearedRemovals';
+
+/** No English of its own. The global libraries (1 to 3) are never descriptions. */
+export const withoutEnglish = (tooltip: Tooltip) =>
+  tooltip.hash > 3 && !tooltip.text.en?.text.trim();
+
+/**
+ * A tooltip whose English was cleared (owner 2026-11-25: "Review lists it as "Removed", and
+ * publishing takes it out"): `removal` while the published version still has English, `removed`
+ * once its removal is published. Everything else keeps its rules: never published, or published
+ * without English. `isMovedInactive` is decided first.
+ */
+export function clearedState(
+  tooltip: Tooltip,
+  marker: string | undefined,
+  removalMarker: string,
+  publishedEnglish: boolean,
+): 'removal' | 'removed' | undefined {
+  if (!withoutEnglish(tooltip) || marker === undefined) return undefined;
+  if (marker === removalMarker) return 'removed';
+  return publishedEnglish ? 'removal' : undefined;
+}
+
+/** Whether a save clears a tooltip's English. */
+export const clearsEnglish = (base: Tooltip | null, next: Tooltip) =>
+  !!base && !withoutEnglish(base) && withoutEnglish(next);
+
+/** What a reviewed clear names: the saved text, and the published version it removes. */
+export const clearedReviewInput = ({ hash, text }: Tooltip, marker: string | undefined) =>
+  stableStringify({ cleared: hash, text, published: marker });
+
+/** The reviewed digest of a clear; its published marker is the removal marker. */
+export async function clearedReviewHash(
+  tooltip: Tooltip,
+  marker: string | undefined,
+): Promise<string> {
+  return sha256(clearedReviewInput(tooltip, marker));
+}
+
+/** The moves a publish of these cleared tooltips applies (selected rows only, never stored). */
+export function withClearedMoves(moves: InactiveMoves, cleared: Iterable<number>): InactiveMoves {
+  const hashes = [...cleared];
+  return hashes.length
+    ? {
+        ...moves,
+        ...Object.fromEntries(
+          hashes.map((hash) => [hash, { by: 0, at: '', cleared: true as const }]),
+        ),
+      }
+    : moves;
+}
+
+/** How a refusal names a removed target. */
+const removedKind = (hash: number, moves: InactiveMoves, aliases: Aliases) =>
+  (moves[hash] ?? moves[resolveAlias(hash, aliases)])?.cleared ? 'cleared' : 'inactive';
 
 export const unreviewedInactiveMessage =
   'Publish inactive move decisions in Review changes before scheduling or publishing this batch';
@@ -160,7 +229,9 @@ export function exportWithInactiveMoves(
     for (const tooltip of kept) {
       for (const hash of tooltip.associated)
         if (isMovedInactive(resolveAlias(hash, aliases), moves))
-          throw new Error(`Tooltip ${tooltip.hash} associates inactive tooltip ${hash}`);
+          throw new Error(
+            `Tooltip ${tooltip.hash} associates ${removedKind(hash, moves, aliases)} tooltip ${hash}`,
+          );
       const text = imports[tooltip.hash];
       if (!text) continue;
       const { reads } = validateTextWithReads(
@@ -177,7 +248,9 @@ export function exportWithInactiveMoves(
       );
       for (const [key, hash] of reads.imports)
         if (isMovedInactive(hash, moves) || isMovedInactive(Number(key), moves))
-          throw new Error(`Tooltip ${tooltip.hash} imports inactive tooltip ${hash} (${language})`);
+          throw new Error(
+            `Tooltip ${tooltip.hash} imports ${removedKind(hash, moves, aliases)} tooltip ${hash} (${language})`,
+          );
     }
   }
   // Keep the original alias map for canonical identity checks, then suppress moved stubs.
@@ -224,7 +297,10 @@ export function applyInactiveLive(
       for (const [stub, value] of Object.entries(result))
         if (
           (record(value) && value.aliasOf === hash) ||
-          (Object.hasOwn(aliases, stub) && resolveAlias(Number(stub), aliases) === hash)
+          // A clear takes only its own stubs: a row with its own text is another publication.
+          (!selected[key]!.cleared &&
+            Object.hasOwn(aliases, stub) &&
+            resolveAlias(Number(stub), aliases) === hash)
         )
           erase(Number(stub));
   }
@@ -258,7 +334,9 @@ export function applyInactiveLive(
               typeof hash === 'number' &&
               (removed.has(hash) || removed.has(resolveAlias(hash, liveAliases)))
             )
-              throw new Error(`Tooltip ${key} associates inactive tooltip ${hash}`);
+              throw new Error(
+                `Tooltip ${key} associates ${removedKind(hash, moves, liveAliases)} tooltip ${hash}`,
+              );
         const text = imports[key];
         if (!text) continue;
         const { reads } = validateTextWithReads(
@@ -276,7 +354,7 @@ export function applyInactiveLive(
         for (const [source, hash] of reads.imports)
           if (removed.has(hash) || removed.has(Number(source)))
             throw new Error(
-              `Tooltip ${key} imports inactive tooltip ${hash} (${language}, ${field})`,
+              `Tooltip ${key} imports ${removedKind(hash, moves, liveAliases)} tooltip ${hash} (${language}, ${field})`,
             );
       }
     }

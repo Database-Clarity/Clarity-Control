@@ -471,6 +471,41 @@ describe.each(['simulator', 'remote'] as const)('%s: scheduled batch core path',
     },
   );
 
+  it.each(['clears it', 'was cleared and removed before'] as const)(
+    'cleared: never publishes a batch without English that %s',
+    async (kind) => {
+      const f = await setup(transport);
+      const german = { ...tip().text.en!, text: 'Deutsch' };
+      const published = { ...tip(), text: { ...tip().text, de: german } };
+      const empty = {
+        ...published,
+        text: {
+          de: german,
+          en: { ...published.text.en!, text: '', updatedAt: '2026-11-20T00:00:00Z' },
+        },
+      };
+      const removed = kind !== 'clears it';
+      const base = removed ? empty : published;
+      f.change(D, {
+        'tooltips/123.json': base,
+        'live/tooltips/123.json': base,
+        'live/pushed.json': {
+          123: removed ? await inactiveRemovalHash(123) : await publishableHash(published),
+        },
+      });
+      const proposed = removed
+        ? { ...empty, text: { ...empty.text, de: { ...german, text: 'Neu' } } }
+        : empty;
+      await f.schedule([{ hash: 123, base, proposed }]);
+      const before = f.git.head(L);
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(before);
+      expect(f.read(paths(OP).log)).toMatchObject({
+        result: { status: 'rejected', error: expect.stringContaining('no text') },
+      });
+    },
+  );
+
   it('inactive: allows an already published alias exclusion without restoring its pick stub', async () => {
     const f = await setup(transport);
     f.options.sandboxConflicts = { 700: [123, 124] };
@@ -1817,6 +1852,7 @@ describe('scheduled batches (simulator)', () => {
       'aliasGroupRemovals',
       'globalsInPlaceV1',
       'translationPublishV1',
+      'clearedRemovals',
     ]);
     const f = await setup();
     // The dry-run CLI runs on the real clock: schedule a batch that is long due.

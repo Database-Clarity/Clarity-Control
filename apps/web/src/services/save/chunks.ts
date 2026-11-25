@@ -111,7 +111,8 @@ export function saveChunks(
     const fallback = Object.fromEntries(
       chunk.map(({ hash, next }) => [hash, fallbackLanguages(next)]),
     );
-    const issue = validateChanges(chunk, snapshot, fallback).find(
+    // Whether the save may clear English text was decided before it was split.
+    const issue = validateChanges(chunk, snapshot, fallback, true).find(
       ({ severity }) => severity === 'error',
     );
     if (issue)

@@ -1,12 +1,20 @@
 import { z } from 'zod';
 import {
+  clearedRemovalsCapability,
+  clearedReviewHash,
+  clearedState,
   hashSchema,
+  inactiveRemovalHash,
   isMovedInactive,
   inactiveMovesCapability,
   inactiveMovesPath,
   inactiveMovesSchema,
   permissionsSchema,
+  pushedSchema,
+  tooltipSchema,
+  withoutEnglish,
   type InactiveMoves,
+  type Tooltip,
 } from '@clarity/core';
 import { blobContent, blobSha, RefRace, type GitHub, type RepoFile } from './github.js';
 import { body, HttpError, json } from './http.js';
@@ -36,6 +44,56 @@ export function storedInactiveMoves(file: RepoFile | null | undefined): Inactive
 export function pinAppliesInactiveMoves(pin: unknown): boolean {
   const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
   return Array.isArray(capabilities) && capabilities.includes(inactiveMovesCapability);
+}
+
+/** Whether the installed publisher removes a published tooltip whose English was cleared. */
+export function pinRemovesCleared(pin: unknown): boolean {
+  const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
+  return Array.isArray(capabilities) && capabilities.includes(clearedRemovalsCapability);
+}
+
+/**
+ * Each document's cleared state at `head` (core clearedState), for the ones that have one, and the
+ * digest a review of it names. One read of the published markers and versions, and only when a
+ * document has no English.
+ */
+export async function clearedStates(
+  github: GitHub,
+  head: string,
+  documents: readonly Tooltip[],
+  moves: InactiveMoves,
+) {
+  const states = new Map<number, { state: 'removal' | 'removed'; reviewed: string }>();
+  const candidates = documents.filter(
+    (document) => withoutEnglish(document) && !isMovedInactive(document.hash, moves),
+  );
+  if (!candidates.length) return states;
+  const [markers, ...versions] = await github.files(
+    ['live/pushed.json', ...candidates.map(({ hash }) => `live/tooltips/${hash}.json`)],
+    head,
+  );
+  // Only these markers: the whole schema over every published row costs request CPU.
+  const all = (markers?.value ?? {}) as Record<string, unknown>;
+  const pushed = pushedSchema.parse(
+    Object.fromEntries(
+      candidates.flatMap(({ hash }) => (Object.hasOwn(all, hash) ? [[hash, all[hash]]] : [])),
+    ),
+  );
+  for (const [index, document] of candidates.entries()) {
+    const published = tooltipSchema.safeParse(versions[index]?.value).data;
+    const state = clearedState(
+      document,
+      pushed[document.hash],
+      await inactiveRemovalHash(document.hash),
+      !!published && !withoutEnglish(published),
+    );
+    if (state)
+      states.set(document.hash, {
+        state,
+        reviewed: await clearedReviewHash(document, pushed[document.hash]),
+      });
+  }
+  return states;
 }
 
 /** One-item mutation, whole-file CAS, and permissions rechecked on every ref-race retry. */

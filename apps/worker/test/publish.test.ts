@@ -1,6 +1,12 @@
 import { createHash, generateKeyPairSync, createPublicKey } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { publishMonth, publishableHash, type PublishPayload } from '@clarity/core';
+import {
+  clearedReviewHash,
+  inactiveRemovalHash,
+  publishMonth,
+  publishableHash,
+  type PublishPayload,
+} from '@clarity/core';
 import { Fixture, makePrivateKey, config, tooltip } from './fixture.js';
 import worker from '../src/index.js';
 import { Publisher } from '../../../scripts/publisher/publisher.js';
@@ -457,6 +463,117 @@ it('refuses signing a written tooltip whose association points at a link-only re
   expect(response.status).toBe(422);
   expect(f.current()[requestPath]).toBeUndefined();
 });
+
+const cleared = {
+  ...tooltip(),
+  text: { en: { ...tooltip().text.en!, text: '' }, de: { ...tooltip().text.en!, text: 'Text' } },
+};
+async function clearPublished(over: Record<string, unknown> = {}) {
+  f.moveData({
+    '.publisher/PIN': { capabilities: ['inactiveMoves', 'clearedRemovals'] },
+    'tooltips/123.json': cleared,
+    'live/tooltips/123.json': tooltip(),
+    'live/pushed.json': { 123: await publishableHash(tooltip(), f.aliases) },
+    ...over,
+  });
+  const marker = await publishableHash(tooltip(), f.aliases);
+  return { ...value, expected: { 123: await clearedReviewHash(cleared, marker) } };
+}
+const inPlace = (capabilities: string[]) => ({
+  '.publisher/PIN': { capabilities: ['inactiveMoves', 'globalsInPlaceV1', ...capabilities] },
+  'config/globals-in-place.json': {
+    state: 'active',
+    destination: f.env.LIVE_BRANCH,
+    legacyData: 'a'.repeat(40),
+    legacyLive: 'a'.repeat(40),
+    migratedLive: 'a'.repeat(40),
+  },
+});
+
+it('never gives a publisher from before cleared removals one of them', async () => {
+  const url = '/publish?contract=shared-definitions-v1';
+  const input = await clearPublished(inPlace([]));
+  const refused = await f.request(url, 'POST', input, 2);
+  expect(refused.status).toBe(409);
+  expect(await refused.text()).toContain('clearedRemovals');
+  expect(f.current()[requestPath]).toBeUndefined();
+  // Its other rows go through, and a current publisher needs no extra read.
+  f.moveData({ ...inPlace([]), 'tooltips/123.json': tooltip() });
+  expect((await f.request(url, 'POST', value, 2)).status).toBe(202);
+});
+
+it('signs a cleared row on an active globals fence without another read', async () => {
+  const url = '/publish?contract=shared-definitions-v1';
+  const input = await clearPublished(inPlace(['clearedRemovals']));
+  expect((await f.request(url, 'POST', input, 2)).status).toBe(202);
+  const cost = f.subrequests;
+  f = new Fixture(appKey);
+  f.env.PUBLISH_SIGNING_KEY = generateKeyPairSync('ed25519')
+    .privateKey.export({ type: 'pkcs8', format: 'pem' })
+    .toString();
+  f.moveData(inPlace(['clearedRemovals']));
+  expect((await f.request(url, 'POST', value, 2)).status).toBe(202);
+  expect(f.subrequests).toBe(cost);
+});
+
+it('signs the removal of a cleared published tooltip with one extra read', async () => {
+  const input = await clearPublished();
+  const response = await f.request('/publish', 'POST', input, 2);
+  expect(response.status).toBe(202);
+  // The ordinary signing test counts 7.
+  expect(f.subrequests).toBe(8);
+  expect(payload()).toMatchObject({ hashes: [123], expected: input.expected });
+});
+
+it.each([
+  ['an older publisher', { '.publisher/PIN': { capabilities: ['inactiveMoves'] } }, 409],
+  ['another published version', { 'live/pushed.json': { 123: 'b'.repeat(64) } }, 409],
+  ['text typed back', { 'tooltips/123.json': tooltip() }, 409],
+  ['a version published without English', { 'live/tooltips/123.json': { ...cleared } }, 409],
+  ['an unreadable published version', { 'live/tooltips/123.json': { hash: 123 } }, 409],
+  ['no published version', { 'live/pushed.json': {} }, 409],
+] as const)('refuses the removal of a cleared tooltip for %s', async (_name, over, status) => {
+  const input = await clearPublished(over);
+  expect((await f.request('/publish', 'POST', input, 2)).status).toBe(status);
+  expect(f.current()[requestPath]).toBeUndefined();
+});
+
+it('refuses a second removal, and a translation of a removed tooltip', async () => {
+  const removed = { 'live/pushed.json': { 123: await inactiveRemovalHash(123) } };
+  const input = await clearPublished(removed);
+  expect((await f.request('/publish', 'POST', input, 2)).status).toBe(409);
+  const own = { ...value, expected: { 123: await publishableHash(cleared, f.aliases) } };
+  expect((await f.request('/publish', 'POST', own, 2)).status).toBe(409);
+  expect(f.current()[requestPath]).toBeUndefined();
+});
+
+it.each(['import', 'association'] as const)(
+  'refuses publishing a reader of a cleared tooltip by %s, with or without its removal',
+  async (kind) => {
+    const reader = {
+      ...tooltip(kind === 'import' ? 'import main from 123' : 'Own text'),
+      hash: 125,
+      associated: kind === 'association' ? [123] : [],
+    };
+    const input = await clearPublished({ 'tooltips/125.json': reader });
+    const expected = { ...input.expected, 125: await publishableHash(reader, f.aliases) };
+    for (const hashes of [[125], [123, 125], [125, 123]]) {
+      const response = await f.request(
+        '/publish',
+        'POST',
+        {
+          ...input,
+          hashes,
+          expected: Object.fromEntries(hashes.map((hash) => [hash, expected[hash as 123 | 125]])),
+        },
+        2,
+      );
+      expect(response.status).toBe(422);
+      expect(await response.text()).toMatch(/(imports|associates) cleared tooltip 123/);
+    }
+    expect(f.current()[requestPath]).toBeUndefined();
+  },
+);
 
 it('allows signing an intentionally emptied reserved global library', async () => {
   const global = {

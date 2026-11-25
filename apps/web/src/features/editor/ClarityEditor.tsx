@@ -46,6 +46,7 @@ import {
   type NumberMap,
   type RetiredFix,
   type RetiredOccurrence,
+  type RequireEnglish,
 } from '@clarity/core';
 import { clarityHighlighting, clarityLanguage } from './language';
 import { numberSource } from './numbers/model';
@@ -202,7 +203,7 @@ export interface ClarityEditorProps {
   globals: ScopedMarkupGlobals;
   readOnly?: boolean;
   pending?: boolean;
-  requireEnglish?: boolean;
+  requireEnglish?: RequireEnglish;
   highlightLine?: number;
   /** Why the text cannot be edited, shown in the status bar. */
   readOnlyReason?: string | null;
@@ -264,7 +265,7 @@ function configuration(
   lang: Lang,
   globals: MarkupGlobals,
   readOnly: boolean,
-  requireEnglish: boolean,
+  requireEnglish: RequireEnglish,
   references: EditorReferences,
   onSuggest: (snapshot: SuggestSnapshot | null) => void,
   chips: { acceptKey(): SuggestAccept; onChange(chip: Chip | null): void },

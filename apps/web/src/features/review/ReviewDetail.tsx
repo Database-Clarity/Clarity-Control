@@ -159,7 +159,9 @@ export function Sentence({
           <b>Removes this {noun}.</b>{' '}
           {entry.part
             ? 'Tooltips can no longer use it.'
-            : 'It and its alias copies leave every output. The saved text stays editable.'}
+            : entry.cleared
+              ? 'Its English text was cleared. It and its alias copies leave every output. Saved translations stay editable.'
+              : 'It and its alias copies leave every output. The saved text stays editable.'}
         </p>
       );
     case 'Restored':
