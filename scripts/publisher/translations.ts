@@ -67,6 +67,7 @@ import type { Publisher, Receipt } from './publisher.js';
 
 export const translationRootsPath = 'live/translation-roots.json';
 export const translationLivePath = 'liveDescriptions.json';
+export const translationPlanTimeout = 45_000;
 const snapshotPath = (hash: number) => `live/tooltips/${hash}.json`;
 const json = (value: unknown) => JSON.stringify(value, null, 2) + '\n';
 const same = (a: unknown, b: unknown) => stableStringify(a ?? null) === stableStringify(b ?? null);
@@ -104,7 +105,10 @@ export class TranslationPartRefusal extends Error {
   }
 }
 
-const translationWorkLimit = 2_000_000;
+const translationLengthLimit = 2_000_000;
+// Corpus maxima at the pinned TEST and production heads were 63,747 scan work and
+// 13,328 code units of import work. Both limits are over 100 times those maxima.
+const translationScanLimit = 6_500_000;
 
 class TranslationCheckLimit extends RowRefusal {
   constructor() {
@@ -131,13 +135,15 @@ export function translationCheckRefusal(
 
 export function translationTextWork(text: string) {
   let work = text.length;
-  // Tag scans can revisit the remaining characters on the same line for each opener.
-  for (const line of text.split('\n')) work += line.length * (line.match(/</g)?.length ?? 0);
+  // An opener can cause another scan of the remaining text, including across lines.
+  // The comment matcher retries at every position within a run of spaces.
+  for (const [token] of text.matchAll(/ +|<|\$\{|title [a-zA-Z0-9]|#[a-zA-Z0-9]/g))
+    work += token[0] === ' ' ? token.length ** 2 : text.length;
   return work;
 }
 
 function checkTranslationText(text: string) {
-  if (text.length > translationWorkLimit || translationTextWork(text) > translationWorkLimit)
+  if (text.length > translationLengthLimit || translationTextWork(text) > translationScanLimit)
     throw new TranslationCheckLimit();
 }
 
@@ -289,7 +295,7 @@ function effectFacts(
           const imported = value.editor[language];
           if (imported) importWork += imported.main.length + imported.secondary.length;
         }
-        if (importWork > translationWorkLimit) throw new TranslationCheckLimit();
+        if (importWork > translationLengthLimit) throw new TranslationCheckLimit();
       }
       return value;
     },
@@ -651,8 +657,9 @@ export async function planTranslations(
   tree: Tree,
   live: string,
   payload: TranslationPublishPayload,
+  timeout = translationPlanTimeout,
 ) {
-  const deadline = performance.now() + 45_000;
+  const deadline = performance.now() + Math.min(timeout, translationPlanTimeout);
   const checkTime = () => {
     if (performance.now() >= deadline) throw translationCheckRefusal(payload.rows);
   };

@@ -125,7 +125,9 @@ import {
   liveTranslationAliases,
   planTranslations,
   TranslationPartRefusal,
+  translationCheckRefusal,
   translationLivePath,
+  translationPlanTimeout,
   translationRoots,
   translationRootsPath,
   translationRuntimeInstalled,
@@ -1204,10 +1206,14 @@ export class Publisher {
     live: string,
     payload: TranslationPublishPayload,
     now = this.options.now(),
+    deadline?: number,
   ): Promise<Receipt> {
+    const timeout = deadline === undefined ? undefined : Math.floor(deadline - performance.now());
+    if (timeout !== undefined && timeout <= 0)
+      throw translationCheckRefusal(payload.rows, 'review-changed');
     const plan = this.translationWork
-      ? await this.translationWork.plan(this.git, this.options, source, live, payload)
-      : await planTranslations(this, this.git.tree(source), live, payload);
+      ? await this.translationWork.plan(this.git, this.options, source, live, payload, timeout)
+      : await planTranslations(this, this.git.tree(source), live, payload, timeout);
     return {
       opId: payload.opId,
       requestBlob: blob,
@@ -1233,7 +1239,7 @@ export class Publisher {
     };
   }
 
-  async verifyTranslationReceipt(receipt: Receipt, candidate: string) {
+  async verifyTranslationReceipt(receipt: Receipt, candidate: string, deadline?: number) {
     const parents = this.git.commitParents(candidate);
     if (parents.length !== 1 || parents[0] !== receipt.liveParent)
       throw new ConsumerOutputRejected(
@@ -1286,6 +1292,7 @@ export class Publisher {
       receipt.liveParent,
       signed,
       receipt.now,
+      deadline,
     );
     if (stableStringify(expected) !== stableStringify(receipt))
       throw new ConsumerOutputRejected(
@@ -1350,8 +1357,13 @@ export class Publisher {
     },
     requestBlob?: string,
     landing?: Landing,
-    atomicLive?: { parent: string; candidate: string; runtime?: Tree },
-    failureHead?: string,
+    atomicLive?: {
+      parent: string;
+      candidate: string;
+      runtime?: Tree;
+      translationDeadline?: number;
+    },
+    refusalFence?: string | { requestBlob: string },
   ) {
     const p = paths(opId);
     let inPlace: Awaited<ReturnType<Publisher['verifyReceiptDigests']>> | undefined;
@@ -1361,15 +1373,16 @@ export class Publisher {
         tree = this.git.tree(h);
       requireGlobalsMode(this, tree);
       if (tree[p.log]) return;
-      if (receipt?.translations)
-        scoped ??= await this.verifyTranslationReceipt(receipt, candidate!);
-      else if (receipt) inPlace ??= await this.verifyReceiptDigests(receipt);
+      if (receipt && !receipt.translations) inPlace ??= await this.verifyReceiptDigests(receipt);
       if (
         receipt &&
         tree[globalsInPlacePath] !== this.git.tree(receipt.sourceCommit)[globalsInPlacePath]
       )
         throw new ConsumerOutputRejected('Publication is fenced by a different shared text mode.');
-      if (failureHead && failureHead !== h) throw new RefRace('Batch refusal source moved');
+      if (typeof refusalFence === 'string' && refusalFence !== h)
+        throw new RefRace('Batch refusal source moved');
+      if (typeof refusalFence === 'object' && tree[p.request] !== refusalFence.requestBlob)
+        return false;
       // An admitted save keeps the publication opId but withdraws its ready envelope.
       // A late rejection must never tombstone it or remove the preparation's due kick.
       if (
@@ -1388,7 +1401,7 @@ export class Publisher {
         if (!receipt || !this.git.casMany)
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
         const source = receipt.sourceCommit;
-        if (scoped) this.assertBatchRuntime(tree, atomicLive.runtime);
+        if (receipt.translations) this.assertBatchRuntime(tree, atomicLive.runtime);
         if (receipt.batchId) {
           this.assertBatchRuntime(tree, atomicLive.runtime);
           const path = schedulePaths.batch(receipt.batchId);
@@ -1445,6 +1458,12 @@ export class Publisher {
           }
         }
       }
+      if (receipt?.translations)
+        scoped ??= await this.verifyTranslationReceipt(
+          receipt,
+          candidate!,
+          atomicLive?.translationDeadline,
+        );
       const blob = receipt?.requestBlob ?? requestBlob ?? tree[p.request];
       let request: unknown;
       try {
@@ -1629,6 +1648,18 @@ export class Publisher {
         if (!(e instanceof RefRace)) throw e;
       }
     }
+    // A write that never wins its lease must not send the queue back through a scoped plan.
+    if (typeof refusalFence === 'object') return false;
+    if (atomicLive && receipt?.translations)
+      throw new SourceAdvanced(
+        atomicLive.candidate,
+        receipt.requestBlob,
+        receipt.sourceCommit,
+        this.head(this.options.dataBranch),
+        [],
+        false,
+        true,
+      );
     throw new Error('RECORD exhausted; drain stopped');
   }
   async duplicate(opId: string) {
@@ -1676,8 +1707,10 @@ export class Publisher {
   async operation(
     opId: string,
     runtime = this.git.tree(this.head(this.options.dataBranch)),
-  ): Promise<void> {
+  ): Promise<void | 'deferred'> {
     const p = paths(opId);
+    // At most two full-length checks in total. Short checks leave room for a rebuild.
+    const translationDeadline = performance.now() + 2 * translationPlanTimeout;
     let rebuilding: SourceAdvanced | undefined;
     for (let attempt = 0; ; attempt++) {
       let s = this.head(this.options.dataBranch);
@@ -1705,9 +1738,13 @@ export class Publisher {
           )
             throw new RefRace('Manual publish source moved during authored globals upkeep');
         }
-        return await this.publishOperation(opId, s, tree, runtime, rebuilding);
+        return await this.publishOperation(opId, s, tree, runtime, translationDeadline, rebuilding);
       } catch (error) {
-        if (error instanceof SourceAdvanced && attempt < 2) {
+        if (
+          error instanceof SourceAdvanced &&
+          attempt < 2 &&
+          (!error.scoped || (attempt === 0 && performance.now() < translationDeadline))
+        ) {
           rebuilding = error;
           continue;
         }
@@ -1718,10 +1755,23 @@ export class Publisher {
             this.git.tree(this.head(this.options.dataBranch))[p.log]
           )
             return;
-          if (attempt < 2) continue;
+          if (attempt < 2 && !rebuilding.scoped) continue;
         }
-        if (!(error instanceof ConsumerOutputRejected || error instanceof TranslationPartRefusal))
-          throw error;
+        const moved =
+          error instanceof SourceAdvanced && error.scoped
+            ? error
+            : error instanceof RefRace && rebuilding?.scoped
+              ? rebuilding
+              : undefined;
+        let refusal = error instanceof TranslationPartRefusal ? error : undefined;
+        const requestBlob = moved?.requestBlob ?? tree[p.request];
+        if (moved) {
+          this.credits(requestBlob, opId);
+          const envelope = JSON.parse(this.git.blob(requestBlob));
+          const payload = translationPublishPayloadSchema.parse(JSON.parse(envelope.payload));
+          refusal = translationCheckRefusal(payload.rows, 'review-changed');
+        }
+        if (!refusal && !(error instanceof ConsumerOutputRejected)) throw error;
         const live = this.head(this.options.liveBranch);
         const pending = this.git.head(p.candidate);
         if (this.receipt(live, opId) || (pending && this.git.ancestor(pending, live)))
@@ -1729,38 +1779,31 @@ export class Publisher {
             cause: error,
           });
         // A terminal content refusal closes the signed request without changing LIVE.
-        try {
-          await this.record(
-            opId,
-            undefined,
-            undefined,
-            error instanceof TranslationPartRefusal
+        const recorded = await this.record(
+          opId,
+          undefined,
+          undefined,
+          refusal
+            ? {
+                status: 'rejected',
+                code: 'selected-rows-changed',
+                error: refusal.message,
+                rows: refusal.rows,
+              }
+            : error instanceof NamedPartRefusal
               ? {
                   status: 'rejected',
                   code: 'selected-rows-changed',
                   error: error.message,
-                  rows: error.rows,
+                  outcomes: error.outcomes,
                 }
-              : error instanceof NamedPartRefusal
-                ? {
-                    status: 'rejected',
-                    code: 'selected-rows-changed',
-                    error: error.message,
-                    outcomes: error.outcomes,
-                  }
-                : { status: 'rejected', error: String(error) },
-            tree[p.request],
-            undefined,
-            undefined,
-            rebuilding?.batch || rebuilding?.scoped || error instanceof TranslationPartRefusal
-              ? s
-              : undefined,
-          );
-        } catch (race) {
-          if (race instanceof RefRace && error instanceof TranslationPartRefusal && attempt < 4)
-            continue;
-          throw race;
-        }
+              : { status: 'rejected', error: String(error) },
+          requestBlob,
+          undefined,
+          undefined,
+          refusal || rebuilding?.scoped ? { requestBlob } : rebuilding?.batch ? s : undefined,
+        );
+        if (recorded === false) return 'deferred';
         try {
           if (pending) this.git.cas(p.candidate, pending, undefined);
         } catch {
@@ -1810,6 +1853,7 @@ export class Publisher {
     s: string,
     tree: Tree,
     runtime: Tree,
+    translationDeadline: number,
     rebuilding?: SourceAdvanced,
   ): Promise<void> {
     const p = paths(opId);
@@ -1867,7 +1911,14 @@ export class Publisher {
       }
       if (isTranslationPublishPayload(payload)) {
         this.assertBatchRuntime(tree, runtime);
-        const receipt = await this.translationReceipt(blob, s, live, payload);
+        const receipt = await this.translationReceipt(
+          blob,
+          s,
+          live,
+          payload,
+          undefined,
+          translationDeadline,
+        );
         candidate = this.createCandidate(opId, blob, live, receipt, rebuilding?.candidate);
       } else {
         let aliases: Aliases;
@@ -2057,7 +2108,12 @@ export class Publisher {
         undefined,
         undefined,
         { at: this.options.now(), source: 'cas' },
-        { parent: l, candidate: c, ...(r.batchId || r.translations ? { runtime } : {}) },
+        {
+          parent: l,
+          candidate: c,
+          ...(r.batchId || r.translations ? { runtime } : {}),
+          ...(r.translations ? { translationDeadline } : {}),
+        },
       );
     }
     try {
@@ -2975,10 +3031,13 @@ export class Publisher {
       }
       await new SchedulePreparer(this).drain(true);
       if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
+      const deferred = new Set<string>();
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 60_000; n++) {
-        const [id] = this.queue(this.head(this.options.dataBranch));
+        const id = this.queue(this.head(this.options.dataBranch)).find(
+          (opId) => !deferred.has(opId),
+        );
         if (!id) break;
-        await this.operation(id, runtime);
+        if ((await this.operation(id, runtime)) === 'deferred') deferred.add(id);
       }
     } finally {
       this.bundle();

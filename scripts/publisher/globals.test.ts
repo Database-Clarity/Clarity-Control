@@ -41,7 +41,12 @@ import { GlobalsPublisher, globalTreeOid } from './globals.js';
 import { migrateInPlace } from './globalsInPlace.js';
 import { dryRunGlobalsMigration, restoreGlobalsMigration } from './globalsMigration.js';
 import { Publisher, paths, type Options } from './publisher.js';
-import { bundleTranslations, translationRootsPath } from './translations.js';
+import {
+  bundleTranslations,
+  planTranslations,
+  translationCheckRefusal,
+  translationRootsPath,
+} from './translations.js';
 import { createTranslationWork } from './translationWork.js';
 import { createRequest } from './request.js';
 import { LocalRepository, RefRace, type Repository, type Tree } from './git.js';
@@ -485,13 +490,22 @@ describe('in-place shared text publication', () => {
       text: { en: cell('Published English'), de: cell(de) },
     });
     const imports = (hash: number) => `import main from ${hash}\n`.repeat(60);
+    const measuredShapes = [' ', '${', '${1+', 'title A (\n', '#a', '#a[', '<\n', '<a \n'];
+    const drafts = [
+      raw(201, '<'.repeat(64_000)),
+      raw(202, imports(203)),
+      ...measuredShapes.map((token, index) =>
+        raw(index + 205, `x${token.repeat(Math.floor(16_000 / token.length))}x`),
+      ),
+      raw(213, imports(214)),
+    ];
     const sources = [
-      raw(201, 'Vorher'),
-      raw(202, 'Vorher'),
+      ...drafts.map(({ hash }) => raw(hash, 'Vorher')),
       raw(203, imports(204)),
       raw(204, 'x'.repeat(2_000)),
+      // Short inputs also need the guard once their imports have been expanded.
+      raw(214, `x${' '.repeat(400)}x`),
     ];
-    const drafts = [raw(201, '<'.repeat(64_000)), raw(202, imports(203))];
     const pin = f.read('.publisher/PIN');
     pin.capabilities.push(translationPublishCapability);
     const changes: Record<string, unknown> = { '.publisher/PIN': pin };
@@ -566,6 +580,90 @@ describe('in-place shared text publication', () => {
     expect(f.read(paths(ordinary).log).result.status).toBe('done');
     for (const { hash } of drafts) expect(live(f).perks[hash]).toEqual(input.perks[hash]);
   });
+  it.each(['timeout', 'ready', 'one save', 'replaced request'] as const)(
+    'drains ordinary work behind a scoped part with %s',
+    async (kind) => {
+      const f = await inPlaceFixture();
+      const published = f
+        .read('globals/live/converter-v2-test.json')
+        .store.entries.find(({ id }: { id: string }) => id === f.entry.id);
+      const pin = f.read('.publisher/PIN');
+      pin.capabilities.push(translationPublishCapability);
+      const draft = {
+        ...published,
+        definitions: { ...published.definitions, de: { ...published.definitions.de, body: '35' } },
+      };
+      f.change({ '.publisher/PIN': pin, [f.entryPath]: draft });
+      const preview = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, {});
+      const row = preview.lanes.de?.find((item) => item.kind === 'global' && item.id === draft.id);
+      if (row?.kind !== 'global' || row.status !== 'ready') throw new Error('Missing review');
+      const { id, lang, expected, english, before, effects, affected } = row;
+      const payload: TranslationPublishPayload = {
+        kind: 'push',
+        scope: 'translations',
+        opId: A,
+        rows: [{ kind: 'global', id, lang, expected, english, before, effects, affected }],
+        repo: f.options.repo,
+        dataBranch: f.options.dataBranch,
+        liveBranch: f.options.liveBranch,
+        requester: { id: 2, login: 'translator' },
+        createdAt: new Date(now).toISOString(),
+        intentDigest: '',
+      };
+      payload.intentDigest = await translationPublishIntentDigest(payload);
+      const bytes = stableStringify(payload);
+      const signed = { payload: bytes, sig: f.sign(bytes) };
+      const replacement = {
+        ...payload,
+        rows: payload.rows.map((item) => ({ ...item, expected: 'f'.repeat(64) })),
+      };
+      replacement.intentDigest = await translationPublishIntentDigest(replacement);
+      const replacementBytes = stableStringify(replacement);
+      const replacementSigned = { payload: replacementBytes, sig: f.sign(replacementBytes) };
+      f.change({ [paths(A).request]: signed });
+      const ordinary = '01K95H00000000000000000002';
+      await f.request([142], ordinary);
+      const beforeLive = live(f);
+      let plans = 0;
+      const publisher = new Publisher(f.git, f.options, {
+        preview: async () => undefined,
+        plan: async (_git, _options, source, parent, part) => {
+          plans++;
+          if (kind !== 'one save' || plans === 1)
+            f.change({ 'tooltips/140.json': tooltip(140, `Unrelated save ${plans}`) });
+          if (kind === 'replaced request') f.change({ [paths(A).request]: replacementSigned });
+          if (kind === 'timeout' || kind === 'replaced request')
+            throw translationCheckRefusal(part.rows);
+          return planTranslations(f.pub, f.git.tree(source), parent, part);
+        },
+      });
+      await publisher.run(false);
+      expect(f.read(paths(ordinary).log).result.status).toBe('done');
+      if (kind === 'one save') {
+        expect(plans).toBe(3); // One superseded proposal, one rebuild, and one independent proof.
+        expect(f.read(paths(A).log).result.status).toBe('done');
+        expect(live(f).perks[141]).not.toEqual(beforeLive.perks[141]);
+        return;
+      }
+      expect(plans).toBe(kind === 'ready' ? 2 : 1);
+      expect(live(f).perks[141]).toEqual(beforeLive.perks[141]);
+      if (kind === 'replaced request') {
+        expect(f.current()[paths(A).log]).toBeUndefined();
+        expect(f.read(paths(A).request)).toEqual(replacementSigned);
+        return;
+      }
+      expect(f.read(paths(A).log)).toMatchObject({
+        request: signed,
+        result: {
+          status: 'rejected',
+          rows: [{ id, reason: kind === 'timeout' ? 'translation-check-limit' : 'review-changed' }],
+        },
+      });
+      expect(f.current()[paths(A).request]).toBeUndefined();
+      expect(f.git.head(paths(A).candidate)).toBeUndefined();
+      expect(f.read('tooltips/140.json').text.en.text).toBe(`Unrelated save ${plans}`);
+    },
+  );
   it('refuses a part whose combined edits affect an unreviewed reader', async () => {
     const f = await inPlaceFixture();
     const pin = f.read('.publisher/PIN');

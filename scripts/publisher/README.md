@@ -96,6 +96,8 @@ requests. Each part lands atomically against the verified LIVE parent. The publi
 the language patches, rechecks the current requester and English revision at the commit fence,
 and records only the selected source cells, their LIVE projections, and publication bookkeeping.
 An earlier publish can leave a request unchanged or require a fresh review.
+If saves keep moving the source, the publisher refuses the original signed part and continues
+the queue. A scoped part has up to two proposals and 90 seconds total for rendering and proof.
 
 The bundle carries an optional `translationPublish` member with pending rows and their effect
 digests. A separate check builds it after the queue and may leave it absent when the source

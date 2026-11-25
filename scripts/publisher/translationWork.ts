@@ -8,6 +8,7 @@ import {
   planTranslations,
   TranslationPartRefusal,
   translationCheckRefusal,
+  translationPlanTimeout,
 } from './translations.js';
 
 type Source = {
@@ -68,7 +69,7 @@ export async function translationWorkChild(path: string) {
 export function createTranslationWork(
   runtime: string,
   previewTimeout = 120_000,
-  planTimeout = 45_000,
+  planTimeout = translationPlanTimeout,
 ) {
   const run = (
     git: Repository,
@@ -123,8 +124,14 @@ export function createTranslationWork(
       source: string,
       live: string,
       payload: TranslationPublishPayload,
+      timeout = planTimeout,
     ) {
-      const result = await run(git, options, { kind: 'plan', source, live, payload }, planTimeout);
+      const result = await run(
+        git,
+        options,
+        { kind: 'plan', source, live, payload },
+        Math.min(timeout, planTimeout),
+      );
       if (result === 'timeout') throw translationCheckRefusal(payload.rows);
       if (result?.kind === 'plan') return result.value;
       if (result?.kind === 'refused') throw new TranslationPartRefusal(result.rows);
