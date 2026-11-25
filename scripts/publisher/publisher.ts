@@ -2717,7 +2717,13 @@ export class Publisher {
       publishQueue,
       ...(scheduledQueue.length ? { scheduledQueue } : {}),
       ...(inPlace
-        ? { globalsPending: inPlace.globalsPending, globalsReviewImports: inPlace.reviewImports }
+        ? {
+            globalsPending: inPlace.globalsPending,
+            globalsReviewImports: inPlace.reviewImports,
+            ...(Object.keys(inPlace.reviewDefinitions).length
+              ? { globalsReviewDefinitions: inPlace.reviewDefinitions }
+              : {}),
+          }
         : {}),
       // The globals catalogue at this same head; null (never a partial list) when malformed,
       // so the editor says it is unavailable without stopping the bundle or the queue.

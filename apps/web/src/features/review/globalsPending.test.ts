@@ -122,6 +122,64 @@ it('previews a translated tooltip with the shared translation selected for the s
     languages: ['de'],
   });
 });
+
+it('fills the selected renamed translation through an unchanged published numeric import', async () => {
+  const data = await state([
+    {
+      ...row(ids.refill, 'titles', 'G_refills', 'renamed', 'Old note', 'New note'),
+      previousName: 'G_refill',
+      languages: {
+        en: { before: 'Old note', after: 'New note' },
+        de: { before: null, after: 'Deutsche Notiz' },
+      },
+    },
+  ]);
+  const original = make(10, '<title Details [G_refill] />');
+  original.text.de = { ...original.text.en! };
+  const edited = make(12, 'English\nimport main from 10\n<title Details [G_refills] />');
+  edited.text.de = {
+    ...edited.text.en!,
+    text: 'Deutsch\nimport main from 10\n<title Details [G_refills] />',
+  };
+  data.bundle.globalsReviewImports = { 10: original };
+  data.bundle.tooltips[12] = edited;
+  const entries = await pendingTooltips(data);
+  const chosen = entries.filter(({ tooltip }) => tooltip.hash === 12);
+  const inferred = neededGlobals(chosen, entries, data);
+  expect(inferred.map(({ global }) => global.name)).toEqual(['G_refills']);
+  const selected = new Set([12, ...inferred.map(({ global }) => global.tooltip.hash)]);
+  const current = publishedCell(data, edited, 'de', 'next', selected);
+  expect(current).toMatchObject({
+    language: 'de',
+    text: expect.stringContaining('Deutsche Notiz'),
+  });
+  const imports = publishedGlobals(
+    { variables: '', titles: '' },
+    data,
+    'de',
+    'next',
+    selected,
+  ).imports;
+  expect(imports?.[10]).toContain('Deutsche Notiz');
+  expect(imports?.[10]).toContain('[G_refills]');
+});
+
+it('uses the published body of an unchanged entry that reads a pending rename', async () => {
+  const data = await state([
+    {
+      ...row(ids.fresh, 'variables', 'Fresh', 'renamed', '10', '20'),
+      previousName: 'Former',
+    },
+  ]);
+  data.bundle.globalsReviewDefinitions = { [ids.refill]: { en: 'Note with #Former' } };
+  const tooltip = make(12, '<title Details [G_refill] />');
+  expect(publishedText(data, tooltip, 'en', 'live')).toContain('Note with 10');
+  expect(publishedText(data, tooltip, 'en', 'next', new Set([12]))).toContain('Note with 10');
+  expect(publishedText(data, tooltip, 'en', 'next', new Set([12, globalKey(ids.fresh)]))).toContain(
+    'Note with 20',
+  );
+});
+
 const row = (
   id: string,
   kind: GlobalsPending[number]['kind'],

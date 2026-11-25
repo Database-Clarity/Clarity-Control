@@ -678,6 +678,40 @@ describe('in-place shared text publication', () => {
     },
   );
 
+  it('undoes a saved rename through Worker intake before the global goes live', async () => {
+    const f = await inPlaceFixture('title G_refill (\nHelp content\n)');
+    const original = f.published.entries.find(({ name }) => name === 'G_refill')!;
+    const path = `globals/entries/${original.id}.json`;
+    f.change({ [path]: original, 'tooltips/142.json': tooltip(142, '<title Help [G_refill] />') });
+    const port = await mutationPort(f);
+    const rename = (name: string) =>
+      port.post(`/${original.id}/rename`, {
+        operation: 'rename',
+        id: original.id,
+        revision: f.read(path).revision,
+        name,
+      });
+    const baseline = f.git.head(L);
+    expect((await rename('G_refills')).status).toBe(202);
+    await f.globals.drain();
+    expect((await rename('G_refills')).status).toBe(200);
+    await f.globals.drain();
+    expect(f.read(path).name).toBe('G_refills');
+    expect(f.read('tooltips/142.json').text.en.text).toContain('[G_refills]');
+    const oldName = await namePaths('titles', original.name);
+    expect(f.current()[oldName.claim]).toBeUndefined();
+    expect(f.read(oldName.proof).occupiedBy).toBe(original.id);
+
+    expect((await rename(original.name)).status).toBe(202);
+    await f.globals.drain();
+    expect((await rename(original.name)).status).toBe(200);
+    await f.globals.drain();
+    expect(f.read(path).name).toBe(original.name);
+    expect(f.read('tooltips/142.json').text.en.text).toContain('[G_refill]');
+    expect(pending(f).find(({ id }) => id === original.id)).toBeUndefined();
+    expect(f.git.head(L)).toBe(baseline);
+  });
+
   it('drops a reversed rename, but publishes a rename and body edit without the tooltip draft', async () => {
     const f = await inPlaceFixture();
     const original = f.published.entries.find(({ id }) => id === f.entry.id)!;

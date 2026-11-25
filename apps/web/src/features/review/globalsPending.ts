@@ -6,10 +6,13 @@ import {
   isLegacyAliasStub,
   resolveAlias,
   resolveGlobalsInPlace,
+  rewriteGlobalRenames,
+  rewriteTooltipGlobals,
   UnpublishedGlobal,
   withImportedGlobalsFallback,
   type GlobalsInPlaceOptions,
   type GlobalsPending,
+  type GlobalRename,
   type Lang,
   type MarkupGlobals,
   type Tooltip,
@@ -95,7 +98,8 @@ export function globalEntries(
   });
 }
 
-type Definitions = Record<GlobalKind, Record<string, Partial<Record<Lang, { body: string }>>>>;
+type Definition = Partial<Record<Lang, { body: string }>>;
+type Definitions = Record<GlobalKind, Record<string, Definition>>;
 const none = (): Definitions => ({
   variables: Object.create(null),
   titles: Object.create(null),
@@ -104,22 +108,31 @@ const none = (): Definitions => ({
 /** New and renamed globals: their names are not published yet. */
 const unpublishedName = ({ change }: PendingGlobal) => change === 'new' || change === 'renamed';
 
-const publishedStores = new WeakMap<Bundle, { live: Definitions; next: Definitions }>();
+const publishedStores = new WeakMap<
+  Bundle,
+  {
+    live: Definitions;
+    next: Definitions;
+    saved: Map<string, Definition>;
+  }
+>();
 /**
  * The globals as published (`live`), and with the names a tooltip can only use by publishing them
  * along (`next`). A language counts as it publishes: without a current translation it has none.
  */
-function publishedDefinitions(bundle: Bundle): { live: Definitions; next: Definitions } {
+function publishedDefinitions(bundle: Bundle) {
   const known = publishedStores.get(bundle);
   if (known) return known;
   const live = none();
   const added = none();
+  const savedDefinitions = new Map<string, Definition>();
   const pending = new Map((bundle.globalsPending ?? []).map((entry) => [entry.id, entry]));
   const entries = bundle.globals?.entries ?? [];
   const saved = new Map(entries.map((entry) => [entry.id, entry]));
   for (const id of new Set([...saved.keys(), ...pending.keys()])) {
     const entry = saved.get(id);
     const change = pending.get(id);
+    const publishedBodies = bundle.globalsReviewDefinitions?.[id];
     if (!change && entry?.tombstone) continue;
     const { kind, name } = change ?? entry!;
     const before: Definitions['titles'][string] = {};
@@ -131,10 +144,13 @@ function publishedDefinitions(bundle: Bundle): { live: Definitions; next: Defini
         ? cell.beforeAvailable === false
           ? null
           : cell.before
-        : (current?.body ?? null);
+        : publishedBodies
+          ? (publishedBodies[lang] ?? null)
+          : (current?.body ?? null);
       if (old !== null) before[lang] = { body: old };
       if (current) after[lang] = { body: current.body };
     }
+    if (entry && !entry.tombstone) savedDefinitions.set(id, after);
     if (change && unpublishedName(change)) added[kind][name] = after;
     if (change?.change === 'new') continue;
     const published = change?.change === 'renamed' ? change.previousName : name;
@@ -145,30 +161,43 @@ function publishedDefinitions(bundle: Bundle): { live: Definitions; next: Defini
     titles: { ...live.titles, ...added.titles },
     exports: { ...live.exports, ...added.exports },
   };
-  const store = { live, next };
+  const store = { live, next, saved: savedDefinitions };
   publishedStores.set(bundle, store);
   return store;
 }
 
-function reviewDefinitions(bundle: Bundle, side: 'live' | 'next', selected?: ReadonlySet<number>) {
+function reviewDefinitions(
+  bundle: Bundle,
+  side: 'live' | 'next',
+  selected?: ReadonlySet<number>,
+): GlobalsInPlaceOptions & { renames: readonly GlobalRename[] } {
   const published = publishedDefinitions(bundle);
-  if (side === 'live' || !selected) return published[side];
-  const choices = bundle.globalsPending?.filter(
-    (entry) => !entry.refusal && !unpublishedName(entry) && selected.has(globalKey(entry.id)),
+  if (side === 'live' || !selected) return { definitions: published[side], renames: [] };
+  const choices =
+    bundle.globalsPending?.filter((entry) => !entry.refusal && selected.has(globalKey(entry.id))) ??
+    [];
+  const renames = choices.flatMap(({ kind, name, change, previousName }) =>
+    change === 'renamed' && previousName ? [{ kind, from: previousName, to: name }] : [],
   );
-  if (!choices?.length) return published.next;
-
-  const next = {
-    variables: { ...published.next.variables },
-    titles: { ...published.next.titles },
-    exports: { ...published.next.exports },
-  };
-  for (const { kind, name, change, languages: cells } of choices) {
-    if (change === 'removed') {
-      delete next[kind][name];
-      continue;
+  const next = none();
+  for (const { kind } of globalTypes) {
+    for (const [name, cells] of Object.entries(published.live[kind])) {
+      next[kind][name] = renames.length
+        ? Object.fromEntries(
+            Object.entries(cells).map(([lang, { body }]) => [
+              lang,
+              { body: rewriteGlobalRenames(body, renames) },
+            ]),
+          )
+        : cells;
     }
-    const definition = { ...next[kind][name] };
+  }
+  for (const { kind, from } of renames) delete next[kind][from];
+  for (const { kind, name, change } of choices) if (change === 'removed') delete next[kind][name];
+
+  for (const { id, kind, name, change, languages: cells } of choices) {
+    if (change === 'removed') continue;
+    const definition = { ...(published.saved.get(id) ?? next[kind][name]) };
     for (const lang of languages) {
       const cell = cells[lang];
       if (!cell) continue;
@@ -177,7 +206,15 @@ function reviewDefinitions(bundle: Bundle, side: 'live' | 'next', selected?: Rea
     }
     next[kind][name] = definition;
   }
-  return next;
+  const unavailable = {
+    variables: new Set<string>(),
+    titles: new Set<string>(),
+    exports: new Set<string>(),
+  };
+  for (const entry of bundle.globalsPending ?? [])
+    if (unpublishedName(entry) && !Object.hasOwn(next[entry.kind], entry.name))
+      unavailable[entry.kind].add(entry.name);
+  return { definitions: next, unavailable, renames };
 }
 
 /**
@@ -195,30 +232,21 @@ export function neededGlobals(
       .map((entry) => [`${entry.part!.kind}:${entry.name}`, entry]),
   );
   if (!fresh.size) return [];
-  const { live, next } = publishedDefinitions(data.bundle);
   const included = new Set(chosen);
+  const selected = new Set(chosen.map(({ tooltip }) => tooltip.hash));
+  let options = reviewDefinitions(data.bundle, 'next', selected);
   const needed: { global: PendingTooltip; by: PendingTooltip }[] = [];
   for (const by of included) {
     if (by.inactiveChange === 'remove') continue;
     for (let found = true; found;) {
       found = false;
-      const definitions = none();
-      const unavailable = {
-        variables: new Set<string>(),
-        titles: new Set<string>(),
-        exports: new Set<string>(),
-      };
-      for (const { kind } of globalTypes)
-        for (const [name, entry] of Object.entries(next[kind])) {
-          const global = fresh.get(`${kind}:${name}`);
-          if (live[kind][name] || (global && included.has(global))) definitions[kind][name] = entry;
-          else unavailable[kind].add(name);
-        }
       // The publisher's own reading of the text, and its reason when a name is not published.
-      const reason = refusalOf(by, { definitions, unavailable });
+      const reason = refusalOf(by, options);
       const global = reason && fresh.get(`${reason.kind}:${reason.globalName}`);
       if (global && !included.has(global)) {
         included.add(global);
+        selected.add(global.tooltip.hash);
+        options = reviewDefinitions(data.bundle, 'next', selected);
         needed.push({ global, by });
         found = true;
       }
@@ -254,7 +282,7 @@ export function publishedCell(
 ): { text: string; language: Lang } {
   const text = exportedText(tooltip, lang);
   if (!data?.bundle.globalsPending || !tooltip || tooltip.hash < 0) return { text, language: lang };
-  const options = reviewImportOptions(data, side, selected);
+  const { options } = reviewImportOptions(data, side, selected);
   try {
     const exported = exportLegacy([tooltip], 0, undefined, {}, { globalsInPlace: options })[
       tooltip.hash
@@ -270,29 +298,21 @@ export function publishedCell(
 export const publishedText = (...args: Parameters<typeof publishedCell>) =>
   publishedCell(...args).text;
 
-function reviewImport(
-  data: EditorData,
-  hash: number,
-  side: 'live' | 'next',
-  selected?: ReadonlySet<number>,
-) {
-  const canonical = resolveAlias(hash, data.aliases);
-  if (side === 'next' && selected?.has(canonical)) return data.bundle.tooltips[canonical];
-  return data.bundle.globalsReviewImports?.[hash];
-}
-
 function reviewImportOptions(
   data: EditorData,
   side: 'live' | 'next',
   selected?: ReadonlySet<number>,
 ) {
-  return withImportedGlobalsFallback(
-    { definitions: reviewDefinitions(data.bundle, side, selected) },
-    (hash) => {
-      const document = reviewImport(data, hash, side, selected);
-      if (document) return { document };
-    },
-  );
+  const { renames, ...definitions } = reviewDefinitions(data.bundle, side, selected);
+  const source = (hash: number) => {
+    const canonical = resolveAlias(hash, data.aliases);
+    const draft = side === 'next' && selected?.has(canonical) && data.bundle.tooltips[canonical];
+    if (draft) return { document: draft, draft: true };
+    const published = data.bundle.globalsReviewImports?.[hash];
+    if (published)
+      return { document: renames.length ? rewriteTooltipGlobals(published, renames) : published };
+  };
+  return { options: withImportedGlobalsFallback(definitions, source), source };
 }
 
 /** A filled cell and its numeric imports use the same definitions and source selection. */
@@ -304,16 +324,24 @@ export function publishedGlobals(
   selected?: ReadonlySet<number>,
 ): MarkupGlobals {
   if (!data?.bundle.globalsPending) return globals;
-  const options = reviewImportOptions(data, side, selected);
+  const { options, source } = reviewImportOptions(data, side, selected);
   const imports = new Map<number, string | undefined>();
   const read = (hash: number) => {
     if (!imports.has(hash)) {
-      const document = reviewImport(data, hash, side, selected);
+      const input = source(hash);
       let text: string | undefined;
       try {
         const row =
-          document &&
-          exportLegacy([document], 0, undefined, {}, { globalsInPlace: options })[document.hash];
+          input &&
+          exportLegacy(
+            [input.document],
+            0,
+            undefined,
+            {},
+            {
+              globalsInPlace: input.draft ? options : { ...options, unavailable: undefined },
+            },
+          )[input.document.hash];
         text = row && !isLegacyAliasStub(row) ? row.editor[lang]?.main : undefined;
       } catch {
         // An unrenderable source remains unresolved in the preview.

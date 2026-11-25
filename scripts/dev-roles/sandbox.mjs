@@ -2,7 +2,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { mkdir, readdir } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { createAdapter } from './sandbox-fetch.mjs';
-import { downloadRepo } from './sandbox-git.mjs';
+import { downloadRepo, fetchPublicRefs, oidPattern } from './sandbox-git.mjs';
 import { startPublisher } from './sandbox-publisher.mjs';
 
 const owner = 'Database-Clarity';
@@ -63,6 +63,21 @@ export async function prepareSandbox({ directory, siteOrigin, seedPermissions })
   }
   const head = revisions[dataBranch];
   const files = new Map(data.treeEntries(head, true).map((entry) => [entry.name, entry]));
+  const globalFence = files.get('config/globals-in-place.json');
+  if (globalFence) {
+    const { destination, legacyLive } = JSON.parse(data.blob(globalFence.oid));
+    if (destination === liveBranch) {
+      if (typeof legacyLive !== 'string' || !oidPattern.test(legacyLive))
+        throw new Error('Dev roles requires the pre-switch LIVE commit from the globals fence');
+      if (!data.resolve(legacyLive))
+        await fetchPublicRefs(
+          data.directory,
+          `${owner}/${dataRepo}`,
+          [`${legacyLive}:refs/heads/local-globals-legacy-live`],
+          ['--depth=1'],
+        );
+    }
+  }
   const projectIds = [...files.keys()].flatMap((path) => {
     const match = /^exports\/projects\/([a-z][a-z0-9-]{1,31})\.json$/.exec(path);
     return match ? [match[1]] : [];

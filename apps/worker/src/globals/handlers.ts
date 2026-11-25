@@ -234,15 +234,18 @@ async function admitName(
     if (requestable) return null;
     currentProof(proof, ctx);
   }
-  if (proof.kind !== kind || proof.name !== name || proof.occupiedBy !== id)
-    throw new HttpError(409, 'Global name is occupied or its proof does not match');
+  if (proof.kind !== kind || proof.name !== name || (!requestable && proof.occupiedBy === null))
+    throw new HttpError(409, 'Global name proof does not match');
+  if (proof.occupiedBy !== null && proof.occupiedBy !== id)
+    throw new HttpError(409, 'Global name is occupied');
   const [claim] = await readGlobalFiles(
     ctx.storage,
     [locations.claim],
     ctx.head,
     limits.metadataBytes,
   );
-  // Proof certifies absence, while the CAS claim protects uniqueness across pending saves.
+  // A rename may return to the entry's still-published name after its saved claim moved.
+  // An existing claim must still belong to the same entry and have no pending intent.
   if (claim) {
     const parsed = z
       .object({
@@ -261,7 +264,8 @@ async function admitName(
       parsed.data.intentId
     )
       throw new HttpError(409, 'Global name is reserved');
-  } else if (id !== null) throw new HttpError(503, 'Sync pending: missing global name claim');
+  } else if (id !== null && !requestable)
+    throw new HttpError(503, 'Sync pending: missing global name claim');
   return locations;
 }
 
@@ -367,7 +371,7 @@ async function mutate(ctx: GlobalsContext, mutation: Mutation, sync: SyncState) 
     if (before!.kind === 'variables' && before!.name === 'e')
       throw new HttpError(422, 'The enhanced arrow is protected');
     if (mutation.name === before!.name) throw new HttpError(422, 'Name is unchanged');
-    const locations = await admitName(ctx, next.kind, mutation.name, null, true);
+    const locations = await admitName(ctx, next.kind, mutation.name, id, true);
     if (!locations) return requestNameProof(ctx, 'rename', next.kind, mutation.name, before);
     intentId = causeId;
     files[locations.claim] = { id, kind: next.kind, name: mutation.name, intentId };

@@ -36,7 +36,6 @@ import {
 } from './kinds';
 import type { PendingTooltip } from './model';
 import type { Published } from './published';
-import { useReviewQueue } from './queueStore';
 import { useDelayed } from './useDelayed';
 import styles from './Review.module.scss';
 
@@ -530,21 +529,20 @@ export const ReviewDetail = memo(function ReviewDetail({
   entry,
   published,
   classification: listedClassification,
+  selected,
   raw,
   onRetry,
 }: {
   entry: PendingTooltip;
   published: Published | undefined;
   classification: Classification | undefined;
+  selected?: ReadonlySet<number>;
   /** Raw markup on (R). */
   raw: boolean;
   onRetry(): void;
 }) {
   const user = useAuthStore((state) => state.user);
   const data = useDataStore((state) => state.data);
-  const selected = useReviewQueue((state) =>
-    data?.bundle.globalsPending ? state.selected : undefined,
-  );
   const [saved, setSaved] = useState<HistoryCommit | null>();
   const pending = entry.part?.pending;
   // The last saver: one request for the open change only. Its line is reserved, so nothing

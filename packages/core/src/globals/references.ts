@@ -1,6 +1,7 @@
 import { markupCommentContext, removeMarkupComments } from '../markup/prepare.js';
 import { variableReferences } from '../markup/braces.js';
 import { extractVariables } from '../markup/syntax.js';
+import type { Tooltip } from '../schemas.js';
 import { validGlobalName, type GlobalRecord } from './model.js';
 
 export interface GlobalReferenceSpan {
@@ -87,4 +88,36 @@ export function rewriteGlobalReferences(
     next = next.slice(0, ref.from) + value + next.slice(ref.to);
   }
   return { text: next, edits };
+}
+
+export type GlobalRename = { kind: GlobalRecord['kind']; from: string; to: string };
+
+/** Rewrite against the original source so a second rename cannot capture a newly written name. */
+export function rewriteGlobalRenames(source: string, renames: readonly GlobalRename[]): string {
+  const edits = renames.flatMap(({ kind, from, to }) =>
+    rewriteGlobalReferences(source, kind, from, to, true).edits.map((edit) => ({
+      ...edit,
+      value: kind === 'variables' ? (edit.braced ? `#{${to}}` : `#${to}`) : to,
+    })),
+  );
+  for (const { from, to, value } of edits.sort((a, b) => b.from - a.from))
+    source = source.slice(0, from) + value + source.slice(to);
+  return source;
+}
+
+export function rewriteTooltipGlobals(
+  document: Tooltip,
+  renames: readonly GlobalRename[],
+): Tooltip {
+  if (!renames.length) return document;
+  const text = { ...document.text };
+  let changed = false;
+  for (const lang of Object.keys(text) as (keyof Tooltip['text'])[]) {
+    const cell = text[lang]!;
+    const rewritten = rewriteGlobalRenames(cell.text, renames);
+    if (rewritten === cell.text) continue;
+    text[lang] = { ...cell, text: rewritten };
+    changed = true;
+  }
+  return changed ? { ...document, text } : document;
 }

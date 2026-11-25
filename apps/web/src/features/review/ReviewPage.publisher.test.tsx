@@ -275,28 +275,27 @@ it('updates the open tooltip summary and comparison when a German global transla
     data: { items: {}, categories: [], aliases: {}, bundle },
     status: 'ready',
   });
+  function Detail() {
+    const selected = useReviewQueue((state) => state.selected);
+    return createElement(ReviewDetail, {
+      entry: {
+        tooltip: edited,
+        name: 'Tooltip 10',
+        category: 'Other',
+        categoryId: 'other',
+        categoryOrder: 1,
+        markerOnly: false,
+        isNew: false,
+      },
+      published: { status: 'ready', tooltip: live },
+      classification: { kind: 'No visible change' },
+      selected,
+      raw: false,
+      onRetry: () => {},
+    });
+  }
   await act(async () =>
-    root.render(
-      createElement(
-        MemoryRouter,
-        null,
-        createElement(ReviewDetail, {
-          entry: {
-            tooltip: edited,
-            name: 'Tooltip 10',
-            category: 'Other',
-            categoryId: 'other',
-            categoryOrder: 1,
-            markerOnly: false,
-            isNew: false,
-          },
-          published: { status: 'ready', tooltip: live },
-          classification: { kind: 'No visible change' },
-          raw: false,
-          onRetry: () => {},
-        }),
-      ),
-    ),
+    root.render(createElement(MemoryRouter, null, createElement(Detail))),
   );
   expect(host.textContent).toContain('No visible change');
   await act(async () => queue.toggle(globalKey(id)));

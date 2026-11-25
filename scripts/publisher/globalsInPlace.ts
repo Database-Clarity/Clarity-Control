@@ -28,13 +28,15 @@ import {
   protectCommentedGlobalImports,
   pushedSchema,
   reconcileGlobalStore,
-  rewriteGlobalReferences,
+  rewriteGlobalRenames as rewrite,
+  rewriteTooltipGlobals as rewriteTooltip,
   resolveAlias,
   resolveGlobalsInPlace,
   stableStringify,
   UnpublishedGlobal,
   type Aliases,
   type GlobalRecord,
+  type GlobalRename as Rename,
   type GlobalsInPlaceFence,
   type GlobalsInPlaceDefinitions,
   type GlobalsInPlaceOptions,
@@ -386,7 +388,6 @@ export function assertInPlaceDocuments(
 }
 
 type Selection = NonNullable<PublishPayload['globals']>;
-type Rename = { kind: GlobalRecord['kind']; from: string; to: string };
 const refusalMessage = (error: unknown) =>
   error instanceof ZodError
     ? (error.issues[0]?.message ?? 'Invalid shared definition.')
@@ -476,34 +477,6 @@ function renamesOf(published: GlobalStore, selected: readonly GlobalRecord[]): R
       ? [{ kind: entry.kind, from: previous.name, to: entry.name }]
       : [];
   });
-}
-
-function rewrite(source: string, renames: readonly Rename[]) {
-  // Published names are resolved against the original snapshot. Apply edits from right to
-  // left so choosing multiple renames cannot rewrite a name introduced by another selection.
-  const edits = renames.flatMap(({ kind, from, to }) =>
-    rewriteGlobalReferences(source, kind, from, to, true).edits.map((edit) => ({
-      ...edit,
-      kind,
-      toName: to,
-    })),
-  );
-  for (const edit of edits.sort((a, b) => b.from - a.from)) {
-    const value =
-      edit.kind === 'variables'
-        ? edit.braced
-          ? `#{${edit.toName}}`
-          : `#${edit.toName}`
-        : edit.toName;
-    source = source.slice(0, edit.from) + value + source.slice(edit.to);
-  }
-  return source;
-}
-
-function rewriteTooltip(document: Tooltip, renames: readonly Rename[]) {
-  const copy = structuredClone(document);
-  for (const cell of Object.values(copy.text)) cell.text = rewrite(cell.text, renames);
-  return stableStringify(copy.text) === stableStringify(document.text) ? document : copy;
 }
 
 function rewriteEntries(entries: readonly GlobalRecord[], renames: readonly Rename[]) {
@@ -1251,12 +1224,26 @@ export function bundleInPlaceReview(
   const pushed = pushedSchema.parse(pub.read(tree, 'live/pushed.json'));
   const renames = renamesOf(published.store, pending);
   const rewritten = new Map<number, Tooltip>();
+  const reviewDefinitions: Record<string, Partial<Record<Lang, string>>> = {};
   if (renames.length) {
     for (const document of publishedDocuments(pub, tree, input, false)) {
       const updated = rewriteTooltip(document, renames);
       if (updated !== document) rewritten.set(document.hash, updated);
     }
     rewritePushed(pub, tree, pushed, rewritten);
+    const pendingIds = new Set(pending.map(({ id }) => id));
+    for (const entry of published.store.entries) {
+      if (entry.tombstone || pendingIds.has(entry.id)) continue;
+      const before = Object.fromEntries(
+        languages.flatMap((lang) => {
+          const definition = globalsInPlaceDefinition(entry.definitions, lang);
+          return definition ? [[lang, definition.body]] : [];
+        }),
+      );
+      // A saved dependent entry can already refer to the new name without being pending itself.
+      if (Object.values(before).some((body) => rewrite(body, renames) !== body))
+        reviewDefinitions[entry.id] = before;
+    }
   }
-  return { globalsPending, pushed, reviewImports };
+  return { globalsPending, pushed, reviewImports, reviewDefinitions };
 }

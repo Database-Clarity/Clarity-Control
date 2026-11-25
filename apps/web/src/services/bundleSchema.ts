@@ -8,6 +8,7 @@ import {
   globalIdSchema,
   globalRecordSchema,
   globalsPendingSchema,
+  languages,
 } from '@clarity/core';
 import { z } from 'zod';
 
@@ -57,6 +58,10 @@ export const bundleSchema = z.object({
   globalsPending: globalsPendingSchema.optional(),
   /** Published authored sources targeted by numeric imports in Review. */
   globalsReviewImports: z.record(z.string().regex(/^\d+$/), tooltipSchema).optional(),
+  /** Published bodies of unchanged entries whose saved references follow a pending rename. */
+  globalsReviewDefinitions: z
+    .record(globalIdSchema, z.partialRecord(z.enum(languages), z.string()))
+    .optional(),
   /** Publish requests waiting in the Worker's queue (written by the publisher pipeline; absent until it runs). */
   publishQueue: z
     .array(

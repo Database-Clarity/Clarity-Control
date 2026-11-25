@@ -29,7 +29,7 @@ import {
   rowKey,
   type RowKey,
 } from './globalRows';
-import { rowIdentity } from './globalsPending';
+import { neededGlobals, rowIdentity } from './globalsPending';
 import { classifyRows, kindOf, useKinds, useRowKinds } from './kinds';
 import {
   canPush,
@@ -339,6 +339,15 @@ export function ReviewPage() {
     () => publishSelection(selected, list, inFlight),
     [selected, list, inFlight],
   );
+  const previewSelection = useMemo(() => {
+    if (!current || current.part || !data?.bundle.globalsPending || !entries) return undefined;
+    const hashes = new Set(chosen.map(({ tooltip }) => tooltip.hash));
+    const preview = hashes.has(current.tooltip.hash) ? chosen : [...chosen, current];
+    for (const { global } of neededGlobals(preview, entries, data))
+      if (!global.unpublishable && !inFlight.has(global.tooltip.hash))
+        hashes.add(global.tooltip.hash);
+    return hashes;
+  }, [chosen, current, data, entries, inFlight]);
   useEffect(() => {
     // Manual inclusion can select migration leftovers skipped by the background comparisons.
     if (publisher && liveAvailable)
@@ -744,6 +753,7 @@ export function ReviewPage() {
               entry={current}
               published={currentPublished}
               classification={classification}
+              selected={previewSelection}
               raw={raw}
               onRetry={retry}
             />

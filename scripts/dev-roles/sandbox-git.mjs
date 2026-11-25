@@ -36,6 +36,36 @@ export function gitEnvironment(directory, download = false) {
 }
 
 const run = promisify(execFile);
+export async function fetchPublicRefs(directory, repo, refs, extra = []) {
+  if (!refs.length) return;
+  await run(
+    'git',
+    [
+      '-c',
+      'credential.helper=',
+      '-c',
+      'http.extraHeader=',
+      '-c',
+      'http.followRedirects=false',
+      '--git-dir',
+      directory,
+      'fetch',
+      '--no-tags',
+      '--no-auto-maintenance',
+      ...extra,
+      `https://github.com/${repo}.git`,
+      ...refs,
+    ],
+    {
+      env: gitEnvironment(directory, true),
+      cwd: directory,
+      timeout: 180_000,
+      maxBuffer,
+      windowsHide: true,
+    },
+  );
+}
+
 export async function downloadRepo(directory, repo, refs, shallowRefs = []) {
   const env = gitEnvironment(directory, true);
   await run('git', ['init', '--bare', '--template=', directory], {
@@ -45,32 +75,8 @@ export async function downloadRepo(directory, repo, refs, shallowRefs = []) {
   });
   // Capture the companion branches first so a just-published bundle cannot
   // point ahead of editor-data. Fetch editor-data with its full history.
-  for (const [list, extra] of [
-    [shallowRefs, ['--depth=1']],
-    [refs, []],
-  ]) {
-    if (!list.length) continue;
-    await run(
-      'git',
-      [
-        '-c',
-        'credential.helper=',
-        '-c',
-        'http.extraHeader=',
-        '-c',
-        'http.followRedirects=false',
-        '--git-dir',
-        directory,
-        'fetch',
-        '--no-tags',
-        '--no-auto-maintenance',
-        ...extra,
-        `https://github.com/${repo}.git`,
-        ...list,
-      ],
-      { env, cwd: directory, timeout: 180_000, maxBuffer, windowsHide: true },
-    );
-  }
+  await fetchPublicRefs(directory, repo, shallowRefs, ['--depth=1']);
+  await fetchPublicRefs(directory, repo, refs);
   return new SandboxGit(directory);
 }
 
