@@ -24,6 +24,8 @@ export interface Env {
   SESSION_SECRET: string;
   /** Enable-time Ed25519 PKCS8 PEM secret; absent during the write-disabled rollout. */
   PUBLISH_SIGNING_KEY?: string;
+  /** Set to '1' only after the target's scoped publisher and Review contract are ready. */
+  TRANSLATION_PUBLISH?: string;
   OAUTH_CALLBACK_URL: string;
   COMPENDIUM_OWNER?: string;
   COMPENDIUM_REPO?: string;
