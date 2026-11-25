@@ -1,3 +1,4 @@
+import { resolveAlias } from '@clarity/core';
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { languageLabel } from '../../languageLabels';
@@ -49,7 +50,7 @@ export function laneSentence(
   }
 }
 
-/** The other tooltips whose published text in the row's language changes with it, by name. */
+/** The other tooltips whose published text changes with the row, by name; an alias is its original. */
 export function AffectedTooltips({
   entry: { lane },
   open,
@@ -64,7 +65,8 @@ export function AffectedTooltips({
   const hashes = lane.row?.status === 'ready' ? lane.row.affectedHashes : undefined;
   const tooltips = useMemo(
     () =>
-      (hashes ?? [])
+      [...new Set((hashes ?? []).map((hash) => (data ? resolveAlias(hash, data.aliases) : hash)))]
+        .filter((hash) => hash !== lane.hash)
         .map((hash) => {
           const item = data ? itemFor(hash, data) : undefined;
           return {
@@ -76,7 +78,7 @@ export function AffectedTooltips({
           };
         })
         .sort((a, b) => a.name.localeCompare(b.name) || a.hash - b.hash),
-    [data, hashes],
+    [data, hashes, lane.hash],
   );
   if (!hashes) return null;
   if (!tooltips.length)

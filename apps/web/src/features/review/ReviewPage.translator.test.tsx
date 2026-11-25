@@ -523,6 +523,21 @@ it('lists the tooltips a shared text updates, and holds back a row that changes 
   expect(heldBack.textContent).toContain('After G_refill');
 });
 
+it('counts an alias copy as its original, never as another tooltip', async () => {
+  vi.mocked(loadGenerator).mockResolvedValue({
+    ...(await loadGenerator()),
+    aliases: { 50: { to: 10, kind: 'sandbox' }, 60: { to: 40, kind: 'sandbox' } },
+  });
+  bundle.translationPublish!.lanes = lanes([
+    ready({ hash: 10 }, 'de', { affectedHashes: [40, 50, 60] }),
+  ]);
+  await signIn(translator);
+  await mount();
+  await waitFor(() => expect(detail()?.textContent).toContain('Also updates 1 tooltip'));
+  expect(detail()?.querySelector('details')?.textContent).toContain('Tooltip 40');
+  expect(detail()?.querySelector('details')?.textContent).not.toContain('Tooltip 50');
+});
+
 it('shows the reason of a refused row, and sends the rest of its part by itself', async () => {
   answer = ({ opId, rows }) =>
     rows.length > 1
