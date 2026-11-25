@@ -1209,9 +1209,9 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.pub.run();
     f.assertDone();
   });
-  it.skipIf(transport !== 'simulator')(
-    'preserves staged Current uploads when the migration hold lands during the key fetch',
-    async () => {
+  it.skipIf(transport !== 'simulator').each(['hold', 'undo'] as const)(
+    'preserves staged Current uploads when migration %s wins during the key fetch',
+    async (transition) => {
       const f = await setup();
       const upstream = new LocalRepository(f.upstream);
       const active = f.pub.read<object>(upstream.tree(upstream.head(D)!), globalsInPlacePath)!;
@@ -1233,7 +1233,14 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       let heldRefs: string | undefined;
       vi.stubEnv('GITHUB_TOKEN', 'fixture-token');
       vi.stubGlobal('fetch', async () => {
-        f.change(D, { [globalsInPlacePath]: { ...active, state: 'hold' } });
+        if (transition === 'hold') {
+          f.change(D, { [globalsInPlacePath]: { ...active, state: 'hold' } });
+        } else {
+          const head = upstream.head(D)!;
+          const tree = upstream.tree(head);
+          delete tree[globalsInPlacePath];
+          upstream.cas(D, head, upstream.commit(head, tree, 'Undo the migration fence'));
+        }
         heldRefs = upstream.git(['show-ref']);
         return Response.json({
           algorithm: 'Ed25519',
@@ -1256,7 +1263,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         });
       publisherConfig.enabled = true;
       try {
-        await runPipeline(
+        const run = runPipeline(
           checkout,
           {
             ...f.options,
@@ -1267,6 +1274,8 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
           join(root, 'out'),
           true,
         );
+        if (transition === 'hold') await run;
+        else await expect(run).rejects.toThrow('requires an active config/globals-in-place.json');
         expect(heldRefs).toBeDefined();
         expect(upstream.git(['show-ref'])).toBe(heldRefs);
         expect(upstream.tree(upstream.head(D)!)[stagedPath]).toBeDefined();

@@ -1,9 +1,10 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { inventoryGlobals, projectGlobals } from '../../packages/core/src/globals/projection.js';
 import {
   reconcileGlobalStore,
@@ -1717,6 +1718,306 @@ async function mutationPort(
     });
   return { load, edit, post };
 }
+
+describe('in-place atomic landing fences', () => {
+  const sibling = '01K95H00000000000000000002';
+  const siblingKick = 'publish/kicks/' + sibling + '-12345.json';
+
+  async function pendingTooltip() {
+    const f = await inPlaceFixture();
+    f.change({ 'tooltips/142.json': tooltip(142, 'Edited tooltip') });
+    await f.globals.maintainAuthored();
+    await f.request([142]);
+    return f;
+  }
+
+  it.each(['beforeCas', 'beforeAtomic'] as const)(
+    'publishes the signed 28 rows when its own kick advances DATA at %s',
+    async (race) => {
+      const f = await inPlaceFixture();
+      const hashes = [142, ...Array.from({ length: 27 }, (_, index) => 200 + index)];
+      f.change(
+        Object.fromEntries(
+          hashes.map((hash) => {
+            f.options.facts[hash] = { name: String(hash), type: 'Weapon Perk' };
+            return ['tooltips/' + hash + '.json', tooltip(hash, 'Edited ' + hash)];
+          }),
+        ),
+      );
+      await f.globals.maintainAuthored();
+      await f.request(hashes);
+      const kick = 'publish/kicks/' + A + '-12345.json';
+      f.git[race] = () => f.change({ [kick]: { opId: A } });
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toBe('done');
+      expect(f.read(kick)).toEqual({ opId: A });
+      const output = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+      for (const hash of hashes)
+        expect(output.perks[hash]).toMatchObject({ editor: { en: { main: 'Edited ' + hash } } });
+    },
+  );
+
+  it.each(['enqueue', 'drain', 'round trip'] as const)(
+    'records the signed tooltip during a name-proof %s',
+    async (action) => {
+      const f = await inPlaceFixture();
+      if (action === 'round trip')
+        f.change({ 'tooltips/142.json': tooltip(142, 'var NeverUsed = 42\n#NeverUsed') });
+      await f.globals.maintainAuthored();
+      const proofId = '3283270b-d921-468b-8d09-6b4a90659d30';
+      const proofPath = 'globals/retries/' + proofId + '.json';
+      const proofRequest = {
+        version: 1,
+        type: 'name-proof',
+        id: proofId,
+        operation: 'create',
+        kind: 'variables',
+        name: 'NeverUsed',
+        globalId: null,
+        revision: null,
+        expectedHead: f.git.head(D),
+        sources: await f.globals.sources(f.current(), f.git.head(L)!),
+        by: 'alice',
+        at: new Date(now).toISOString(),
+      };
+      if (action === 'drain') f.change({ [proofPath]: proofRequest });
+      await f.request([142]);
+      const originalHead = f.git.head(D);
+      const originalTree = f.current();
+      const record = f.pub.record.bind(f.pub);
+      const completed = '01K95H00000000000000000003';
+      vi.spyOn(f.pub, 'record').mockImplementationOnce(async (...args) => {
+        expect(args[6]).toBeDefined();
+        if (action === 'round trip') {
+          f.change({ [proofPath]: proofRequest });
+          await f.globals.maintainAuthored();
+          expect(f.git.head(D)).not.toBe(originalHead);
+          expect(f.current()).toEqual(originalTree);
+        } else {
+          await f.request([142], sibling);
+          f.change({
+            [siblingKick]: { opId: sibling },
+            ['publish/kicks/batch-' + sibling + '-12345.json']: {},
+            ['publish/kicks/current-save-' + sibling + '.json']: {},
+            'publish/kicks/due-202611231625-12345.json': {},
+            [paths(completed).log]: { result: {} },
+          });
+          if (action === 'drain') await f.globals.maintainAuthored();
+          else f.change({ [proofPath]: proofRequest });
+        }
+        return record(...args);
+      });
+      await f.pub.operation(A);
+      expect(f.read(paths(A).log).result.status).toMatch(/done|unchanged/);
+      expect(f.current()[proofPath] !== undefined).toBe(action === 'enqueue');
+      const clashProof = (await namePaths('variables', 'NeverUsed')).proof;
+      if (action === 'round trip') {
+        expect(f.current()[clashProof]).toBeUndefined();
+      } else {
+        expect(f.current()[paths(sibling).request]).toBeDefined();
+        expect(f.current()[paths(completed).log]).toBeDefined();
+        expect(f.read(clashProof).name).toBe('NeverUsed');
+      }
+    },
+  );
+
+  it.each([
+    ['upload markers', { 'live/pushed.json': { 142: 'tampered' } }],
+    ['a non-proof retry', { 'globals/retries/3283270b-d921-468b-8d09-6b4a90659d30.json': {} }],
+    ['an unrelated addition', { toString: { other: true } }],
+    ['a retired release certificate', { 'globals/proofs/publication/test/142-en.json': {} }],
+    ['a frozen LIVE snapshot', { 'live/tooltips/141.json': tooltip(141, 'Changed snapshot') }],
+  ] as const)('rejects a sibling kick accompanied by %s', async (_label, changes) => {
+    const f = await pendingTooltip();
+    const live = f.git.head(L);
+    let pushed: string | undefined;
+    f.git.beforeAtomic = () => {
+      f.change({ [siblingKick]: {}, ...changes });
+      pushed = f.current()['live/pushed.json'];
+    };
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      error: expect.stringContaining('Global receipt identity mismatch'),
+    });
+    expect(f.git.head(L)).toBe(live);
+    expect(f.read('live/tooltips/142.json')).toEqual(tooltip(142, 'unrelated'));
+    expect(pushed).toBeDefined();
+    expect(f.current()['live/pushed.json']).toBe(pushed);
+  });
+
+  it.each(['100755', undefined])('rejects a retry kick with file mode %s', async (mode) => {
+    const f = await pendingTooltip();
+    const git: Repository = f.git;
+    git.treeModes = (head) => {
+      const modes = Object.fromEntries(Object.keys(git.tree(head)).map((path) => [path, '100644']));
+      if (mode) modes[siblingKick] = mode;
+      else delete modes[siblingKick];
+      return modes;
+    };
+    const live = f.git.head(L);
+    f.git.beforeAtomic = () => f.change({ [siblingKick]: { opId: sibling } });
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      error: expect.stringContaining('Global receipt identity mismatch'),
+    });
+    expect(f.git.head(L)).toBe(live);
+  });
+
+  it('detects an explicit empty config subtree alongside an otherwise valid kick', async () => {
+    const f = await pendingTooltip();
+    const root = mkdtempSync(resolve(tmpdir(), 'globals-empty-config-'));
+    try {
+      execFileSync('git', ['init', '--bare', root], { stdio: 'pipe' });
+      execFileSync('git', ['--git-dir', root, 'config', 'publisher.simulator', 'true']);
+      const git = new LocalRepository(root);
+      const pub = new Publisher(git, f.options);
+      const tree = Object.fromEntries(
+        Object.entries(f.current()).map(([path, oid]) => [path, git.writeBlob(f.git.blob(oid))]),
+      );
+      const source = git.commit(undefined, tree, 'Freeze active editor data');
+      const kicked = git.commit(
+        source,
+        { ...tree, [siblingKick]: git.writeBlob('{}') },
+        'Kick sibling',
+      );
+      expect(pub['sourceAdvance'](source, kicked, git.tree(kicked), A)).toBe('bookkeeping');
+
+      const empty = git.git(['mktree'], '').trim();
+      const config = git.git(['rev-parse', kicked + ':config']).trim();
+      const changedConfig = git
+        .git(['mktree'], git.git(['ls-tree', config]) + '040000 tree ' + empty + '\tempty\n')
+        .trim();
+      const changedRoot = git
+        .git(['mktree'], git.git(['ls-tree', kicked]).replace(config, changedConfig))
+        .trim();
+      const changed = git
+        .git(['commit-tree', changedRoot, '-p', source], 'Kick and change config identity')
+        .trim();
+      expect(git.tree(changed)).toEqual(git.tree(kicked));
+      expect(git.treeModes(changed)['config/empty']).toBe('040000');
+      expect(pub['sourceAdvance'](source, changed, git.tree(changed), A)).toBe('blocked');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('records the candidate that wins its exact replacement lease', async () => {
+    const f = await pendingTooltip();
+    f.git.beforeAtomic = () =>
+      f.change({ 'tooltips/141.json': tooltip(141, 'Saved concurrently') });
+    const create = f.pub.createCandidate.bind(f.pub);
+    let winner: string | undefined;
+    vi.spyOn(f.pub, 'createCandidate').mockImplementation((opId, blob, live, receipt, previous) => {
+      if (previous) {
+        winner = f.pub.buildCandidate(live, receipt);
+        f.git.beforeCas = () => f.git.cas(paths(opId).candidate, previous, winner);
+      }
+      return create(opId, blob, live, receipt, previous);
+    });
+    await f.pub.operation(A);
+    expect(winner).toBeDefined();
+    expect(f.read(paths(A).log).candidateCommit).toBe(winner);
+    expect(f.git.head(L)).toBe(winner);
+  });
+
+  it('reconciles another publisher completing recovery during authored upkeep', async () => {
+    const f = await pendingTooltip();
+    f.git.beforeAtomic = () =>
+      f.change({ 'tooltips/141.json': tooltip(141, 'Saved concurrently') });
+    const maintain = GlobalsPublisher.prototype.maintainAuthored;
+    const spy = vi
+      .spyOn(GlobalsPublisher.prototype, 'maintainAuthored')
+      .mockImplementationOnce(async function (this: GlobalsPublisher, head) {
+        const checked = await maintain.call(this, head);
+        await new Publisher(f.git, f.options).operation(A);
+        return checked;
+      });
+    try {
+      await f.pub.operation(A);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(f.read(paths(A).log).candidateCommit).toBe(f.git.head(L));
+    expect(f.git.additions(f.git.head(D)!, paths(A).log)).toHaveLength(1);
+    expect(f.git.head(paths(A).candidate)).toBeUndefined();
+  });
+
+  it.each([true, false])(
+    'reconciles a candidate removed after observation only if recorded (recorded=%s)',
+    async (recorded) => {
+      const f = await pendingTooltip();
+      f.pub.record = async () => {
+        throw new RefRace('Runner interrupted');
+      };
+      await expect(f.pub.operation(A)).rejects.toThrow('Runner interrupted');
+      expect(f.git.head(paths(A).candidate)).toBeDefined();
+      f.change({ 'tooltips/141.json': tooltip(141, 'Saved before recovery') });
+      const pending = new Map(f.git.refs);
+      await new Publisher(f.git, f.options).operation(A);
+      const completed = new Map(f.git.refs);
+      expect(f.read(paths(A).log).candidateCommit).toBe(completed.get(L));
+      f.git.refs = pending;
+
+      const runner = new Publisher(f.git, f.options);
+      const lookup = runner.candidate.bind(runner);
+      vi.spyOn(runner, 'candidate').mockImplementationOnce((...args) => {
+        const observed = lookup(...args);
+        expect(observed).toBeDefined();
+        if (recorded) f.git.refs = completed;
+        else f.git.refs.delete(paths(A).candidate);
+        return observed;
+      });
+      if (recorded) {
+        await expect(runner.operation(A)).resolves.toBeUndefined();
+        expect(f.git.head(D)).toBe(completed.get(D));
+        expect(f.git.head(L)).toBe(completed.get(L));
+        expect(f.git.additions(f.git.head(D)!, paths(A).log)).toHaveLength(1);
+      } else {
+        await expect(runner.operation(A)).rejects.toThrow('Candidate disappeared');
+        expect(f.current()[paths(A).request]).toBeDefined();
+        expect(f.current()[paths(A).log]).toBeUndefined();
+      }
+    },
+  );
+
+  it('rebuilds around a saved global and its projection without publishing its draft', async () => {
+    const f = await pendingTooltip();
+    const port = await mutationPort(f);
+    const record = f.pub.record.bind(f.pub);
+    vi.spyOn(f.pub, 'record').mockImplementationOnce(async (...args) => {
+      expect(args[6]).toBeDefined();
+      expect((await port.edit(f.entry.id, '999')).status).toBe(200);
+      return record(...args);
+    });
+    await f.pub.operation(A);
+    const output = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    expect(output.perks[141]).toMatchObject({ editor: { en: { main: '20' } } });
+    expect(output.perks[142]).toMatchObject({ editor: { en: { main: 'Edited tooltip' } } });
+    expect(f.read(f.entryPath).definitions.en.body).toBe('999');
+    expect(f.read('tooltips/2.json').text.en.text).toContain('var Beta = 999');
+    expect(f.read(paths(A).log).result.status).toBe('done');
+  });
+
+  it('preserves a pending request when the published store becomes inconsistent during landing', async () => {
+    const f = await inPlaceFixture();
+    f.change({ 'tooltips/142.json': tooltip(142, 'reads #Beta') });
+    await f.globals.maintainAuthored();
+    await f.request([142]);
+    const publishedPath = 'globals/live/converter-v2-test.json';
+    f.git.beforeAtomic = () => {
+      const published = f.read(publishedPath) as { store: typeof f.published };
+      published.store.entries = published.store.entries.filter(({ name }) => name !== 'Beta');
+      f.change({ [publishedPath]: published });
+    };
+    const live = f.git.head(L);
+    await expect(f.pub.operation(A)).rejects.toThrow('Invalid or duplicate projection entry');
+    expect(f.git.head(L)).toBe(live);
+    expect(f.current()[paths(A).request]).toBeDefined();
+    expect(f.current()[paths(A).log]).toBeUndefined();
+  });
+});
 
 describe('authored globals maintenance', () => {
   it('pins identities to exact OIDs and changes them on layout, alias, fallback, or resolver drift', async () => {
