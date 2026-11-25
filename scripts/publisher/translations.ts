@@ -21,7 +21,6 @@ import {
   resolveGlobalsInPlace,
   setBonusHoldMessage,
   stableStringify,
-  tooltipSchema,
   translationAffectedDigest,
   translationBeforeDigest,
   translationEnglishDigest,
@@ -133,13 +132,19 @@ function activeSource(
     if (!input.perks[hash] || !('editor' in input.perks[hash]) || (hash >= 1 && hash <= 3)) return;
     if (!tree[path] || !pushed[hash]) return;
     const raw = pub.read<Tooltip>(tree, path);
-    const { data } = tooltipSchema.safeParse(raw);
-    if (!data || data.hash !== hash || !data.text.en?.text.trim()) return;
-    // Historical snapshots can predate the incoming-alias marker. The LIVE row and
-    // actual stubs still determine root identity and all effects.
-    for (const context of [aliases, {}]) {
-      const digest = createHash('sha256').update(publishableHashInput(data, context)).digest('hex');
-      if (digest === pushed[hash]) return raw;
+    if (!raw || raw.hash !== hash) return;
+    try {
+      if (!raw.text.en?.text.trim()) return;
+      // publishableHashInput validates the full snapshot before it hashes its marker.
+      const matches = (context: Aliases) =>
+        createHash('sha256').update(publishableHashInput(raw, context)).digest('hex') ===
+        pushed[hash];
+      // Historical snapshots can predate the incoming-alias marker. The LIVE row
+      // and actual stubs still determine root identity and all effects.
+      if (matches(aliases) || (incomingAliases(hash, aliases).length > 0 && matches({})))
+        return raw;
+    } catch {
+      // A malformed historical snapshot is unverified.
     }
   };
 }

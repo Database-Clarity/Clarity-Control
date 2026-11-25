@@ -52,7 +52,8 @@ export interface Repository {
 }
 
 /** Per-document files: a publisher step that reads one reads (nearly) all of them. */
-const bulkPath = /^(tooltips|live\/tooltips|globals|schedule\/batches\/[^/]+\/tooltips)\//;
+const bulkPath =
+  /^(?:(?:tooltips|live\/tooltips|globals|schedule\/batches\/[^/]+\/tooltips)\/|live\/(?:pushed|translation-roots)\.json$)/;
 
 /** Disposable bare object store; the simulator updates only local refs, RemoteRepository supplies transport. */
 export class LocalRepository implements Repository {
