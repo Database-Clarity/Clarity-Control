@@ -34527,22 +34527,6 @@ async function planSaveChanges(input2, access, current, saveAliases, exporterPin
       continue;
     }
     if (rebased) checkEdit(access, head, merged);
-    if (access.role === "trial" && !head?.text.en && merged.text.en) {
-      if (!revisionHistory) throw new HttpError(502, "Could not verify the published English revision");
-      const raw = await revisionHistory.readPublished(change.hash);
-      if (raw !== void 0) {
-        const published = tooltipSchema.parse(raw);
-        if (published.hash !== change.hash)
-          throw new HttpError(502, "Published tooltip hash mismatch");
-        const live = published.text.en;
-        const next2 = merged.text.en;
-        if (live && !(Date.parse(next2.updatedAt) > Date.parse(live.updatedAt)))
-          throw new HttpError(
-            422,
-            "Save the restored English with a revision newer than published English."
-          );
-      }
-    }
     if (checkEnglishRevision(access, head, merged, input2.noTranslationImpact === true, now) === "kept")
       kept.push(merged.hash);
     const english = merged.text.en;
@@ -34707,8 +34691,7 @@ async function drainCurrentSaves(pub) {
                 if (!pub.git.ancestor(commit2, head)) return null;
                 const value2 = pub.read(pub.git.tree(commit2), `tooltips/${hash2}.json`);
                 return value2 === void 0 ? null : tooltipSchema.parse(value2);
-              },
-              readPublished: (hash2) => pub.read(tree, `live/tooltips/${hash2}.json`)
+              }
             }
           );
           if (!("conflicts" in validated) && Object.keys(validated.writes).some((path) => globalAggregatePath.test(path)) && hasGlobals(tree))
