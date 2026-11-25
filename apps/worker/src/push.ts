@@ -8,7 +8,6 @@ import {
   inactiveMovesPath,
   isMovedInactive,
   selectedInactiveMoves,
-  withClearedMoves,
   exportWithInactiveMoves,
   applyInactiveLive,
   type InactiveMoves,
@@ -129,7 +128,7 @@ async function loadAtHead(
     : await pushSandboxPicks(github, legacy!.aliases, pointers);
   let aliases = scope?.aliases ?? picks.aliases;
   const facts = scope?.facts ?? legacy!.facts;
-  const stored = storedInactiveMoves(movesFile);
+  const moves = storedInactiveMoves(movesFile);
   const canonicalHashes = [...new Set(hashes.map((hash) => resolveAlias(hash, aliases)))];
   const files = await github.files(
     canonicalHashes.map((hash) => `tooltips/${hash}.json`),
@@ -140,24 +139,19 @@ async function loadAtHead(
   const exportedHashes: Record<string, string> = {};
   for (const [index, hash] of canonicalHashes.entries()) {
     const file = files[index];
-    if (!file && !isMovedInactive(hash, stored))
+    if (!file && !isMovedInactive(hash, moves))
       throw new HttpError(404, `Tooltip ${hash} does not exist`);
     const tooltip = tooltipSchema.parse(file?.value ?? { hash, text: {}, associated: [] });
     if (tooltip.hash !== hash) throw new HttpError(502, 'Stored tooltip hash mismatch');
-    tooltips.push(tooltip);
-  }
-  const states = await clearedStates(github, head, tooltips, stored);
-  const moves = withClearedMoves(
-    stored,
-    [...states].flatMap(([hash, state]) => (state === 'removal' ? [hash] : [])),
-  );
-  for (const tooltip of tooltips) {
-    const { hash } = tooltip;
-    if (!isMovedInactive(hash, moves) && (states.has(hash) || isTextlessDescription(tooltip)))
+    if (!isMovedInactive(hash, moves) && isTextlessDescription(tooltip))
       throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
+    tooltips.push(tooltip);
     snapshots[`live/tooltips/${hash}.json`] = tooltip;
     exportedHashes[hash] = await inactivePublishableHash(tooltip, aliases, moves);
   }
+  // A clear needs one fence over both branches, which only the publisher has.
+  const [cleared] = (await clearedStates(github, head, tooltips, moves)).keys();
+  if (cleared !== undefined) throw new HttpError(422, `Tooltip ${cleared} has no text to publish`);
   for (const hash of canonicalHashes)
     if (expected && expected[hash] !== exportedHashes[hash])
       throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);

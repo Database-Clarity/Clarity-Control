@@ -76,8 +76,11 @@ export const inactiveRemovalInput = (hash: number) => stableStringify({ inactive
 
 /** Stable published removal marker, including for an item with no stored tooltip. */
 export async function inactiveRemovalHash(hash: number): Promise<string> {
-  const bytes = new TextEncoder().encode(inactiveRemovalInput(hash));
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return sha256(inactiveRemovalInput(hash));
+}
+
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
@@ -102,6 +105,22 @@ export function clearedState(
   if (!withoutEnglish(tooltip) || marker === undefined) return undefined;
   if (marker === removalMarker) return 'removed';
   return publishedEnglish ? 'removal' : undefined;
+}
+
+/** Whether a save clears a tooltip's English. */
+export const clearsEnglish = (base: Tooltip | null, next: Tooltip) =>
+  !!base && !withoutEnglish(base) && withoutEnglish(next);
+
+/** What a reviewed clear names: the saved text, and the published version it removes. */
+export const clearedReviewInput = ({ hash, text }: Tooltip, marker: string | undefined) =>
+  stableStringify({ cleared: hash, text, published: marker });
+
+/** The reviewed digest of a clear; its published marker is the removal marker. */
+export async function clearedReviewHash(
+  tooltip: Tooltip,
+  marker: string | undefined,
+): Promise<string> {
+  return sha256(clearedReviewInput(tooltip, marker));
 }
 
 /** The moves a publish of these cleared tooltips applies (selected rows only, never stored). */
@@ -278,7 +297,10 @@ export function applyInactiveLive(
       for (const [stub, value] of Object.entries(result))
         if (
           (record(value) && value.aliasOf === hash) ||
-          (Object.hasOwn(aliases, stub) && resolveAlias(Number(stub), aliases) === hash)
+          // A clear takes only its own stubs: a row with its own text is another publication.
+          (!selected[key]!.cleared &&
+            Object.hasOwn(aliases, stub) &&
+            resolveAlias(Number(stub), aliases) === hash)
         )
           erase(Number(stub));
   }

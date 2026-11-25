@@ -4,8 +4,8 @@ import {
   hasTooltipText,
   isTextlessDescription,
   languages,
+  clearsEnglish,
   stableStringify,
-  withoutEnglish,
 } from '@clarity/core';
 import { canEditLanguage, canEditTooltipFields } from '../../features/auth/permissions';
 import type { EditorData } from '../../stores/data';
@@ -22,10 +22,7 @@ export function permissionError(changes: Change[], user: Me | null): string | nu
     changes.some(({ base, next }) => isTextlessDescription(next) && (!base || hasTooltipText(base)))
   )
     return 'Only editors and maintainers can create link-only tooltips.';
-  if (
-    user.role === 'trial' &&
-    changes.some(({ base, next }) => base && !withoutEnglish(base) && withoutEnglish(next))
-  )
+  if (user.role === 'trial' && changes.some(({ base, next }) => clearsEnglish(base, next)))
     return 'Only editors and maintainers can clear the English text.';
   if (canEditTooltipFields(user)) return null;
   for (const change of changes) {

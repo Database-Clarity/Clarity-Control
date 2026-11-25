@@ -16,11 +16,12 @@ import { clearedStates } from './inactiveMoves.js';
 
 /**
  * A text without English, published with it, reads as having none. `removals` collects the roots
- * a publish removes for that: they are left out of the checks and of the result.
+ * a publish removes for that, with their reviewed digest: they are left out of the checks and of
+ * the result.
  */
 interface Clearing {
   moves: InactiveMoves;
-  removals?: Set<number>;
+  removals?: Map<number, string>;
 }
 
 /** Fail closed, at one immutable data commit, before signing or writing consumer input.
@@ -66,7 +67,7 @@ export async function refuseBaseEnhanced(
     const targets = [...new Set(pending.map((hash) => resolveAlias(hash, aliases)))];
     const imported = first ? undefined : targets.find((hash) => removals?.has(hash));
     if (imported !== undefined)
-      throw new HttpError(422, `Tooltip ${imported} is imported, but its text was cleared`);
+      throw new HttpError(422, `A selected tooltip imports cleared tooltip ${imported}`);
     const hashes = targets.filter((hash) => !visited.has(hash));
     if (!hashes.length) break;
     hashes.forEach((hash) => visited.add(hash));
@@ -76,14 +77,16 @@ export async function refuseBaseEnhanced(
     for (const hash of hashes) {
       const tooltip = known.get(hash);
       if (!tooltip) continue;
-      const state = states.get(hash);
-      if (first && removals && state === 'removal') {
-        removals.add(hash);
+      const cleared = states.get(hash);
+      if (first && removals && cleared?.state === 'removal') {
+        removals.set(hash, cleared.reviewed);
         continue;
       }
-      if (first && removals && state === 'removed')
+      if (first && removals && cleared?.state === 'removed')
         throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
-      if (state || isTextlessDescription(tooltip))
+      if (cleared && !first)
+        throw new HttpError(422, `A selected tooltip imports cleared tooltip ${hash}`);
+      if (cleared || isTextlessDescription(tooltip))
         throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
       for (const translation of Object.values(tooltip.text)) {
         if (!translation) continue;
@@ -108,10 +111,12 @@ export async function refuseBaseEnhanced(
   const states = await loadedStates(associated);
   for (const hash of associated) {
     const target = known.get(hash);
-    if (target && (states.has(hash) || isTextlessDescription(target)))
+    if (target && states.has(hash))
+      throw new HttpError(422, `A selected tooltip associates cleared tooltip ${hash}`);
+    if (target && isTextlessDescription(target))
       throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
   }
-  for (const hash of removals ?? []) known.delete(hash);
+  for (const hash of removals?.keys() ?? []) known.delete(hash);
   // Variable names starting like a brace holder (Zb1w…) would take a holder's place in the
   // export: refused in every document a publish or push reads, as /save refuses them.
   for (const tooltip of known.values()) refuseReservedNames(tooltip);

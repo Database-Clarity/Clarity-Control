@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   clearedRemovalsCapability,
+  clearedReviewHash,
   clearedState,
   hashSchema,
   inactiveRemovalHash,
@@ -52,8 +53,9 @@ export function pinRemovesCleared(pin: unknown): boolean {
 }
 
 /**
- * Each document's cleared state at `head` (core clearedState), for the ones that have one. One
- * read of the published markers and versions, and only when a document has no English.
+ * Each document's cleared state at `head` (core clearedState), for the ones that have one, and the
+ * digest a review of it names. One read of the published markers and versions, and only when a
+ * document has no English.
  */
 export async function clearedStates(
   github: GitHub,
@@ -61,7 +63,7 @@ export async function clearedStates(
   documents: readonly Tooltip[],
   moves: InactiveMoves,
 ) {
-  const states = new Map<number, 'removal' | 'removed'>();
+  const states = new Map<number, { state: 'removal' | 'removed'; reviewed: string }>();
   const candidates = documents.filter(
     (document) => withoutEnglish(document) && !isMovedInactive(document.hash, moves),
   );
@@ -85,7 +87,11 @@ export async function clearedStates(
       await inactiveRemovalHash(document.hash),
       !!published && !withoutEnglish(tooltipSchema.parse(published.value)),
     );
-    if (state) states.set(document.hash, state);
+    if (state)
+      states.set(document.hash, {
+        state,
+        reviewed: await clearedReviewHash(document, pushed[document.hash]),
+      });
   }
   return states;
 }

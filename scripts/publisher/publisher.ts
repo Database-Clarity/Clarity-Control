@@ -31,6 +31,7 @@ import {
   hasUnpublishedInactiveMove,
   unreviewedInactiveMessage,
   isMovedInactive,
+  clearedReviewInput,
   clearedState,
   inactiveRemovalInput,
   withClearedMoves,
@@ -297,8 +298,8 @@ class NamedPartRefusal extends ConsumerOutputRejected {
     super(message);
   }
 }
-const removalMarker = (hash: number) =>
-  createHash('sha256').update(inactiveRemovalInput(hash)).digest('hex');
+const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+const removalMarker = (hash: number) => sha256(inactiveRemovalInput(hash));
 
 type EmptyOutputs = Map<LegacyPreset, Set<string>>;
 export class Publisher {
@@ -415,8 +416,13 @@ export class Publisher {
       throw new ConsumerOutputRejected(`Invalid ${inactiveMovesPath}`);
     }
   }
+  /** A malformed published version has no English: it must not stop the bundle or the queue. */
+  private publishedEnglish(tree: Tree, hash: number): boolean {
+    const { data } = tooltipSchema.safeParse(this.read(tree, `live/tooltips/${hash}.json`));
+    return !!data && !withoutEnglish(data);
+  }
   /** Each document's cleared state at `tree` (core clearedState), for the ones that have one. */
-  private clearedStates(tree: Tree, documents: readonly Tooltip[], moves: InactiveMoves) {
+  clearedStates(tree: Tree, documents: readonly Tooltip[], moves: InactiveMoves) {
     const states = new Map<number, 'removal' | 'removed'>();
     const candidates = documents.filter(
       (document) => withoutEnglish(document) && !isMovedInactive(document.hash, moves),
@@ -425,12 +431,11 @@ export class Publisher {
     const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
     for (const document of candidates) {
       const { hash } = document;
-      const published = this.read<Tooltip>(tree, `live/tooltips/${hash}.json`);
       const state = clearedState(
         document,
         pushed[hash],
         removalMarker(hash),
-        !!published && !withoutEnglish(published),
+        this.publishedEnglish(tree, hash),
       );
       if (state) states.set(hash, state);
     }
@@ -446,7 +451,28 @@ export class Publisher {
       ),
     );
   }
-  /** Published tooltips whose saved text gained or lost its English: how Review knows a clear. */
+  /** The digests a review names: an entry's marker, or what a cleared removal was reviewed as. */
+  private reviewedEntries(
+    tree: Tree,
+    entries: readonly Entry[],
+    documents: readonly Tooltip[],
+    moves: InactiveMoves,
+  ): Entry[] {
+    const cleared = documents.filter(({ hash }) => moves[hash]?.cleared);
+    if (!cleared.length) return [...entries];
+    const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
+    const reviewed = new Map(
+      cleared.map((document) => [
+        document.hash,
+        sha256(clearedReviewInput(document, pushed[document.hash])),
+      ]),
+    );
+    return entries.map((entry) => ({ ...entry, digest: reviewed.get(entry.hash) ?? entry.digest }));
+  }
+  /**
+   * Published tooltips whose saved text gained or lost its English: how Review knows a clear. A
+   * removed one is published without English.
+   */
   private englishChanged(tree: Tree, tooltips: Readonly<Record<string, Tooltip>>): number[] {
     const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
     return Object.values(tooltips).flatMap((tooltip) => {
@@ -454,11 +480,8 @@ export class Publisher {
       const path = `live/tooltips/${hash}.json`;
       if (hash <= 3 || !pushed[hash] || !tree[path] || tree[path] === tree[`tooltips/${hash}.json`])
         return [];
-      const published = this.read<Tooltip>(tree, path)!;
-      return withoutEnglish(tooltip) !== withoutEnglish(published) &&
-        pushed[hash] !== removalMarker(hash)
-        ? [hash]
-        : [];
+      const english = this.publishedEnglish(tree, hash) && pushed[hash] !== removalMarker(hash);
+      return english === withoutEnglish(tooltip) ? [hash] : [];
     });
   }
   /**
@@ -491,10 +514,9 @@ export class Publisher {
           if (target.hash !== hash) throw new Error('Stored association tooltip hash mismatch');
           known.set(hash, target);
         }
-        if (
-          isTextlessDescription(target) ||
-          this.clearedStates(tree, [target], this.movesAt(tree)).size
-        )
+        if (this.clearedStates(tree, [target], this.movesAt(tree)).size)
+          throw new Error(`Tooltip ${tooltip.hash} associates cleared tooltip ${hash}`);
+        if (isTextlessDescription(target))
           throw new Error(`Association ${tooltip.hash} -> ${hash} has no text to publish`);
       }
     }
@@ -790,12 +812,16 @@ export class Publisher {
         r.generatorSha !== this.options.generatorSha
       )
         throw new Error('Generator revision differs from frozen alias-group receipt');
-      // Only a removal has an entry without an export.
+      // Only a removal has an entry without an export, or with a refill of its published text.
       const stored = this.movesAt(sourceTree);
       const moves = this.movesWithCleared(
         sourceTree,
         r.entries
-          .filter(({ hash }) => !Object.hasOwn(r.exported, hash) && !isMovedInactive(hash, stored))
+          .filter(
+            ({ hash }) =>
+              (!Object.hasOwn(r.exported, hash) || r.inPlace?.refills.includes(hash)) &&
+              !isMovedInactive(hash, stored),
+          )
           .map(({ tooltipBlob }) => tooltipSchema.parse(JSON.parse(this.git.blob(tooltipBlob)))),
       );
       hasMoves = !!r.translations || Object.keys(moves).length > 0;
@@ -1121,9 +1147,20 @@ export class Publisher {
       new Set(signed.hashes.map((hash) => resolveAlias(hash, aliases))).size
     )
       throw new ConsumerOutputRejected('Receipt does not match the requested rows');
+    let documents: Tooltip[];
+    let moves: InactiveMoves;
+    try {
+      documents = receipt.entries.map(({ tooltipBlob }) =>
+        tooltipSchema.parse(JSON.parse(this.git.blob(tooltipBlob))),
+      );
+      moves =
+        signed.kind === 'push' ? this.movesWithCleared(frozen, documents) : this.movesAt(frozen);
+    } catch (error) {
+      throw new ConsumerOutputRejected(String(error));
+    }
     if (signed.kind === 'push') {
       this.assertRequestedDigests(
-        receipt.entries,
+        this.reviewedEntries(frozen, receipt.entries, documents, moves),
         signed.hashes,
         (hash) => signed.expected[hash],
         aliases,
@@ -1158,10 +1195,7 @@ export class Publisher {
           throw new ConsumerOutputRejected(
             `Tooltip ${hash} differs from the approved batch composition`,
           );
-        expected.set(
-          hash,
-          await inactivePublishableHash(composed.tooltip, aliases, this.movesAt(frozen)),
-        );
+        expected.set(hash, await inactivePublishableHash(composed.tooltip, aliases, moves));
       }
       this.assertRequestedDigests(
         receipt.entries,
@@ -1172,11 +1206,6 @@ export class Publisher {
     }
     // Recovery verifies the frozen bytes independently of the receipt's claimed markers.
     try {
-      const documents = receipt.entries.map(({ tooltipBlob }) =>
-        tooltipSchema.parse(JSON.parse(this.git.blob(tooltipBlob))),
-      );
-      const moves =
-        signed.kind === 'push' ? this.movesWithCleared(frozen, documents) : this.movesAt(frozen);
       for (const [index, entry] of receipt.entries.entries()) {
         const document = documents[index]!;
         if (
@@ -2090,14 +2119,15 @@ export class Publisher {
               continue;
             }
             const digest = await inactivePublishableHash(tooltip.data, aliases, moves);
+            const entry = { hash: canonical, digest, tooltipBlob: '' };
+            const [reviewed] = this.reviewedEntries(tree, [entry], [tooltip.data], moves);
             outcomes.push({
               hash: canonical,
-              status: digest === payload.expected[hash] ? 'accepted' : 'stale',
+              status: reviewed!.digest === payload.expected[hash] ? 'accepted' : 'stale',
             });
             if (!seen.has(canonical)) {
               entries.push({
-                hash: canonical,
-                digest,
+                ...entry,
                 tooltipBlob: oid ?? this.git.writeBlob(json(tooltip.data)),
               });
               tooltips.push(tooltip.data);
@@ -2122,7 +2152,7 @@ export class Publisher {
             return;
           }
           this.assertRequestedDigests(
-            entries,
+            this.reviewedEntries(tree, entries, tooltips, moves),
             payload.hashes,
             (hash) => payload.expected[hash],
             aliases,
@@ -2244,9 +2274,15 @@ export class Publisher {
       aliases,
     );
     const active = tooltips.filter((t) => !isMovedInactive(t.hash, moves));
-    // A batch never carries a clear, and a removed tooltip needs its English back first.
-    if (active.some(isTextlessDescription) || this.clearedStates(tree, active, allMoves).size)
+    if (active.some(isTextlessDescription))
       return { error: 'Tooltip has no text to publish', proposalRejected: true };
+    // A batch never carries a clear, and a removed tooltip needs its English back first.
+    const [cleared] = this.clearedStates(tree, active, allMoves).keys();
+    if (cleared !== undefined)
+      return {
+        error: `Tooltip ${cleared} was cleared and has no text to publish`,
+        proposalRejected: true,
+      };
     try {
       this.checkAssociatedDescriptions(tree, active, aliases);
     } catch (error) {

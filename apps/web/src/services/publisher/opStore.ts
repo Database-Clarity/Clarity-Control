@@ -26,6 +26,8 @@ export interface PublishOp {
   groupCreatedAt?: number;
   hashes: number[];
   expected: Record<string, string>;
+  /** The markers of rows that publish as another digest than the reviewed one (a clear). */
+  markers?: Record<string, string>;
   /** Globals published by this request, with the reviewed definition; the name is for display. */
   globals?: { id: string; expected: string; name: string }[];
   /** Use the shared-definition publish contract on every attempt, even after reload. */
@@ -232,6 +234,7 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
     groupCreatedAt: current.groupCreatedAt,
     hashes: current.hashes,
     expected: current.expected,
+    markers: current.markers,
     globals: current.globals,
     switched: current.switched,
     previous: current.previous,

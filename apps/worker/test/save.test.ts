@@ -440,7 +440,11 @@ it.each([1, 2, 3, 4])(
 it.each([1, 2, 3])('lets only editors and maintainers clear English (user %s)', async (user) => {
   const german = { ...tooltip().text.en!, text: 'Deutsch' };
   const base = { ...tooltip(), text: { ...tooltip().text, de: german } };
-  fixture.moveData({ 'tooltips/123.json': base });
+  const published = {
+    'live/tooltips/123.json': base,
+    'live/pushed.json': { 123: 'a'.repeat(64) },
+  };
+  fixture.moveData({ 'tooltips/123.json': base, ...published });
   for (const en of [undefined, { ...tooltip('').text.en!, text: ' ' }]) {
     const next = { ...base, text: { de: german, ...(en ? { en } : {}) } };
     const response = await fixture.request(
@@ -451,6 +455,22 @@ it.each([1, 2, 3])('lets only editors and maintainers clear English (user %s)', 
     );
     expect(response.status).toBe(user === 3 ? 403 : 200);
     fixture.moveData({ 'tooltips/123.json': base });
+  }
+  // Never published, or published without English: there is nothing to remove.
+  for (const state of [
+    { 'live/pushed.json': {} },
+    { ...published, 'live/tooltips/123.json': { ...base, text: { de: german } } },
+  ]) {
+    fixture.moveData({ 'tooltips/123.json': base, ...state });
+    const next = { ...base, text: { de: german } };
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      { changes: [{ hash: 123, base, next }], message: 'Clear' },
+      user,
+    );
+    expect(response.status).toBe(user === 3 ? 403 : 422);
+    expect(fixture.current()['tooltips/123.json']).toEqual(base);
   }
 });
 

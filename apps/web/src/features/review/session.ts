@@ -10,7 +10,6 @@ import { translationKey } from '../../services/translationPublish';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { canPushLive } from '../auth/permissions';
-import { publishMoves } from './cleared';
 import type { PendingTooltip } from './model';
 import { useReviewQueue } from './queueStore';
 
@@ -122,12 +121,14 @@ export async function publishReviewed(
   }
   useReviewSession.setState({ pushing: true, notice: undefined, error: undefined });
   try {
-    const moves = publishMoves(data, entries);
     const expected = Object.fromEntries(
       await Promise.all(
         entries.map(
           async ({ tooltip }) =>
-            [tooltip.hash, await inactivePublishableHash(tooltip, data.aliases, moves)] as const,
+            [
+              tooltip.hash,
+              await inactivePublishableHash(tooltip, data.aliases, data.bundle.inactiveMoves),
+            ] as const,
         ),
       ),
     );

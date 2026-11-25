@@ -17,6 +17,7 @@ import {
   publishableHash,
   inactivePublishableHash,
   inactiveRemovalHash,
+  clearedReviewHash,
   currentSaveStagePaths,
   globalsInPlacePath,
   exportLegacy,
@@ -866,6 +867,9 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
   const perks = (f: Setup) =>
     f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!.perks;
   const data = <T>(f: Setup, path: string) => f.pub.read<T>(f.git.tree(f.git.head(D)!), path);
+  /** What Review names for the clear it shows: the saved text and the published marker. */
+  const reviewed = (f: Setup, saved = data<Tooltip>(f, 'tooltips/123.json')!) =>
+    clearedReviewHash(saved, data<Record<string, string>>(f, 'live/pushed.json')![123]);
   const result = (f: Setup, id: string) => data<{ result: object }>(f, paths(id).log)!.result;
   const englishChanged = (f: Setup) => {
     f.pub.bundle();
@@ -906,7 +910,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     f.change(D, { 'tooltips/123.json': cleared });
     expect(englishChanged(f)).toEqual([123]);
     const marker = await inactiveRemovalHash(123);
-    await f.request(B, [123], { 123: marker });
+    await f.request(B, [123], { 123: await reviewed(f) });
     await f.pub.run();
     f.assertDone(B);
     const after = readLive();
@@ -949,7 +953,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       text: { ...german.text, en: { ...first.text.en!, text: 'Back', updatedAt: at(2) } },
     };
     f.change(D, { 'tooltips/123.json': back });
-    expect(englishChanged(f)).toBeUndefined();
+    expect(englishChanged(f)).toEqual([123]);
     await f.request(E, [123], { 123: await publishableHash(back, f.options.aliases) });
     await f.pub.run();
     f.assertDone(E);
@@ -975,7 +979,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       });
       f.change(D, { 'tooltips/123.json': clear(first), 'live/tooltips/124.json': reader });
       const before = f.git.head(L);
-      const marker = await inactiveRemovalHash(123);
+      const marker = await reviewed(f);
       await f.request(B, [123], { 123: marker });
       await f.pub.run();
       expect(f.git.head(L)).toBe(before);
@@ -1000,7 +1004,7 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
 
   it('cleared: a save or a publish that moved on refuses the queued request', async () => {
     const { f, first } = await clearedSetup();
-    const marker = await inactiveRemovalHash(123);
+    const marker = await reviewed(f, clear(first));
     const edited = {
       ...first,
       text: { ...first.text, en: { ...first.text.en!, text: 'Edited', updatedAt: at(1) } },
@@ -1029,10 +1033,69 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     expect(perks(f)[123]).toBeUndefined();
   });
 
+  it('cleared: publishes only the saved text and the published version that were reviewed', async () => {
+    const { f, first } = await clearedSetup();
+    const live = f.git.head(L);
+    const refused = async (id: string, expected: string) => {
+      await f.request(id, [123], { 123: expected });
+      await f.pub.run();
+      expect(result(f, id)).toMatchObject({ status: 'stale' });
+      expect(f.git.head(L)).toBe(live);
+    };
+    f.change(D, { 'tooltips/123.json': clear(first) });
+    // The removal marker alone names no review.
+    await refused(B, await inactiveRemovalHash(123));
+    // Another version was published since.
+    const before = await reviewed(f);
+    const refreshed: Tooltip = {
+      ...first,
+      text: { ...first.text, de: { ...first.text.de!, text: 'Neue Übersetzung' } },
+    };
+    const markers = data<Record<string, string>>(f, 'live/pushed.json')!;
+    f.change(D, {
+      'live/pushed.json': { ...markers, 123: await publishableHash(refreshed, f.options.aliases) },
+      'live/tooltips/123.json': refreshed,
+    });
+    await refused(C, before);
+    // Typed back and cleared again by someone else.
+    const reviewedClear = await reviewed(f);
+    const again = clear(first);
+    again.text.en = { ...again.text.en!, updatedAt: at(3) };
+    f.change(D, { 'tooltips/123.json': again });
+    await refused(E, reviewedClear);
+  });
+
+  it('cleared: a refill of the published text in the same part does not keep the row', async () => {
+    const { f, first } = await clearedSetup();
+    const parent = f.git.head(L)!;
+    const sourceCommit = f.change(D, { 'tooltips/123.json': clear(first) });
+    const { perks: merged } = JSON.parse(
+      f.pub.merge(parent, {
+        opId: B,
+        liveParent: parent,
+        sourceCommit,
+        now: pushTime,
+        entries: [
+          {
+            hash: 123,
+            digest: await inactiveRemovalHash(123),
+            tooltipBlob: f.git.tree(sourceCommit)['tooltips/123.json'],
+          },
+        ],
+        exported: { 123: perks(f)[123] },
+        changed: [123],
+        requester: { id: 2, login: 'bob' },
+        inPlace: { globals: [], refills: [123] },
+      } as unknown as Parameters<Publisher['merge']>[1]).bytes,
+    ) as { perks: Record<string, unknown> };
+    expect(merged[123]).toBeUndefined();
+    expect(merged[789]).toBeUndefined();
+  });
+
   it('cleared: a frozen candidate is refused when the text comes back before landing', async () => {
     const { f, first } = await clearedSetup();
     f.change(D, { 'tooltips/123.json': clear(first) });
-    await f.request(B, [123], { 123: await inactiveRemovalHash(123) });
+    await f.request(B, [123], { 123: await reviewed(f) });
     const cas = f.git.cas.bind(f.git);
     let changed = false;
     const spy = vi.spyOn(f.git, 'cas').mockImplementation((ref, old, next) => {
@@ -1071,6 +1134,13 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.pub.run();
     expect(result(f, C)).toMatchObject({ status: 'stale' });
     expect(f.git.head(L)).toBe(live);
+    // A malformed published version does not stop the bundle.
+    f.change(D, {
+      'live/tooltips/123.json': { hash: 123 },
+      'live/pushed.json': { 123: await publishableHash(first) },
+    });
+    expect(englishChanged(f)).toBeUndefined();
+    f.change(D, { 'live/tooltips/123.json': empty });
     // Its first English lists as gained, so a later clear in the same tab is not a removal.
     f.change(D, {
       'tooltips/123.json': first,

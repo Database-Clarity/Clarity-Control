@@ -77,6 +77,7 @@ import { DraftLoader, DraftSlot, StartEnglishLoader, WithEditorDraft } from './D
 import { defaultLanguage, withLanguage } from './language';
 import { useRememberedWorkspaceLanguage } from './WorkspaceLanguage';
 import { requireEnglish } from './requireEnglish';
+import { publishedEnglish } from '../../services/publishedEnglish';
 import { LanguageSummary } from './LanguageSummary';
 import { EditorPaneHeader } from './EditorPaneHeader';
 import { useUpcoming } from './UpcomingSwitch';
@@ -523,7 +524,7 @@ function TooltipWorkspace({
         : (drafts[variant]?.base ?? tooltipFor(variant, data))
       )?.text.en?.text ?? '',
       textOf(variant),
-      !batchEditing && canPushLive(user) && data.bundle.pushed[variant] !== undefined,
+      !batchEditing && canPushLive(user) && publishedEnglish(data, variant),
     );
   // What the preview renders: the same text with conflict blocks resolved to "mine".
   const previewTextOf = (variant: number, source = shown) =>

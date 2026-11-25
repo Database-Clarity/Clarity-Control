@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { exportLegacy, mergeLivePerks } from '../src/exportLegacy.js';
 import {
   activeAliases,
+  clearedReviewHash,
   clearedState,
   exportWithInactiveMoves,
   inactiveMovesSchema,
@@ -75,7 +76,15 @@ it('cleared: only a published English text that is gone is a removal', async () 
   );
   const live = exportLegacy([tooltip(), importer], 0, undefined, aliases);
   expect(() => applyInactiveLive(live, cleared, [42], aliases)).toThrow(/imports cleared tooltip/);
+  // A row that has its own published text is another publication, whatever the generator lists.
+  const own = { 42: live[42], 77: live[77], 99: exportLegacy([other()], 0)[99] };
+  const listed = { ...aliases, 99: { to: 42, kind: 'frame' as const } };
+  expect(applyInactiveLive(own, cleared, [42], listed)).toEqual({ 99: own[99] });
   expect(inactiveMovesSchema.safeParse(cleared).success).toBe(false);
+  const review = await clearedReviewHash(german, marker);
+  expect(await clearedReviewHash(german, marker)).toBe(review);
+  expect(await clearedReviewHash(german, removal)).not.toBe(review);
+  expect(await clearedReviewHash({ ...german, text: {} }, marker)).not.toBe(review);
   expect(withClearedMoves(moves, [])).toBe(moves);
 });
 

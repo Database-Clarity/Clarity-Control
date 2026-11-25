@@ -29,7 +29,12 @@ import {
   globalsInPlacePath,
   type GlobalsPending,
 } from '../../packages/core/src/globals/inPlaceReview.js';
-import { inactivePublishableHash } from '../../packages/core/src/inactiveMoves.js';
+import {
+  clearedReviewHash,
+  inactivePublishableHash,
+  inactiveRemovalHash,
+} from '../../packages/core/src/inactiveMoves.js';
+import { publishableHash } from '../../packages/core/src/publishableHash.js';
 import type { Tooltip } from '../../packages/core/src/schemas.js';
 import {
   batchSchema,
@@ -275,6 +280,7 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
     hashes: number[],
     opId = A,
     globals?: { id: string; expected: string }[],
+    reviewed: Record<number, string> = {},
   ) => {
     const aliases = pub.aliasesAt(current());
     const expected = Object.fromEntries(
@@ -295,7 +301,7 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
         liveBranch: options.liveBranch,
         requester: { id: 1, login: 'alice' },
         hashes,
-        expected,
+        expected: { ...expected, ...reviewed },
         ...(globals ? { globals } : {}),
       },
       () => now,
@@ -1141,6 +1147,29 @@ describe('in-place shared text publication', () => {
     await f.pub.run(false);
     const localized = live(f).perks[141];
     expect('editor' in localized && localized.editor.de).toEqual({ main: '80', secondary: '80' });
+  });
+
+  it('removes a cleared tooltip that a shared text in the same part would refill', async () => {
+    const f = await inPlaceFixture();
+    const published = f.read('live/tooltips/141.json') as Tooltip;
+    const marker = await publishableHash(published);
+    const cleared = {
+      ...published,
+      text: { ...published.text, en: { ...published.text.en!, text: '' } },
+    };
+    f.change({ 'live/pushed.json': { 141: marker }, 'tooltips/141.json': cleared });
+    const before = live(f);
+    const row = pending(f).find(({ name }) => name === 'Beta')!;
+    expect(row.affected).toEqual([141]);
+    await f.request([141], A, selection(row), { 141: await clearedReviewHash(cleared, marker) });
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result).toMatchObject({ status: 'done', globals: [f.entry.id] });
+    const perks = Object.fromEntries(
+      Object.entries(before.perks).filter(([hash]) => hash !== '141'),
+    );
+    expect(live(f).perks).toEqual(perks);
+    expect(f.read('live/pushed.json')).toEqual({ 141: await inactiveRemovalHash(141) });
+    expect(f.read('live/tooltips/141.json')).toEqual(cleared);
   });
 
   it('uses published bodies for ordinary requests and requires approvals for new names', async () => {

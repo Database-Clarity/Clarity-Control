@@ -1,5 +1,6 @@
 import {
   clearedEnglishMessage,
+  clearsEnglish,
   countConflicts,
   emptyEnglishMessage,
   hasTooltipText,
@@ -15,6 +16,7 @@ import {
   type TooltipValidationIssue,
 } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
+import { publishedEnglish } from '../publishedEnglish';
 import type { EditorData } from '../../stores/data';
 import type { Change } from '../api';
 import { saveDependencies } from './dependencies';
@@ -145,8 +147,8 @@ export function validateChanges(
             : clearing &&
                 issue.lang === 'en' &&
                 issue.message === emptyEnglishMessage &&
-                data.bundle.pushed[next.hash] !== undefined &&
-                base?.text.en?.text.trim()
+                clearsEnglish(base, next) &&
+                publishedEnglish(data, next.hash)
               ? { ...issue, severity: 'warning' as const, message: clearedEnglishMessage }
               : issue,
         )

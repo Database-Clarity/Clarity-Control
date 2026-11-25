@@ -7,17 +7,9 @@ import {
   withClearedMoves,
   withoutEnglish,
 } from '@clarity/core';
+import { publishedEnglish } from '../../services/publishedEnglish';
 import type { EditorData } from '../../stores/data';
 import type { PendingTooltip } from './model';
-
-/** Whether the published version has English: the bundle names where saved and published differ. */
-function publishedEnglish(data: EditorData, hash: number, marker: string): boolean {
-  // Published by this session, after the bundle was built.
-  if (marker !== data.bundle.pushed[hash]) return true;
-  const built = (data.tooltipSnapshot ?? data.bundle).tooltips[hash];
-  const differs = data.bundle.englishChanged?.includes(hash) ?? false;
-  return (!!built && !withoutEnglish(built)) !== differs;
-}
 
 /** Each saved tooltip's cleared state (core clearedState), for the ones that have one. */
 export async function clearedTooltips(

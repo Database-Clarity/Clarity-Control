@@ -1,6 +1,7 @@
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { z } from 'zod';
 import {
+  clearsEnglish,
   currentSaveIntent,
   currentSavePartBytes,
   currentSavePath,
@@ -26,7 +27,7 @@ import {
   currentSaveRoles,
 } from '../../apps/worker/src/save.js';
 import { globalAggregatePath } from '../../apps/worker/src/github.js';
-import { requireAccess } from '../../apps/worker/src/permissions.js';
+import { clearedSaveMessage, requireAccess } from '../../apps/worker/src/permissions.js';
 import { HttpError } from '../../apps/worker/src/http.js';
 
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -180,6 +181,14 @@ export async function drainCurrentSaves(pub: Publisher) {
             );
           if (!('conflicts' in validated))
             assertInPlaceDocuments(validated.tooltips, publishedGlobals(pub, tree));
+          const clears = input.changes.filter(({ base, next }) => clearsEnglish(base, next));
+          const cleared = pub.clearedStates(
+            tree,
+            clears.map(({ next }) => next),
+            {},
+          );
+          for (const { hash } of clears)
+            if (cleared.get(hash) !== 'removal') throw new HttpError(422, clearedSaveMessage(hash));
           plan = validated;
         } catch (error) {
           if (!(error instanceof Error)) throw error;

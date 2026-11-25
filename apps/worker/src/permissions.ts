@@ -6,8 +6,8 @@ import {
   numberValues,
   isTextlessDescription,
   permissionsSchema,
+  clearsEnglish,
   stableStringify,
-  withoutEnglish,
   type Lang,
   type Permissions,
   type Tooltip,
@@ -15,6 +15,9 @@ import {
 import { HttpError } from './http.js';
 import type { GitHub } from './github.js';
 import type { Identity } from './types.js';
+
+export const clearedSaveMessage = (hash: number) =>
+  `Tooltip ${hash} is not published, so its English text cannot be cleared`;
 
 export type Access = Permissions['users'][string];
 
@@ -57,7 +60,7 @@ export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): 
     if (base === null && !next.compendium)
       throw new HttpError(422, 'A text-less tooltip requires a Compendium link');
   }
-  if (access.role === 'trial' && base && !withoutEnglish(base) && withoutEnglish(next))
+  if (access.role === 'trial' && clearsEnglish(base, next))
     throw new HttpError(403, 'Only editors and maintainers can clear the English text');
   if (access.role === 'translator' && base === null)
     throw new HttpError(403, 'Translators may not create tooltips');

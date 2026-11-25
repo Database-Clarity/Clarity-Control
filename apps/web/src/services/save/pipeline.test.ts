@@ -93,6 +93,9 @@ describe('validation is scoped to text the change edits', () => {
     // Not asked for (a batch), never published, a trial, and a translator: as before.
     expect(errors(validateChanges([change], data))).toHaveLength(1);
     expect(errors(validateChanges([change], editorData(), {}, true))).toHaveLength(1);
+    // Published without English: its first English, not published yet, has nothing to remove.
+    const gained = { ...data, bundle: { ...data.bundle, englishChanged: [123] } };
+    expect(errors(validateChanges([change], gained, {}, true))).toHaveLength(1);
     await expect(prepareChanges([change], user, data)).rejects.toThrow('Validation');
     await expect(
       prepareChanges([change], { ...user, role: 'trial' }, data, undefined, clearing),

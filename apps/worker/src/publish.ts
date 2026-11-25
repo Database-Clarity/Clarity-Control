@@ -11,6 +11,7 @@ import {
 import {
   pinAppliesInactiveMoves,
   pinRemovesCleared,
+  clearedStates,
   storedInactiveMoves,
 } from './inactiveMoves.js';
 import { z } from 'zod';
@@ -27,6 +28,7 @@ import {
   inactivePublishableHash,
   inactiveRemovalHash,
   inactiveMovesPath,
+  tooltipSchema,
   isMovedInactive,
   selectedInactiveMoves,
   resolveAlias,
@@ -77,6 +79,8 @@ const opPaths = (id: string) => [
   `publish/requests/${id}.json`,
   `publish/log/${publishMonth(id)}/${id}.json`,
 ];
+const clearedPublisherMessage =
+  'The installed publisher lacks the "clearedRemovals" capability; update it before publishing these rows';
 const encoder = new TextEncoder();
 const base64 = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 
@@ -276,7 +280,20 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       );
       if (!fence && (value.globals || snapshot.trees[switches.scheduled() ? 1 : 0] != null))
         throw new HttpError(409, 'Complete the shared text migration before publishing.');
-      if (fence) checkedHead = snapshot.head;
+      if (fence) {
+        // The publisher checks every in-place row. One from before cleared removals must not get one.
+        if (!pinRemovesCleared(pin)) {
+          const files = await github.files(
+            value.hashes.map((hash) => `tooltips/${hash}.json`),
+            snapshot.head,
+          );
+          const documents = files.flatMap((file) => (file ? tooltipSchema.parse(file.value) : []));
+          const moves = storedInactiveMoves(snapshot.files[3 + paths.length]);
+          if ((await clearedStates(github, snapshot.head, documents, moves)).size)
+            throw new HttpError(409, clearedPublisherMessage);
+        }
+        checkedHead = snapshot.head;
+      }
     }
     if (checkedHead !== snapshot.head) {
       // Sandbox picks join the aliases only for a publisher build that merges them itself, so the
@@ -312,7 +329,7 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       const active = value.hashes.filter(
         (hash) => !isMovedInactive(resolveAlias(hash, aliases), moves),
       );
-      const removals = new Set<number>();
+      const removals = new Map<number, string>();
       const checked = active.length
         ? await refuseBaseEnhanced(github, snapshot.head, active, aliases, [], scope, {
             moves,
@@ -321,10 +338,7 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
         : new Map<number, Tooltip>();
       aliases = scope?.aliases ?? aliases;
       if (removals.size && !pinRemovesCleared(pin))
-        throw new HttpError(
-          409,
-          'The installed publisher lacks the "clearedRemovals" capability; update it before publishing these rows',
-        );
+        throw new HttpError(409, clearedPublisherMessage);
       // A tagged span, `#{name}`, or `<enhanced/>` in a published tooltip or a document it reads
       // (imports, globals 2 and 3) needs a publisher build that lowers it; an older build would
       // export it unlowered.
@@ -336,8 +350,11 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       if (switches.scheduled()) refuseActivationConflicts(snapshot.trees[0], value.hashes, aliases);
       for (const hash of value.hashes) {
         const canonical = resolveAlias(hash, aliases);
-        if (isMovedInactive(canonical, moves) || removals.has(canonical)) {
-          if ((await inactiveRemovalHash(canonical)) !== value.expected[hash])
+        const removal = isMovedInactive(canonical, moves)
+          ? await inactiveRemovalHash(canonical)
+          : removals.get(canonical);
+        if (removal !== undefined) {
+          if (removal !== value.expected[hash])
             throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
           continue;
         }
