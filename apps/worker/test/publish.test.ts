@@ -60,6 +60,7 @@ it('signs full canonical bytes; public endpoint round-trips with the actual publ
   const git: Repository = {
     blob: () => signed,
     head: unused,
+    commitParents: unused,
     tree: unused,
     writeBlob: unused,
     commit: unused,

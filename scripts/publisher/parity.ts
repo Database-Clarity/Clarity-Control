@@ -25,7 +25,9 @@ import {
 } from '../../packages/core/src/index.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { maxBuffer } from './childProcess.mjs';
-import { Publisher, type Options } from './publisher.js';
+import { Publisher, paths, translationRecordLog, type Options, type Receipt } from './publisher.js';
+import { GlobalsPublisher } from './globals.js';
+import { assertTranslationTree, translationRoots, translationRootsPath } from './translations.js';
 import {
   assertInPlaceDocuments,
   assertScheduledGlobalNames,
@@ -38,10 +40,11 @@ import {
 } from './globalsInPlace.js';
 import type { Repository, Tree } from './git.js';
 import type { LegacyInput } from '../../packages/export/src/index.js';
-const [repo, commit, receiptPath, configPath, adapterPath, outArg] = process.argv.slice(2);
+const [repo, commit, receiptPath, configPath, adapterPath, outArg, recordCommit] =
+  process.argv.slice(2);
 if (!outArg)
   throw new Error(
-    'Usage: parity.mjs repo liveCommit receiptPath config.json converter-adapters.mjs outputDir',
+    'Usage: parity.mjs repo liveCommit receiptPath config.json converter-adapters.mjs outputDir [scopedRecordCommit]',
   );
 const git = (...args: string[]) =>
   execFileSync('git', ['-C', resolve(repo), ...args], {
@@ -49,7 +52,7 @@ const git = (...args: string[]) =>
     maxBuffer,
   });
 const read = (ref: string, path: string) => JSON.parse(git('show', `${ref}:${path}`));
-const receipt = read(commit, receiptPath);
+const receipt: Receipt = read(commit, receiptPath);
 if (!/^[a-f0-9]{40}$/.test(commit) || !receiptPath.startsWith('.publish/receipts/'))
   throw new Error('Exact test live commit and receipt required');
 const config = JSON.parse(readFileSync(configPath, 'utf8')) as Pick<
@@ -60,33 +63,9 @@ if (config.generatorSha !== receipt.generatorSha)
   throw new Error('Generator pin differs from receipt');
 const base = read(receipt.liveParent, 'liveDescriptions.json');
 const actual = git('show', `${commit}:liveDescriptions.json`);
-const tooltips: Tooltip[] = receipt.entries.map((e: { tooltipBlob: string }) =>
-  JSON.parse(git('cat-file', 'blob', e.tooltipBlob)),
-);
-// Both configs come from S, with the publisher's real pinned-fact checks and composition.
-const atSource = (path: string): unknown =>
-  git('ls-tree', '--name-only', receipt.sourceCommit, '--', path).trim()
-    ? read(receipt.sourceCommit, path)
-    : undefined;
-const picks = atSource(sandboxPointersPath);
-const groups = atSource(aliasGroupsPath);
-const aliases = Publisher.aliasesAt(config, groups, picks);
-const moves = git('ls-tree', '--name-only', receipt.sourceCommit, '--', inactiveMovesPath).trim()
-  ? inactiveMovesSchema.parse(read(receipt.sourceCommit, inactiveMovesPath))
-  : {};
-// Digests include incoming aliases: verify with the same merged aliases the publisher used.
-for (let i = 0; i < tooltips.length; i++)
-  if ((await inactivePublishableHash(tooltips[i], aliases, moves)) !== receipt.entries[i].digest)
-    throw new Error('Receipt digest mismatch');
-const hashes = tooltips.map((tooltip) => tooltip.hash);
-const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
-const payload = JSON.parse(request.payload);
-const fence = globalsInPlaceFenceSchema.optional().parse(atSource(globalsInPlacePath));
-if (Boolean(receipt.inPlace) !== Boolean(fence) || (fence && fence.state !== 'active'))
-  throw new Error('Receipt belongs to a different shared-text mode');
-const sourceTree = (commit = receipt.sourceCommit): Tree =>
+const sourceTree = (source = receipt.sourceCommit): Tree =>
   Object.fromEntries(
-    git('ls-tree', '-rz', commit)
+    git('ls-tree', '-rz', source)
       .split('\0')
       .filter(Boolean)
       .map((line) => {
@@ -94,123 +73,270 @@ const sourceTree = (commit = receipt.sourceCommit): Tree =>
         return [line.slice(tab + 1), line.slice(0, tab).split(' ')[2]];
       }),
   );
-const plan =
-  fence &&
-  (() => {
-    const tree = sourceTree();
-    const readOnly = {
-      blob: (oid: string) => git('cat-file', 'blob', oid),
-      tree: sourceTree,
-    } as Repository;
-    const publisher = new Publisher(readOnly, {
-      ...config,
-      liveBranch: fence.destination,
-    } as Options);
-    const selections = payload.kind === 'push' ? (payload.globals ?? []) : [];
-    const role = permissionsSchema.parse(atSource('config/permissions.json')).users[
-      payload.requester.id
-    ]?.role;
-    const release = planInPlaceRelease(
-      publisher,
-      tree,
-      base,
-      selections,
-      role === 'maintainer',
-      hashes.length > 0,
-    );
-    if (
-      stableStringify(release.globals) !== stableStringify(receipt.inPlace.globals) ||
-      stableStringify(release.refusals) !== stableStringify(receipt.inPlace.refusals ?? [])
-    )
-      throw new Error('Receipt shared definitions differ from the request');
-    const neutral = neutralRenameHashes(publisher, tree, receipt.entries, release.rewritten);
-    const documents = tooltips.filter(({ hash }) => !neutral.has(hash));
-    const selectedMoves = selectedInactiveMoves(
-      moves,
-      documents.map(({ hash }) => hash),
-      aliases,
-    );
-    const active = documents.filter(({ hash }) => !isMovedInactive(hash, selectedMoves));
-    if (payload.kind === 'batch') assertScheduledGlobalNames(active, release);
-    const options = authoredInPlaceOptions(
-      publisher,
-      tree,
-      base,
-      release,
-      active,
-      activeAliases(aliases, selectedMoves),
-    );
-    const live = { ...base, perks: { ...base.perks, ...release.refills } as LegacyInput['perks'] };
-    return { ...release, options, documents, active, selectedMoves, live, publisher, tree };
-  })();
-const globalsInPlace = plan?.options;
-const publishable = plan?.documents ?? tooltips;
-const selectedMoves = plan?.selectedMoves ?? selectedInactiveMoves(moves, hashes, aliases);
-if (plan) assertInPlaceDocuments(plan.active, plan.options);
-const exported = exportWithInactiveMoves(
-  publishable,
-  receipt.now,
-  config.facts,
-  aliases,
-  selectedMoves,
-  globalsInPlace && { globalsInPlace },
-);
-if (plan)
-  refillImportedTooltips(
-    plan.publisher,
-    plan.tree,
-    plan,
-    plan.active,
-    activeAliases(aliases, selectedMoves),
-    exported,
+const staged = new Map<string, string>();
+const readOnly = {
+  commitParents: (source: string) =>
+    [
+      ...git('cat-file', 'commit', source)
+        .split('\n\n', 1)[0]
+        .matchAll(/^parent ([a-f0-9]{40})$/gm),
+    ].map(([, parent]) => parent),
+  blob: (oid: string) => staged.get(oid) ?? git('cat-file', 'blob', oid),
+  writeBlob: (bytes: string) => {
+    const oid = execFileSync('git', ['-C', resolve(repo), 'hash-object', '--stdin'], {
+      input: bytes,
+      encoding: 'utf8',
+    }).trim();
+    staged.set(oid, bytes);
+    return oid;
+  },
+  tree: sourceTree,
+  treeModes: (source: string) =>
+    Object.fromEntries(
+      git('ls-tree', '-rtz', source)
+        .split('\0')
+        .filter(Boolean)
+        .flatMap((line) => {
+          const tab = line.indexOf('\t');
+          const [mode, type, oid] = line.slice(0, tab).split(' ');
+          return type === 'tree' && oid !== '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+            ? []
+            : [[line.slice(tab + 1), mode]];
+        }),
+    ),
+} as Repository;
+async function scopedParity() {
+  if (receiptPath !== paths(receipt.opId).receipt)
+    throw new Error('Receipt path differs from scoped opId');
+  if (!recordCommit || !/^[a-f0-9]{40}$/.test(recordCommit))
+    throw new Error('Exact DATA RECORD commit required for scoped parity');
+  const frozen = read(receipt.sourceCommit, '.publisher/config.json') as Options;
+  const pin = read(receipt.sourceCommit, '.publisher/PIN') as { sha256: string };
+  const parents = readOnly.commitParents(recordCommit);
+  if (parents.length !== 1) throw new Error('Expected a single DATA RECORD parent');
+  const [recordParent] = parents;
+  const repository = {
+    ...readOnly,
+    ancestor: (older: string, newer: string) => {
+      try {
+        git('merge-base', '--is-ancestor', older, newer);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    head: (ref: string) =>
+      ref === `refs/heads/${frozen.liveBranch}`
+        ? commit
+        : ref === `refs/heads/${frozen.dataBranch}`
+          ? recordParent
+          : undefined,
+  };
+  const publisher = new Publisher(repository, {
+    ...frozen,
+    ...config,
+    publisherDigest: pin.sha256,
+  });
+  const verified = await publisher.verifyTranslationReceipt(receipt, commit);
+  const parent = sourceTree(recordParent);
+  publisher.assertScopedRecordParent(receipt, recordParent, parent, commit);
+  const after = sourceTree(recordCommit);
+  const expected = { ...parent, ...verified.data };
+  const allowed = new Map<string, string | null>(Object.entries(verified.data));
+  const { request, log } = paths(receipt.opId);
+  const logValue = translationRecordLog(
+    receipt,
+    commit,
+    JSON.parse(readOnly.blob(receipt.requestBlob)),
   );
-const live = plan?.live ?? base;
-const requester = payload.requester;
-stampUploads(exported, new Set<number>(receipt.changed), base.perks, receipt.now, requester.login);
-const merge = (entries: typeof exported): LegacyInput =>
-  receipt.inPlace && !hashes.length
-    ? live
-    : {
+  allowed.set(log, readOnly.writeBlob(JSON.stringify(logValue, null, 2) + '\n'));
+  if (parent[request] && parent[request] !== receipt.requestBlob) {
+    const intent = await publisher
+      .duplicateIntent(parent[request], receipt.opId)
+      .catch(() => undefined);
+    let n = 1;
+    const path = (i: number) => log.replace('.json', `.dup-${i}.json`);
+    while (parent[path(n)]) n++;
+    allowed.set(
+      path(n),
+      readOnly.writeBlob(
+        JSON.stringify(
+          {
+            status:
+              intent !== undefined && intent === receipt.intentDigest ? 'duplicate' : 'conflict',
+            requestBlob: parent[request],
+          },
+          null,
+          2,
+        ) + '\n',
+      ),
+    );
+  }
+  await new GlobalsPublisher(publisher).recordProofs(expected, recordParent, commit);
+  for (const path of new Set([...Object.keys(parent), ...Object.keys(expected)])) {
+    if (path.startsWith('globals/proofs/') && parent[path] !== expected[path])
+      allowed.set(path, expected[path] ?? null);
+  }
+  allowed.set(
+    translationRootsPath,
+    readOnly.writeBlob(
+      JSON.stringify(translationRoots(publisher, expected, commit, verified.input), null, 2) + '\n',
+    ),
+  );
+  allowed.set(request, null);
+  assertTranslationTree(parent, after, allowed);
+  publisher.assertTranslationModes(recordParent, recordCommit, allowed);
+  return verified.bytes;
+}
+async function ordinaryParity() {
+  const tooltips: Tooltip[] = receipt.entries.map((e: { tooltipBlob: string }) =>
+    JSON.parse(git('cat-file', 'blob', e.tooltipBlob)),
+  );
+  // Both configs come from S, with the publisher's real pinned-fact checks and composition.
+  const atSource = (path: string): unknown =>
+    git('ls-tree', '--name-only', receipt.sourceCommit, '--', path).trim()
+      ? read(receipt.sourceCommit, path)
+      : undefined;
+  const picks = atSource(sandboxPointersPath);
+  const groups = atSource(aliasGroupsPath);
+  const aliases = Publisher.aliasesAt(config, groups, picks);
+  const moves = git('ls-tree', '--name-only', receipt.sourceCommit, '--', inactiveMovesPath).trim()
+    ? inactiveMovesSchema.parse(read(receipt.sourceCommit, inactiveMovesPath))
+    : {};
+  // Digests include incoming aliases: verify with the same merged aliases the publisher used.
+  for (let i = 0; i < tooltips.length; i++)
+    if ((await inactivePublishableHash(tooltips[i], aliases, moves)) !== receipt.entries[i].digest)
+      throw new Error('Receipt digest mismatch');
+  const hashes = tooltips.map((tooltip) => tooltip.hash);
+  const request = read(receipt.sourceCommit, `publish/requests/${receipt.opId}.json`);
+  const payload = JSON.parse(request.payload);
+  const fence = globalsInPlaceFenceSchema.optional().parse(atSource(globalsInPlacePath));
+  if (Boolean(receipt.inPlace) !== Boolean(fence) || (fence && fence.state !== 'active'))
+    throw new Error('Receipt belongs to a different shared-text mode');
+  const plan =
+    fence &&
+    (() => {
+      const tree = sourceTree();
+      const publisher = new Publisher(readOnly, {
+        ...config,
+        liveBranch: fence.destination,
+      } as Options);
+      const selections = payload.kind === 'push' ? (payload.globals ?? []) : [];
+      const role = permissionsSchema.parse(atSource('config/permissions.json')).users[
+        payload.requester.id
+      ]?.role;
+      const release = planInPlaceRelease(
+        publisher,
+        tree,
+        base,
+        selections,
+        role === 'maintainer',
+        hashes.length > 0,
+      );
+      if (
+        stableStringify(release.globals) !== stableStringify(receipt.inPlace!.globals) ||
+        stableStringify(release.refusals) !== stableStringify(receipt.inPlace!.refusals ?? [])
+      )
+        throw new Error('Receipt shared definitions differ from the request');
+      const neutral = neutralRenameHashes(publisher, tree, receipt.entries, release.rewritten);
+      const documents = tooltips.filter(({ hash }) => !neutral.has(hash));
+      const selectedMoves = selectedInactiveMoves(
+        moves,
+        documents.map(({ hash }) => hash),
+        aliases,
+      );
+      const active = documents.filter(({ hash }) => !isMovedInactive(hash, selectedMoves));
+      if (payload.kind === 'batch') assertScheduledGlobalNames(active, release);
+      const options = authoredInPlaceOptions(
+        publisher,
+        tree,
+        base,
+        release,
+        active,
+        activeAliases(aliases, selectedMoves),
+      );
+      const live = {
         ...base,
-        perks: applyInactiveLive(
-          mergeLivePerks(
-            live.perks,
-            entries,
-            picks === undefined
-              ? undefined
-              : {
-                  keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
-                  aliases,
-                  catalog: config.facts,
-                },
-            groups === undefined ? undefined : { aliases, catalog: config.facts },
-            groups === undefined ? undefined : aliasGroupsSchema.parse(groups).removed,
-          ),
-          moves,
-          hashes,
-          aliases,
-          live.perks,
-        ),
+        perks: { ...base.perks, ...release.refills } as LegacyInput['perks'],
       };
-const merged = merge(exported);
-if (globalsInPlace && publishable.length) {
-  const raw = exportGlobalsProof(
+      return { ...release, options, documents, active, selectedMoves, live, publisher, tree };
+    })();
+  const globalsInPlace = plan?.options;
+  const publishable = plan?.documents ?? tooltips;
+  const selectedMoves = plan?.selectedMoves ?? selectedInactiveMoves(moves, hashes, aliases);
+  if (plan) assertInPlaceDocuments(plan.active, plan.options);
+  const exported = exportWithInactiveMoves(
     publishable,
     receipt.now,
     config.facts,
     aliases,
     selectedMoves,
-    globalsInPlace,
+    globalsInPlace && { globalsInPlace },
   );
-  proveInPlaceInputs(
-    base,
-    merge(raw),
-    merged,
-    globalsInPlace,
-    publishable.map(({ hash }) => hash),
+  if (plan)
+    refillImportedTooltips(
+      plan.publisher,
+      plan.tree,
+      plan,
+      plan.active,
+      activeAliases(aliases, selectedMoves),
+      exported,
+    );
+  const live = plan?.live ?? base;
+  const requester = payload.requester;
+  stampUploads(
+    exported,
+    new Set<number>(receipt.changed),
+    base.perks,
+    receipt.now,
+    requester.login,
   );
+  const merge = (entries: typeof exported): LegacyInput =>
+    receipt.inPlace && !hashes.length
+      ? live
+      : {
+          ...base,
+          perks: applyInactiveLive(
+            mergeLivePerks(
+              live.perks,
+              entries,
+              picks === undefined
+                ? undefined
+                : {
+                    keys: Object.keys(sandboxPointersSchema.parse(picks).pointers),
+                    aliases,
+                    catalog: config.facts,
+                  },
+              groups === undefined ? undefined : { aliases, catalog: config.facts },
+              groups === undefined ? undefined : aliasGroupsSchema.parse(groups).removed,
+            ),
+            moves,
+            hashes,
+            aliases,
+            live.perks,
+          ),
+        };
+  const merged = merge(exported);
+  if (globalsInPlace && publishable.length) {
+    const raw = exportGlobalsProof(
+      publishable,
+      receipt.now,
+      config.facts,
+      aliases,
+      selectedMoves,
+      globalsInPlace,
+    );
+    proveInPlaceInputs(
+      base,
+      merge(raw),
+      merged,
+      globalsInPlace,
+      publishable.map(({ hash }) => hash),
+    );
+  }
+  return JSON.stringify(merged, null, 2) + '\n';
 }
-const expected = JSON.stringify(merged, null, 2) + '\n';
+const expected = receipt.translations ? await scopedParity() : await ordinaryParity();
 const out = resolve(outArg);
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'expected-liveDescriptions.json'), expected);

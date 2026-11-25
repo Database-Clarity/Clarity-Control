@@ -89,6 +89,23 @@ exact accepted schedule authorized by its signed owner policy; other failures ne
 and remove the due entry. Infrastructure Retry uses the existing authenticated pipeline kick.
 The `scheduledGlobalsV1` capability permits asynchronous schedules with Globals metadata.
 The `globalsExportsV1` capability adds per-entry exports and the ordered hash-1 projection.
+
+`translationPublishV1` lets the installed runtime drain signed translator requests on an active
+Globals destination. The Worker and Review negotiate `translation-publish-v1` before admitting
+requests. Each part lands atomically against the verified LIVE parent. The publisher reconstructs
+the language patches, rechecks the current requester and English revision at the commit fence,
+and records only the selected source cells, their LIVE projections, and publication bookkeeping.
+An earlier publish can leave a request unchanged or require a fresh review.
+If saves keep moving the source, the publisher refuses the original signed part and continues
+the queue. A scoped part has up to two proposals and 90 seconds total for rendering and proof.
+
+The bundle carries an optional `translationPublish` member with pending rows and their effect
+digests. A separate check builds it after the queue and may leave it absent when the source
+moves or the check times out. DATA records publish `live/translation-roots.json` with verified active-root blob IDs
+for Worker admission. The index is seeded during bundle preparation and advances with RECORD.
+For a scoped receipt, pass its exact DATA RECORD commit after `outputDir` to `parity.mjs`. The
+adapter configuration includes the public verification key whose fingerprint is pinned at the
+frozen DATA source.
 Scheduled batches use the shared definitions already published to LIVE. Preparation, claim,
 and atomic landing recheck the candidate with the current resolver. A batch that reads a shared
 definition absent from LIVE needs attention until the definition is published and the batch is
@@ -175,8 +192,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `c8bee394fe503e8489c9284c706485d9ae3291be` (v2).
-Runtime SHA-256: `df90df7ca63ce92d14f619cb4d4b172689c4858a8541bb90fb87019041b3b574`.
+Current template source: `f44a85a3926e14f692b4243156538af55545d894` (v2).
+Runtime SHA-256: `127615670bcff7bc7ff9992acbb42f87cabc092be6e6198c46e5c9f475e2da4b`.
 
 The `exoticTags` capability declares lowering of `<exotic … />` to the compatible
 `yellow` consumer style, including comment-split keywords. While publishing is enabled,

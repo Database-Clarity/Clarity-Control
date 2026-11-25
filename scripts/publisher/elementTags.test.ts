@@ -59,6 +59,7 @@ it('preserves the current capabilities and declares numberTokens in its PIN', ()
     'exoticTags',
     'aliasGroupRemovals',
     'globalsInPlaceV1',
+    'translationPublishV1',
   ]);
 });
 

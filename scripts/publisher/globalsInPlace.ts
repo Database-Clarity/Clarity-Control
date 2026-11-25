@@ -209,14 +209,13 @@ function proofLibraries(live: LegacyInput, options: GlobalsInPlaceOptions, engli
   return rows;
 }
 
-function affectedRows(before: LegacyInput, after: LegacyInput, roots: readonly number[]) {
-  const affected = new Set(roots.map(String));
+export function publicationReaders(...inputs: LegacyInput[]) {
   const parents = new Map<string, Set<string>>();
   const link = (from: string, to: string) => {
     if (!parents.has(to)) parents.set(to, new Set());
     parents.get(to)!.add(from);
   };
-  for (const { perks } of [before, after])
+  for (const { perks } of inputs)
     for (const [hash, row] of Object.entries(perks)) {
       if ('aliasOf' in row) link(hash, String(row.aliasOf));
       else
@@ -227,8 +226,15 @@ function affectedRows(before: LegacyInput, after: LegacyInput, roots: readonly n
               link(hash, String(Number(match[1])));
           }
     }
-  for (const root of affected) for (const parent of parents.get(root) ?? []) affected.add(parent);
-  return affected;
+  return (roots: readonly number[]) => {
+    const affected = new Set(roots.map(String));
+    for (const root of affected) for (const parent of parents.get(root) ?? []) affected.add(parent);
+    return affected;
+  };
+}
+
+function affectedRows(before: LegacyInput, after: LegacyInput, roots: readonly number[]) {
+  return publicationReaders(before, after)(roots);
 }
 
 /** One prospective LIVE merge per representation, with identical non-global inputs. */
@@ -407,7 +413,7 @@ const refusalMessage = (error: unknown) =>
 const sha256 = (input: string) => createHash('sha256').update(input).digest('hex');
 const definitionDigest = (entry: GlobalRecord) => sha256(stableStringify(entry));
 
-function stores(pub: Publisher, tree: Tree) {
+export function inPlaceStores(pub: Publisher, tree: Tree) {
   const published = globalPublishedSchema.parse(
     pub.read(tree, globalsReleasePaths.published(pub.options.liveBranch)),
   );
@@ -417,11 +423,11 @@ function stores(pub: Publisher, tree: Tree) {
 }
 
 export function publishedGlobals(pub: Publisher, tree: Tree) {
-  const { published, saved } = stores(pub, tree);
+  const { published, saved } = inPlaceStores(pub, tree);
   return releaseOptions(published.store, saved);
 }
 
-function releaseOptions(published: GlobalStore, saved: GlobalStore): GlobalsInPlaceOptions {
+export function releaseOptions(published: GlobalStore, saved: GlobalStore): GlobalsInPlaceOptions {
   const definitions = globalsInPlaceDefinitions(published.entries);
   const unavailable = {
     exports: new Set<string>(),
@@ -554,6 +560,7 @@ export function assertHistoricalSecondaries(
   tree: Tree,
   live: LegacyInput,
   selected: readonly GlobalRecord[],
+  language?: Lang,
 ) {
   if (
     !Object.values(live.perks).some(
@@ -570,6 +577,7 @@ export function assertHistoricalSecondaries(
     legacy.perks as Parameters<typeof legacyGlobalsInPlaceDefinitions>[0],
   );
   for (const { hash, lang, kind, name } of historicalSecondaryUses(legacy, definitions)) {
+    if (language && lang !== language) continue;
     const row = live.perks[hash];
     const active = row && 'editor' in row ? row.editor[lang] : undefined;
     if (!active?.secondary || !independentSecondary(active)) continue;
@@ -585,7 +593,7 @@ export function assertHistoricalSecondaries(
   }
 }
 
-function refillLanguage(
+export function refillLanguage(
   current: LegacyEntry['editor'][Lang],
   approved: LegacyEntry['editor'][Lang],
 ) {
@@ -633,7 +641,7 @@ function selectedRelease(
   selection: Selection,
   maintainer: boolean,
 ) {
-  const { published, saved } = stores(pub, tree);
+  const { published, saved } = inPlaceStores(pub, tree);
   if (!selection.length)
     return {
       options: releaseOptions(published.store, saved),
@@ -876,12 +884,13 @@ function selectedRelease(
   return { options, published: { ...published, store: next }, refills, rewritten };
 }
 
-function refillPublishedDocuments(
+export function refillPublishedDocuments(
   live: LegacyInput,
   withAuthoredRows: LegacyInput,
   documents: readonly Tooltip[],
   oldOptions: GlobalsInPlaceOptions,
   publishedOptions: GlobalsInPlaceOptions,
+  language?: Lang,
 ) {
   const affected: Tooltip[] = [];
   const changedLanguages = new Map<number, Lang[]>();
@@ -898,12 +907,13 @@ function refillPublishedDocuments(
       stableStringify(old.editor) === stableStringify(filled.editor)
     )
       continue;
-    affected.push(doc);
     const perk = live.perks[doc.hash] as unknown as LegacyEntry;
-    const changed = languages.filter(
+    const changed = (language ? [language] : languages).filter(
       (lang) =>
         stableStringify(old.editor[lang] ?? null) !== stableStringify(filled.editor[lang] ?? null),
     );
+    if (!changed.length) continue;
+    affected.push(doc);
     changedLanguages.set(doc.hash, changed);
     const editor = { ...perk.editor };
     const beforeEditor = { ...perk.editor };
@@ -1067,7 +1077,7 @@ export function inPlacePublishError(
   const dependency = error instanceof Error ? error.cause : undefined;
   if (!(dependency instanceof UnpublishedGlobal)) return String(error);
   const { kind, globalName } = dependency;
-  const { published, saved } = stores(pub, tree);
+  const { published, saved } = inPlaceStores(pub, tree);
   const entry = saved.entries.find(
     (entry) => !entry.tombstone && entry.kind === kind && entry.name === globalName,
   );
@@ -1137,7 +1147,7 @@ export function bundleInPlaceReview(
     throw new Error('LIVE has no in-place migration');
   const input = liveGlobalsInput(pub, live);
   assertInPlaceLibraries(input);
-  const { published, saved } = stores(pub, tree);
+  const { published, saved } = inPlaceStores(pub, tree);
   const targets = new Set<number>();
   const collect = (text: string) => {
     if (!text.includes('import ')) return;

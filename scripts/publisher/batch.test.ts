@@ -1816,6 +1816,7 @@ describe('scheduled batches (simulator)', () => {
       'exoticTags',
       'aliasGroupRemovals',
       'globalsInPlaceV1',
+      'translationPublishV1',
     ]);
     const f = await setup();
     // The dry-run CLI runs on the real clock: schedule a batch that is long due.

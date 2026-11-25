@@ -13,7 +13,10 @@ import {
   setBonusHoldMessage,
   publishPayloadSchema,
   parsePublishRequestPayload,
-  publishRequestIntentDigest,
+  parseScopedPublishRequestPayload,
+  isTranslationPublishPayload,
+  scopedPublishRequestIntentDigest,
+  translationPublishPayloadSchema,
   publishMonth,
   publishOpIdSchema,
   exportLegacy,
@@ -45,6 +48,8 @@ import {
   currentSaveStagePaths,
   type PublishPayload,
   type PublishRequestPayload,
+  type ScopedPublishRequestPayload,
+  type TranslationPublishPayload,
   type Aliases,
   type SandboxConflicts,
   type LegacyCatalog,
@@ -115,11 +120,25 @@ import {
   rewritePushed,
 } from './globalsInPlace.js';
 import {
+  assertTranslationTree,
+  bundleTranslations,
+  liveTranslationAliases,
+  planTranslations,
+  TranslationPartRefusal,
+  translationCheckRefusal,
+  translationLivePath,
+  translationPlanTimeout,
+  translationRoots,
+  translationRootsPath,
+  translationRuntimeInstalled,
+} from './translations.js';
+import {
   verifiedSource,
   verifiedRequest,
   verifyPreparedPublication,
   type PreparedPublication,
 } from '../schedule-prepare/intents.js';
+import type { TranslationWork } from './translationWork.js';
 
 const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
 
@@ -161,6 +180,28 @@ export interface Receipt {
   contentRevision?: number;
   globals?: GlobalReleaseReceipt;
   inPlace?: { globals: string[]; refills: number[]; refusals?: { id: string; error: string }[] };
+  translations?: {
+    rows: Awaited<ReturnType<typeof planTranslations>>['rows'];
+    data: Record<string, string>;
+    runUrl: string;
+  };
+}
+export function translationRecordLog(receipt: Receipt, candidate: string, request: unknown) {
+  return {
+    request,
+    intentDigest: receipt.intentDigest,
+    candidateCommit: candidate,
+    result: {
+      status: receipt.outcome === 'unchanged' ? 'unchanged' : 'done',
+      outcomes: [],
+      rows: receipt.translations!.rows,
+    },
+    liveCommit: candidate,
+    recordCommit: null,
+    pins: { publisherSha: receipt.publisherSha, generatorSha: receipt.generatorSha },
+    runUrl: receipt.translations!.runUrl,
+    times: { now: receipt.now },
+  };
 }
 /** When the live write was confirmed by this run's CAS, or first observed after an ambiguity (R8). */
 export interface Landing {
@@ -178,7 +219,7 @@ type Failure = {
 };
 /** A pending request as the queue orders it, read WITHOUT verification (ordering only). */
 type QueueEntry =
-  | { opId: string; kind: 'push'; createdAt?: number; payload?: PublishPayload }
+  | { opId: string; kind: 'push'; createdAt?: number }
   | {
       opId: string;
       kind: 'batch';
@@ -235,6 +276,7 @@ class SourceAdvanced extends Error {
     readonly head: string,
     readonly hashes: readonly number[],
     readonly batch = false,
+    readonly scoped = false,
   ) {
     super(
       batch
@@ -258,6 +300,7 @@ export class Publisher {
   constructor(
     readonly git: Repository,
     readonly options: Options,
+    private readonly translationWork?: TranslationWork,
   ) {}
   head(branch: string) {
     const h = this.git.head(dataRef(branch));
@@ -440,9 +483,12 @@ export class Publisher {
             payload: batch.data,
           };
         }
-        const push = publishPayloadSchema.safeParse(value);
+        const push =
+          value && (value as { scope?: unknown }).scope === 'translations'
+            ? translationPublishPayloadSchema.safeParse(value)
+            : publishPayloadSchema.safeParse(value);
         return push.success
-          ? { opId, kind: 'push', createdAt: Date.parse(push.data.createdAt), payload: push.data }
+          ? { opId, kind: 'push', createdAt: Date.parse(push.data.createdAt) }
           : { opId, kind: 'push' };
       });
   }
@@ -502,7 +548,19 @@ export class Publisher {
       .flatMap((e) => (e.kind === 'batch' && !e.due ? [e.payload] : []))
       .sort((a, b) => a.notBefore.localeCompare(b.notBefore) || a.opId.localeCompare(b.opId));
   }
-  async verifyRequest(blob: string, opId: string, tree: Tree): Promise<PublishRequestPayload> {
+  verifyRequest(blob: string, opId: string, tree: Tree): Promise<PublishRequestPayload>;
+  verifyRequest(
+    blob: string,
+    opId: string,
+    tree: Tree,
+    live: string,
+  ): Promise<ScopedPublishRequestPayload>;
+  async verifyRequest(
+    blob: string,
+    opId: string,
+    tree: Tree,
+    live?: string,
+  ): Promise<ScopedPublishRequestPayload> {
     const envelope = JSON.parse(this.git.blob(blob));
     if (envelope.sourceIntent) {
       const payload = await verifyPreparedPublication(this, envelope, opId);
@@ -523,10 +581,14 @@ export class Publisher {
       !verify(null, Buffer.from(envelope.payload), key, Buffer.from(envelope.sig, 'base64'))
     )
       throw new Error('Invalid signature or key pin');
-    const p = await parsePublishRequestPayload(JSON.parse(envelope.payload));
+    const raw = JSON.parse(envelope.payload);
+    const p =
+      live && raw?.scope === 'translations'
+        ? translationPublishPayloadSchema.parse(raw)
+        : await parsePublishRequestPayload(raw);
     if (
       stableStringify(p) !== envelope.payload ||
-      (await publishRequestIntentDigest(p)) !== p.intentDigest
+      (await scopedPublishRequestIntentDigest(p)) !== p.intentDigest
     )
       throw new Error('Noncanonical or altered intent');
     if (
@@ -537,7 +599,31 @@ export class Publisher {
     )
       throw new Error('Request target mismatch');
     const permissions = permissionsSchema.parse(this.read(tree, 'config/permissions.json'));
-    if (!['maintainer', 'editor'].includes(permissions.users[String(p.requester.id)]?.role))
+    const access = permissions.users[String(p.requester.id)];
+    if (isTranslationPublishPayload(p)) {
+      if (
+        !translationRuntimeInstalled(this, tree) ||
+        access?.role !== 'translator' ||
+        p.rows.some(({ lang }) => !access.languages?.includes(lang))
+      )
+        throw new Error('Translation publication is unavailable or the requester was revoked');
+      const aliases = liveTranslationAliases(liveGlobalsInput(this, live!));
+      const refused = p.rows.flatMap((row) =>
+        row.kind === 'tooltip' && Object.hasOwn(aliases, row.hash)
+          ? [
+              {
+                kind: row.kind,
+                hash: row.hash,
+                lang: row.lang,
+                status: 'rejected' as const,
+                reason: 'alias-root' as const,
+              },
+            ]
+          : [],
+      );
+      if (refused.length) throw new TranslationPartRefusal(refused);
+      await parseScopedPublishRequestPayload(p, aliases);
+    } else if (!['maintainer', 'editor'].includes(access?.role))
       throw new Error('Requester revoked');
     requesterCredits(p.requester);
     return p;
@@ -572,7 +658,11 @@ export class Publisher {
       throw new Error('Invalid credit envelope');
     const raw = JSON.parse(envelope.payload);
     const payload =
-      raw.kind === 'batch' ? batchPublishPayloadSchema.parse(raw) : publishPayloadSchema.parse(raw);
+      raw.scope === 'translations'
+        ? translationPublishPayloadSchema.parse(raw)
+        : raw.kind === 'batch'
+          ? batchPublishPayloadSchema.parse(raw)
+          : publishPayloadSchema.parse(raw);
     if (
       stableStringify(payload) !== envelope.payload ||
       payload.opId !== opId ||
@@ -582,6 +672,16 @@ export class Publisher {
     )
       throw new Error('Credit request target mismatch');
     return requesterCredits(payload.requester);
+  }
+  async duplicateIntent(blob: string, opId: string) {
+    const raw = JSON.parse(JSON.parse(this.git.blob(blob)).payload);
+    if (raw.scope === 'translations') {
+      this.credits(blob, opId);
+      const payload = translationPublishPayloadSchema.parse(raw);
+      if ((await scopedPublishRequestIntentDigest(payload)) !== payload.intentDigest)
+        throw new Error('Altered translation intent');
+    }
+    return raw.intentDigest;
   }
   receipt(commit: string, opId: string): Receipt | undefined {
     return this.read(this.git.tree(commit), paths(opId).receipt);
@@ -621,21 +721,27 @@ export class Publisher {
     }>(tree, 'liveDescriptions.json');
     if (!live?.perks || !live.databaseSettings) throw new Error('Invalid live file');
     const entries = structuredClone(r.exported);
-    stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
+    if (!r.translations)
+      stampUploads(entries, new Set(r.changed), live.perks, r.now, r.requester.login);
     let perks: Record<string, unknown>;
     let hasMoves: boolean;
     try {
       const sourceTree = this.git.tree(r.sourceCommit);
-      if (sourceTree[aliasGroupsPath] && r.generatorSha !== this.options.generatorSha)
+      if (
+        !r.translations &&
+        sourceTree[aliasGroupsPath] &&
+        r.generatorSha !== this.options.generatorSha
+      )
         throw new Error('Generator revision differs from frozen alias-group receipt');
-      hasMoves = Object.keys(this.movesAt(sourceTree)).length > 0;
+      hasMoves = !!r.translations || Object.keys(this.movesAt(sourceTree)).length > 0;
       const base = r.inPlace ? { ...live.perks } : live.perks;
       for (const hash of r.inPlace?.refills ?? []) {
         base[hash] = entries[hash];
         delete entries[hash];
       }
-      perks =
-        r.inPlace && !r.entries.length
+      perks = r.translations
+        ? { ...live.perks, ...entries }
+        : r.inPlace && !r.entries.length
           ? base
           : this.mergePublicationPerks(
               sourceTree,
@@ -647,7 +753,10 @@ export class Publisher {
       throw new ConsumerOutputRejected(String(error));
     }
     const merged = { ...live, perks };
-    const bytes = json(merged);
+    const bytes =
+      r.translations && !Object.keys(entries).length
+        ? this.git.blob(tree[translationLivePath])
+        : json(merged);
     const { publisherSha, publisherDigest } = this.options;
     const pin = JSON.stringify([publisherSha, publisherDigest]);
     const presets = hasMoves
@@ -700,7 +809,11 @@ export class Publisher {
     }
     return {
       bytes,
-      outcome: bytes === this.git.blob(tree['liveDescriptions.json']) ? 'unchanged' : 'published',
+      outcome:
+        bytes === this.git.blob(tree['liveDescriptions.json']) &&
+        !Object.keys(r.translations?.data ?? {}).length
+          ? 'unchanged'
+          : 'published',
     };
   }
   buildCandidate(parent: string, receipt: Receipt) {
@@ -748,6 +861,56 @@ export class Publisher {
       const request = nameProofRequestSchema.safeParse(this.read(snapshot, path));
       return request.success && request.data.id === id;
     };
+    let peerWrites: Map<string, string | null> | undefined;
+    const scopedRecord = (path: string) => {
+      if (
+        !/^(?:live\/(?:pushed\.json|translation-roots\.json|tooltips\/\d+\.json)|publish\/requests\/[^/]+\.json)$/.test(
+          path,
+        )
+      )
+        return false;
+      if (!peerWrites) {
+        peerWrites = new Map();
+        const live = this.head(this.options.liveBranch);
+        for (const name of Object.keys(tree)) {
+          const id = /^publish\/log\/\d{4}-\d{2}\/([0-7][0-9A-HJKMNP-TV-Z]{25})\.json$/.exec(
+            name,
+          )?.[1];
+          if (!id || id === opId || reviewed[name] || paths(id).log !== name) continue;
+          const record = this.read<{
+            liveCommit?: string;
+            candidateCommit?: string;
+            intentDigest?: string;
+          }>(tree, name);
+          const candidate = record?.candidateCommit;
+          if (
+            !candidate ||
+            !/^[a-f0-9]{40}$/.test(candidate) ||
+            record.liveCommit !== candidate ||
+            !this.git.ancestor(candidate, live)
+          )
+            continue;
+          const peer = this.receipt(candidate, id);
+          if (!peer?.translations || peer.opId !== id || peer.intentDigest !== record.intentDigest)
+            continue;
+          const requested = paths(id).request;
+          if (reviewed[requested] && reviewed[requested] !== peer.requestBlob) continue;
+          if (this.git.tree(peer.sourceCommit)[requested] !== peer.requestBlob) continue;
+          peerWrites.set(requested, null);
+          for (const [key, oid] of Object.entries(peer.translations.data))
+            if (tree[key] === oid) peerWrites.set(key, oid);
+          if (candidate === live && tree[translationRootsPath]) {
+            const index = this.read<{ liveCommit: string; destination: string }>(
+              tree,
+              translationRootsPath,
+            );
+            if (index?.liveCommit === live && index.destination === this.options.liveBranch)
+              peerWrites.set(translationRootsPath, tree[translationRootsPath]);
+          }
+        }
+      }
+      return peerWrites.has(path) && peerWrites.get(path) === (tree[path] ?? null);
+    };
     let rebuild = false;
     const acceptChange = (path: string) => {
       if (
@@ -786,6 +949,10 @@ export class Publisher {
         path.startsWith('schedule/') ||
         [snippetsPath, inactiveMovesPath, aliasGroupsPath, sandboxPointersPath].includes(path)
       ) {
+        rebuild = true;
+        return true;
+      }
+      if (scopedRecord(path)) {
         rebuild = true;
         return true;
       }
@@ -1033,30 +1200,189 @@ export class Publisher {
       throw new ConsumerOutputRejected(String(error));
     }
   }
+  private async translationReceipt(
+    blob: string,
+    source: string,
+    live: string,
+    payload: TranslationPublishPayload,
+    now = this.options.now(),
+    deadline?: number,
+  ): Promise<Receipt> {
+    const timeout = deadline === undefined ? undefined : Math.floor(deadline - performance.now());
+    if (timeout !== undefined && timeout <= 0)
+      throw translationCheckRefusal(payload.rows, 'review-changed');
+    const plan = this.translationWork
+      ? await this.translationWork.plan(this.git, this.options, source, live, payload, timeout)
+      : await planTranslations(this, this.git.tree(source), live, payload, timeout);
+    return {
+      opId: payload.opId,
+      requestBlob: blob,
+      sourceCommit: source,
+      liveParent: live,
+      now,
+      publisherSha: this.options.publisherSha,
+      generatorSha: this.options.generatorSha,
+      ...(this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {}),
+      outcome: plan.changed ? 'published' : 'unchanged',
+      entries: [],
+      exported: plan.exported,
+      changed: [],
+      requester: payload.requester,
+      intentDigest: payload.intentDigest,
+      translations: {
+        rows: plan.rows,
+        runUrl: this.options.runUrl,
+        data: Object.fromEntries(
+          [...plan.data].map(([path, bytes]) => [path, this.git.writeBlob(bytes)]),
+        ),
+      },
+    };
+  }
+
+  async verifyTranslationReceipt(receipt: Receipt, candidate: string, deadline?: number) {
+    const parents = this.git.commitParents(candidate);
+    if (parents.length !== 1 || parents[0] !== receipt.liveParent)
+      throw new ConsumerOutputRejected(
+        'Translation receipt does not match its candidate LIVE parent.',
+      );
+    const frozen = this.git.tree(receipt.sourceCommit);
+    if (frozen[paths(receipt.opId).request] !== receipt.requestBlob)
+      throw new ConsumerOutputRejected(
+        'Translation receipt request differs from its frozen source.',
+      );
+    requireGlobalsMode(this, frozen);
+    const pin = this.read<{ sourceSha: string; sha256: string; verifierSha256?: string }>(
+      frozen,
+      '.publisher/PIN',
+    );
+    const config =
+      receipt.generatorSha === this.options.generatorSha
+        ? this.options
+        : this.read<Options>(frozen, '.publisher/config.json');
+    if (
+      pin?.sourceSha !== receipt.publisherSha ||
+      config?.generatorSha !== receipt.generatorSha ||
+      (pin.verifierSha256 && pin.verifierSha256 !== receipt.verifierSha256)
+    )
+      throw new ConsumerOutputRejected('Translation receipt pins differ from its frozen source.');
+    const verifier = new Publisher(
+      this.git,
+      {
+        ...this.options,
+        ...config,
+        publisherSha: receipt.publisherSha,
+        verifierDigest: receipt.verifierSha256,
+        runUrl: receipt.translations!.runUrl,
+      },
+      this.translationWork,
+    );
+    const signed = await verifier.verifyRequest(
+      receipt.requestBlob,
+      receipt.opId,
+      frozen,
+      receipt.liveParent,
+    );
+    if (!isTranslationPublishPayload(signed))
+      throw new ConsumerOutputRejected(
+        'Translation receipt does not have a scoped signed request.',
+      );
+    const expected = await verifier.translationReceipt(
+      receipt.requestBlob,
+      receipt.sourceCommit,
+      receipt.liveParent,
+      signed,
+      receipt.now,
+      deadline,
+    );
+    if (stableStringify(expected) !== stableStringify(receipt))
+      throw new ConsumerOutputRejected(
+        'Translation receipt differs from the independently reconstructed publication.',
+      );
+    const parent = this.git.tree(receipt.liveParent);
+    const input = liveGlobalsInput(this, receipt.liveParent);
+    const bytes = Object.keys(expected.exported).length
+      ? json({ ...input, perks: { ...input.perks, ...expected.exported } })
+      : this.git.blob(parent[translationLivePath]);
+    const allowed = new Map([
+      [translationLivePath, this.git.writeBlob(bytes)],
+      [paths(receipt.opId).receipt, this.git.writeBlob(json(expected))],
+    ]);
+    assertTranslationTree(parent, this.git.tree(candidate), allowed);
+    this.assertTranslationModes(receipt.liveParent, candidate, allowed);
+    return { input: JSON.parse(bytes) as LegacyInput, bytes, data: expected.translations!.data };
+  }
+
+  assertTranslationModes(
+    parent: string,
+    candidate: string,
+    paths: ReadonlyMap<string, string | null>,
+  ) {
+    if (!this.git.treeModes) return;
+    const regular = new Map(
+      [...paths].map(([path, oid]) => [path, oid === null ? null : '100644']),
+    );
+    assertTranslationTree(this.git.treeModes(parent), this.git.treeModes(candidate), regular);
+  }
+  assertScopedRecordParent(receipt: Receipt, head: string, tree: Tree, candidate: string) {
+    if (this.head(this.options.liveBranch) !== candidate)
+      throw new RefRace('Cannot recover a translation RECORD over a changed publication.');
+    if (head === receipt.sourceCommit) return;
+    const frozen = this.git.tree(receipt.sourceCommit);
+    const catalog = globalsReleasePaths.published(this.options.liveBranch);
+    const publication = (snapshot: Tree) =>
+      Object.fromEntries(
+        Object.entries(snapshot).filter(
+          ([path]) =>
+            path === catalog || (path.startsWith('live/') && path !== translationRootsPath),
+        ),
+      );
+    if (
+      !this.git.ancestor(receipt.sourceCommit, head) ||
+      tree[globalsInPlacePath] !== frozen[globalsInPlacePath] ||
+      stableStringify(publication(frozen)) !== stableStringify(publication(tree))
+    )
+      throw new RefRace('Cannot recover a translation RECORD over a changed publication.');
+  }
+
   async record(
     opId: string,
     receipt: Receipt | undefined,
     candidate: string | undefined,
-    result?: { status: string; code?: 'selected-rows-changed'; error?: string; outcomes?: unknown },
+    result?: {
+      status: string;
+      code?: 'selected-rows-changed';
+      error?: string;
+      outcomes?: unknown;
+      rows?: unknown;
+    },
     requestBlob?: string,
     landing?: Landing,
-    atomicLive?: { parent: string; candidate: string; runtime?: Tree },
-    failureHead?: string,
+    atomicLive?: {
+      parent: string;
+      candidate: string;
+      runtime?: Tree;
+      translationDeadline?: number;
+    },
+    refusalFence?: string | { requestBlob: string },
   ) {
     const p = paths(opId);
     let inPlace: Awaited<ReturnType<Publisher['verifyReceiptDigests']>> | undefined;
+    let scoped: Awaited<ReturnType<Publisher['verifyTranslationReceipt']>> | undefined;
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch),
         tree = this.git.tree(h);
       requireGlobalsMode(this, tree);
       if (tree[p.log]) return;
-      if (receipt) inPlace ??= await this.verifyReceiptDigests(receipt);
+      if (receipt && !receipt.translations) inPlace ??= await this.verifyReceiptDigests(receipt);
       if (
         receipt &&
         tree[globalsInPlacePath] !== this.git.tree(receipt.sourceCommit)[globalsInPlacePath]
       )
         throw new ConsumerOutputRejected('Publication is fenced by a different shared text mode.');
-      if (failureHead && failureHead !== h) throw new RefRace('Batch refusal source moved');
+      if (typeof refusalFence === 'string' && refusalFence !== h)
+        throw new RefRace('Batch refusal source moved');
+      if (typeof refusalFence === 'object' && tree[p.request] !== refusalFence.requestBlob)
+        return false;
       // An admitted save keeps the publication opId but withdraws its ready envelope.
       // A late rejection must never tombstone it or remove the preparation's due kick.
       if (
@@ -1075,6 +1401,19 @@ export class Publisher {
         if (!receipt || !this.git.casMany)
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
         const source = receipt.sourceCommit;
+        if (receipt.translations) {
+          if (tree[p.request] !== receipt.requestBlob)
+            throw new SourceAdvanced(
+              atomicLive.candidate,
+              receipt.requestBlob,
+              source,
+              h,
+              [],
+              false,
+              true,
+            );
+          this.assertBatchRuntime(tree, atomicLive.runtime);
+        }
         if (receipt.batchId) {
           this.assertBatchRuntime(tree, atomicLive.runtime);
           const path = schedulePaths.batch(receipt.batchId);
@@ -1085,7 +1424,13 @@ export class Publisher {
             throw new ConsumerOutputRejected('The batch changed after publishing started.');
           }
         }
-        const signed = await this.verifyRequest(receipt.requestBlob, opId, tree).catch((error) => {
+        const signed = await this.verifyRequest(
+          receipt.requestBlob,
+          opId,
+          tree,
+          atomicLive.parent,
+        ).catch((error) => {
+          if (error instanceof TranslationPartRefusal) throw error;
           throw new ConsumerOutputRejected(error instanceof Error ? error.message : String(error));
         });
         if (tree[p.request] !== receipt.requestBlob)
@@ -1095,21 +1440,42 @@ export class Publisher {
         const liveMoved = i > 0 && this.head(this.options.liveBranch) !== atomicLive.parent;
         if (source !== h || liveMoved) {
           const advance = this.sourceAdvance(source, h, tree, opId, signed.kind === 'batch');
-          if (advance === 'blocked' && signed.kind === 'batch')
-            throw new RefRace('Claimed batch source no longer matches its publication fence');
-          if (advance === 'blocked')
-            throw new ConsumerOutputRejected('Global receipt identity mismatch');
-          if (advance === 'rebuild' || liveMoved)
-            throw new SourceAdvanced(
-              atomicLive.candidate,
-              receipt.requestBlob,
-              source,
-              h,
-              signed.hashes,
-              signed.kind === 'batch',
-            );
+          if (isTranslationPublishPayload(signed)) {
+            if (!this.git.ancestor(source, h))
+              throw new RefRace('Translation publish source diverged');
+            if (advance !== 'bookkeeping' || liveMoved)
+              throw new SourceAdvanced(
+                atomicLive.candidate,
+                receipt.requestBlob,
+                source,
+                h,
+                [],
+                false,
+                true,
+              );
+          } else {
+            if (advance === 'blocked' && signed.kind === 'batch')
+              throw new RefRace('Claimed batch source no longer matches its publication fence');
+            if (advance === 'blocked')
+              throw new ConsumerOutputRejected('Global receipt identity mismatch');
+            if (advance === 'rebuild' || liveMoved)
+              throw new SourceAdvanced(
+                atomicLive.candidate,
+                receipt.requestBlob,
+                source,
+                h,
+                signed.hashes,
+                signed.kind === 'batch',
+              );
+          }
         }
       }
+      if (receipt?.translations)
+        scoped ??= await this.verifyTranslationReceipt(
+          receipt,
+          candidate!,
+          atomicLive?.translationDeadline,
+        );
       const blob = receipt?.requestBlob ?? requestBlob ?? tree[p.request];
       let request: unknown;
       try {
@@ -1131,7 +1497,11 @@ export class Publisher {
       const batchTimes = batchPayload
         ? this.recordBatch(tree, opId, batchPayload, receipt, candidate, result, landing)
         : undefined;
-      if (receipt) {
+      const beforeRecord = scoped ? { ...tree } : undefined;
+      if (scoped) {
+        if (!atomicLive) this.assertScopedRecordParent(receipt!, h, tree, candidate!);
+        Object.assign(tree, scoped.data);
+      } else if (receipt) {
         const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
         const neutral =
           inPlace && neutralRenameHashes(this, tree, receipt.entries, inPlace.rewritten);
@@ -1150,16 +1520,18 @@ export class Publisher {
         }
         tree['live/pushed.json'] = this.git.writeBlob(json(pushed));
       }
+      let duplicatePath: string | undefined;
       if (tree[p.request] && tree[p.request] !== blob) {
         let strayIntent: string | undefined;
         try {
-          strayIntent = JSON.parse(JSON.parse(this.git.blob(tree[p.request])).payload).intentDigest;
+          strayIntent = await this.duplicateIntent(tree[p.request], opId);
         } catch {
           /* malformed stray is a conflict */
         }
         let n = 1;
         while (tree[p.log.replace('.json', `.dup-${n}.json`)]) n++;
-        tree[p.log.replace('.json', `.dup-${n}.json`)] = this.git.writeBlob(
+        duplicatePath = p.log.replace('.json', `.dup-${n}.json`);
+        tree[duplicatePath] = this.git.writeBlob(
           json({
             status:
               strayIntent !== undefined && strayIntent === (receipt?.intentDigest ?? intentDigest)
@@ -1193,35 +1565,85 @@ export class Publisher {
         batchTimes.landedAt = landedAt;
         batchTimes.landedAtSource = 'cas';
       }
-      if (receipt && inPlace) await new GlobalsPublisher(this).recordProofs(tree, h, candidate!);
+      const proofWrites = new Map<string, string | null>();
+      if (receipt && scoped) {
+        const proofTree = { ...tree };
+        await new GlobalsPublisher(this).recordProofs(proofTree, h, candidate!);
+        for (const path of new Set([...Object.keys(tree), ...Object.keys(proofTree)])) {
+          if (tree[path] === proofTree[path]) continue;
+          if (
+            !/^globals\/proofs\/(?:clashes\/(?:exports|variables|titles)\/[a-f0-9]{64}|removal\/g_[a-zA-Z0-9_-]{8,80}-[a-z-]+)\.json$/.test(
+              path,
+            )
+          )
+            throw new ConsumerOutputRejected(`Unexpected shared text proof path ${path}`);
+          const oid = proofTree[path] ?? null;
+          proofWrites.set(path, oid);
+          if (oid) tree[path] = oid;
+          else delete tree[path];
+        }
+      } else if (receipt && inPlace) {
+        await new GlobalsPublisher(this).recordProofs(tree, h, candidate!);
+      }
+      if (receipt && candidate && translationRuntimeInstalled(this, tree)) {
+        tree[translationRootsPath] = this.git.writeBlob(
+          json(
+            translationRoots(
+              this,
+              tree,
+              candidate,
+              scoped?.input ?? liveGlobalsInput(this, candidate),
+              scoped ? undefined : { data: this.git.tree(h), liveCommit: receipt.liveParent },
+            ),
+          ),
+        );
+      }
       // A commit cannot contain its own SHA. recordCommit is deliberately null; resolve it via log blob history.
       tree[p.log] = this.git.writeBlob(
-        json({
-          request,
-          intentDigest: receipt?.intentDigest ?? intentDigest ?? null,
-          candidateCommit: candidate ?? null,
-          result: result ?? {
-            status: receipt?.outcome === 'unchanged' ? 'unchanged' : 'done',
-            outcomes: receipt?.entries.map((e) => ({
-              hash: e.hash,
-              digest: e.digest,
-              status: receipt.outcome,
-            })),
-            ...(receipt?.inPlace?.globals.length ? { globals: receipt.inPlace.globals } : {}),
-            ...(receipt?.inPlace?.refusals?.length
-              ? { globalRefusals: receipt.inPlace.refusals }
-              : {}),
-          },
-          liveCommit: candidate ?? null,
-          recordCommit: null,
-          pins: receipt
-            ? { publisherSha: receipt.publisherSha, generatorSha: receipt.generatorSha }
-            : { publisherSha: this.options.publisherSha, generatorSha: this.options.generatorSha },
-          runUrl: this.options.runUrl,
-          times: { now: receipt?.now ?? this.options.now(), ...batchTimes },
-        }),
+        json(
+          scoped
+            ? translationRecordLog(receipt!, candidate!, request)
+            : {
+                request,
+                intentDigest: receipt?.intentDigest ?? intentDigest ?? null,
+                candidateCommit: candidate ?? null,
+                result: result ?? {
+                  status: receipt?.outcome === 'unchanged' ? 'unchanged' : 'done',
+                  outcomes: receipt?.entries.map((e) => ({
+                    hash: e.hash,
+                    digest: e.digest,
+                    status: receipt.outcome,
+                  })),
+                  ...(receipt?.inPlace?.globals.length ? { globals: receipt.inPlace.globals } : {}),
+                  ...(receipt?.inPlace?.refusals?.length
+                    ? { globalRefusals: receipt.inPlace.refusals }
+                    : {}),
+                },
+                liveCommit: candidate ?? null,
+                recordCommit: null,
+                pins: receipt
+                  ? { publisherSha: receipt.publisherSha, generatorSha: receipt.generatorSha }
+                  : {
+                      publisherSha: this.options.publisherSha,
+                      generatorSha: this.options.generatorSha,
+                    },
+                runUrl: this.options.runUrl,
+                times: { now: receipt?.now ?? this.options.now(), ...batchTimes },
+              },
+        ),
       );
       const c = this.git.commit(h, tree, `Record ${opId}`, credits);
+      if (scoped && beforeRecord) {
+        const allowed = new Map<string, string | null>(Object.entries(scoped.data));
+        allowed.set(p.log, tree[p.log]);
+        allowed.set(p.request, null);
+        if (duplicatePath) allowed.set(duplicatePath, tree[duplicatePath]);
+        if (tree[translationRootsPath])
+          allowed.set(translationRootsPath, tree[translationRootsPath]);
+        for (const [path, oid] of proofWrites) allowed.set(path, oid);
+        assertTranslationTree(beforeRecord, this.git.tree(c), allowed);
+        this.assertTranslationModes(h, c, allowed);
+      }
       try {
         if (atomicLive)
           this.git.casMany!([
@@ -1238,6 +1660,18 @@ export class Publisher {
         if (!(e instanceof RefRace)) throw e;
       }
     }
+    // A write that never wins its lease must not send the queue back through a scoped plan.
+    if (typeof refusalFence === 'object') return false;
+    if (atomicLive && receipt?.translations)
+      throw new SourceAdvanced(
+        atomicLive.candidate,
+        receipt.requestBlob,
+        receipt.sourceCommit,
+        this.head(this.options.dataBranch),
+        [],
+        false,
+        true,
+      );
     throw new Error('RECORD exhausted; drain stopped');
   }
   async duplicate(opId: string) {
@@ -1250,7 +1684,7 @@ export class Publisher {
       const original = this.read<{ intentDigest: string }>(t, p.log)!;
       let intent: string | undefined;
       try {
-        intent = JSON.parse(JSON.parse(this.git.blob(t[p.request])).payload).intentDigest;
+        intent = await this.duplicateIntent(t[p.request], opId);
       } catch {
         /* conflict */
       }
@@ -1285,15 +1719,20 @@ export class Publisher {
   async operation(
     opId: string,
     runtime = this.git.tree(this.head(this.options.dataBranch)),
-  ): Promise<void> {
+  ): Promise<void | 'deferred'> {
     const p = paths(opId);
+    // At most two full-length checks in total. Short checks leave room for a rebuild.
+    const translationDeadline = performance.now() + 2 * translationPlanTimeout;
     let rebuilding: SourceAdvanced | undefined;
     for (let attempt = 0; ; attempt++) {
       let s = this.head(this.options.dataBranch);
       let tree = this.git.tree(s);
       requireGlobalsMode(this, tree);
       try {
-        if (rebuilding && !tree[p.log]) {
+        if (rebuilding && !tree[p.log] && rebuilding.scoped) {
+          if (tree[p.request] !== rebuilding.requestBlob || !this.git.ancestor(rebuilding.head, s))
+            throw new RefRace('Translation publish source no longer matches the retry fence');
+        } else if (rebuilding && !tree[p.log]) {
           if (rebuilding.batch && !tree[p.request]) return;
           if (
             tree[p.request] !== rebuilding.requestBlob ||
@@ -1311,9 +1750,13 @@ export class Publisher {
           )
             throw new RefRace('Manual publish source moved during authored globals upkeep');
         }
-        return await this.publishOperation(opId, s, tree, runtime, rebuilding);
+        return await this.publishOperation(opId, s, tree, runtime, translationDeadline, rebuilding);
       } catch (error) {
-        if (error instanceof SourceAdvanced && attempt < 2) {
+        if (
+          error instanceof SourceAdvanced &&
+          attempt < 2 &&
+          (!error.scoped || (attempt === 0 && performance.now() < translationDeadline))
+        ) {
           rebuilding = error;
           continue;
         }
@@ -1324,9 +1767,23 @@ export class Publisher {
             this.git.tree(this.head(this.options.dataBranch))[p.log]
           )
             return;
-          if (attempt < 2) continue;
+          if (attempt < 2 && !rebuilding.scoped) continue;
         }
-        if (!(error instanceof ConsumerOutputRejected)) throw error;
+        const moved =
+          error instanceof SourceAdvanced && error.scoped
+            ? error
+            : error instanceof RefRace && rebuilding?.scoped
+              ? rebuilding
+              : undefined;
+        let refusal = error instanceof TranslationPartRefusal ? error : undefined;
+        const requestBlob = moved?.requestBlob ?? tree[p.request];
+        if (moved) {
+          this.credits(requestBlob, opId);
+          const envelope = JSON.parse(this.git.blob(requestBlob));
+          const payload = translationPublishPayloadSchema.parse(JSON.parse(envelope.payload));
+          refusal = translationCheckRefusal(payload.rows, 'review-changed');
+        }
+        if (!refusal && !(error instanceof ConsumerOutputRejected)) throw error;
         const live = this.head(this.options.liveBranch);
         const pending = this.git.head(p.candidate);
         if (this.receipt(live, opId) || (pending && this.git.ancestor(pending, live)))
@@ -1334,29 +1791,43 @@ export class Publisher {
             cause: error,
           });
         // A terminal content refusal closes the signed request without changing LIVE.
-        await this.record(
+        const recorded = await this.record(
           opId,
           undefined,
           undefined,
-          error instanceof NamedPartRefusal
+          refusal
             ? {
                 status: 'rejected',
                 code: 'selected-rows-changed',
-                error: error.message,
-                outcomes: error.outcomes,
+                error: refusal.message,
+                rows: refusal.rows,
               }
-            : { status: 'rejected', error: String(error) },
-          tree[p.request],
+            : error instanceof NamedPartRefusal
+              ? {
+                  status: 'rejected',
+                  code: 'selected-rows-changed',
+                  error: error.message,
+                  outcomes: error.outcomes,
+                }
+              : { status: 'rejected', error: String(error) },
+          requestBlob,
           undefined,
           undefined,
-          rebuilding?.batch ? s : undefined,
+          refusal || rebuilding?.scoped ? { requestBlob } : rebuilding?.batch ? s : undefined,
         );
         try {
-          if (pending) this.git.cas(p.candidate, pending, undefined);
+          if (
+            pending &&
+            (recorded !== false ||
+              (this.receipt(pending, opId)?.requestBlob === requestBlob &&
+                this.git.tree(this.head(this.options.dataBranch))[p.request] !== requestBlob &&
+                !this.git.ancestor(pending, this.head(this.options.liveBranch))))
+          )
+            this.git.cas(p.candidate, pending, undefined);
         } catch {
-          /* A terminal Record is authoritative; candidate cleanup is best effort. */
+          /* A changed candidate lease belongs to the winning writer. */
         }
-        return;
+        return recorded === false ? 'deferred' : undefined;
       }
     }
   }
@@ -1400,6 +1871,7 @@ export class Publisher {
     s: string,
     tree: Tree,
     runtime: Tree,
+    translationDeadline: number,
     rebuilding?: SourceAdvanced,
   ): Promise<void> {
     const p = paths(opId);
@@ -1441,10 +1913,11 @@ export class Publisher {
         );
     }
     if (!candidate || candidate.c === rebuilding?.candidate) {
-      let payload: PublishRequestPayload;
+      let payload: ScopedPublishRequestPayload;
       try {
-        payload = await this.verifyRequest(blob, opId, tree);
+        payload = await this.verifyRequest(blob, opId, tree, live);
       } catch (e) {
+        if (e instanceof TranslationPartRefusal) throw e;
         await this.record(
           opId,
           undefined,
@@ -1454,146 +1927,159 @@ export class Publisher {
         );
         return;
       }
-      let aliases: Aliases;
-      try {
-        aliases = this.aliasesAt(tree);
-      } catch (e) {
-        await this.record(
-          opId,
-          undefined,
-          undefined,
-          {
-            status: 'rejected',
-            error: `Invalid alias configuration (${sandboxPointersPath}, ${aliasGroupsPath}): ${String(e)}`,
-          },
-          blob,
-        );
-        return;
-      }
-      if (payload.kind === 'batch') {
+      if (isTranslationPublishPayload(payload)) {
         this.assertBatchRuntime(tree, runtime);
-        const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
-        if (!r) {
-          if (candidate && this.git.tree(this.head(this.options.dataBranch))[p.log]) {
-            try {
-              this.git.cas(p.candidate, candidate.c, undefined);
-            } catch {
-              /* The terminal log owns the result. */
+        const receipt = await this.translationReceipt(
+          blob,
+          s,
+          live,
+          payload,
+          undefined,
+          translationDeadline,
+        );
+        candidate = this.createCandidate(opId, blob, live, receipt, rebuilding?.candidate);
+      } else {
+        let aliases: Aliases;
+        try {
+          aliases = this.aliasesAt(tree);
+        } catch (e) {
+          await this.record(
+            opId,
+            undefined,
+            undefined,
+            {
+              status: 'rejected',
+              error: `Invalid alias configuration (${sandboxPointersPath}, ${aliasGroupsPath}): ${String(e)}`,
+            },
+            blob,
+          );
+          return;
+        }
+        if (payload.kind === 'batch') {
+          this.assertBatchRuntime(tree, runtime);
+          const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
+          if (!r) {
+            if (candidate && this.git.tree(this.head(this.options.dataBranch))[p.log]) {
+              try {
+                this.git.cas(p.candidate, candidate.c, undefined);
+              } catch {
+                /* The terminal log owns the result. */
+              }
+            }
+            return;
+          }
+          candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
+        } else {
+          const moves = this.movesAt(tree);
+          const entries: Entry[] = [],
+            tooltips: Tooltip[] = [],
+            outcomes: { hash: number; status: string }[] = [];
+          const seen = new Set<number>();
+          // Publisher guard (R3): a hash with an activation conflict file publishes only after the
+          // conflict is resolved, so a manual request can never overwrite the batch's live state.
+          const blocked = [...new Set(payload.hashes.map((h) => resolveAlias(h, aliases)))].filter(
+            (h) => tree[schedulePaths.conflict(h)],
+          );
+          if (blocked.length) {
+            await this.record(
+              opId,
+              undefined,
+              undefined,
+              { status: 'rejected', error: `${resolveActivationMessage}: ${blocked.join(', ')}` },
+              blob,
+            );
+            return;
+          }
+          for (const hash of payload.hashes) {
+            const canonical = resolveAlias(hash, aliases),
+              oid = tree[`tooltips/${canonical}.json`];
+            const tooltip = tooltipSchema.safeParse(
+              oid
+                ? JSON.parse(this.git.blob(oid))
+                : isMovedInactive(canonical, moves)
+                  ? { hash: canonical, text: {}, associated: [] }
+                  : undefined,
+            );
+            if (!tooltip.success || tooltip.data.hash !== canonical) {
+              outcomes.push({ hash: canonical, status: 'missing' });
+              continue;
+            }
+            const digest = await inactivePublishableHash(tooltip.data, aliases, moves);
+            outcomes.push({
+              hash: canonical,
+              status: digest === payload.expected[hash] ? 'accepted' : 'stale',
+            });
+            if (!seen.has(canonical)) {
+              entries.push({
+                hash: canonical,
+                digest,
+                tooltipBlob: oid ?? this.git.writeBlob(json(tooltip.data)),
+              });
+              tooltips.push(tooltip.data);
+              seen.add(canonical);
             }
           }
-          return;
-        }
-        candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
-      } else {
-        const moves = this.movesAt(tree);
-        const entries: Entry[] = [],
-          tooltips: Tooltip[] = [],
-          outcomes: { hash: number; status: string }[] = [];
-        const seen = new Set<number>();
-        // Publisher guard (R3): a hash with an activation conflict file publishes only after the
-        // conflict is resolved, so a manual request can never overwrite the batch's live state.
-        const blocked = [...new Set(payload.hashes.map((h) => resolveAlias(h, aliases)))].filter(
-          (h) => tree[schedulePaths.conflict(h)],
-        );
-        if (blocked.length) {
-          await this.record(
-            opId,
-            undefined,
-            undefined,
-            { status: 'rejected', error: `${resolveActivationMessage}: ${blocked.join(', ')}` },
-            blob,
-          );
-          return;
-        }
-        for (const hash of payload.hashes) {
-          const canonical = resolveAlias(hash, aliases),
-            oid = tree[`tooltips/${canonical}.json`];
-          const tooltip = tooltipSchema.safeParse(
-            oid
-              ? JSON.parse(this.git.blob(oid))
-              : isMovedInactive(canonical, moves)
-                ? { hash: canonical, text: {}, associated: [] }
-                : undefined,
-          );
-          if (!tooltip.success || tooltip.data.hash !== canonical) {
-            outcomes.push({ hash: canonical, status: 'missing' });
-            continue;
+          if (outcomes.some((e) => e.status !== 'accepted')) {
+            if (rebuilding) {
+              const previous = this.git.tree(rebuilding.source);
+              const hashes = outcomes
+                .filter(({ status }) => status !== 'accepted')
+                .map(({ hash }) => hash);
+              const guidance = outcomes.some(({ status }) => status === 'accepted')
+                ? 'The other rows in this part also stayed unpublished. You can publish them again.'
+                : 'Nothing in this part went live. Review the changed text before publishing again.';
+              throw new NamedPartRefusal(
+                `Saved text changed after review for ${this.partNames(previous, hashes, tooltips)}. ${guidance}`,
+                outcomes,
+              );
+            }
+            await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
+            return;
           }
-          const digest = await inactivePublishableHash(tooltip.data, aliases, moves);
-          outcomes.push({
-            hash: canonical,
-            status: digest === payload.expected[hash] ? 'accepted' : 'stale',
-          });
-          if (!seen.has(canonical)) {
-            entries.push({
-              hash: canonical,
-              digest,
-              tooltipBlob: oid ?? this.git.writeBlob(json(tooltip.data)),
-            });
-            tooltips.push(tooltip.data);
-            seen.add(canonical);
-          }
-        }
-        if (outcomes.some((e) => e.status !== 'accepted')) {
-          if (rebuilding) {
-            const previous = this.git.tree(rebuilding.source);
-            const hashes = outcomes
-              .filter(({ status }) => status !== 'accepted')
-              .map(({ hash }) => hash);
-            const guidance = outcomes.some(({ status }) => status === 'accepted')
-              ? 'The other rows in this part also stayed unpublished. You can publish them again.'
-              : 'Nothing in this part went live. Review the changed text before publishing again.';
-            throw new NamedPartRefusal(
-              `Saved text changed after review for ${this.partNames(previous, hashes, tooltips)}. ${guidance}`,
-              outcomes,
+          this.assertRequestedDigests(
+            entries,
+            payload.hashes,
+            (hash) => payload.expected[hash],
+            aliases,
+          );
+          const inPlace = this.inPlaceOptions(tree, payload, live);
+          const neutral = neutralRenameHashes(this, tree, entries, inPlace.rewritten);
+          const publishable = neutral?.size
+            ? tooltips.filter(({ hash }) => !neutral.has(hash))
+            : tooltips;
+          const checked = this.checkAndExport(tree, publishable, aliases, inPlace);
+          if ('error' in checked) {
+            await this.record(
+              opId,
+              undefined,
+              undefined,
+              { status: 'rejected', error: checked.error },
+              blob,
             );
+            return;
           }
-          await this.record(opId, undefined, undefined, { status: 'stale', outcomes }, blob);
-          return;
-        }
-        this.assertRequestedDigests(
-          entries,
-          payload.hashes,
-          (hash) => payload.expected[hash],
-          aliases,
-        );
-        const inPlace = this.inPlaceOptions(tree, payload, live);
-        const neutral = neutralRenameHashes(this, tree, entries, inPlace.rewritten);
-        const publishable = neutral?.size
-          ? tooltips.filter(({ hash }) => !neutral.has(hash))
-          : tooltips;
-        const checked = this.checkAndExport(tree, publishable, aliases, inPlace);
-        if ('error' in checked) {
-          await this.record(
+          const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
+          const r: Receipt = {
             opId,
-            undefined,
-            undefined,
-            { status: 'rejected', error: checked.error },
-            blob,
-          );
-          return;
+            requestBlob: blob,
+            sourceCommit: s,
+            liveParent: live,
+            now: checked.now,
+            publisherSha: this.options.publisherSha,
+            generatorSha: this.options.generatorSha,
+            ...(this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {}),
+            outcome: 'published',
+            entries,
+            exported: checked.exported,
+            changed: entries
+              .filter(({ hash, digest }) => !neutral?.has(hash) && pushed[hash] !== digest)
+              .map(({ hash }) => hash),
+            requester: payload.requester,
+            intentDigest: payload.intentDigest,
+            inPlace: checked.inPlace,
+          };
+          candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
         }
-        const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
-        const r: Receipt = {
-          opId,
-          requestBlob: blob,
-          sourceCommit: s,
-          liveParent: live,
-          now: checked.now,
-          publisherSha: this.options.publisherSha,
-          generatorSha: this.options.generatorSha,
-          ...(this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {}),
-          outcome: 'published',
-          entries,
-          exported: checked.exported,
-          changed: entries
-            .filter(({ hash, digest }) => !neutral?.has(hash) && pushed[hash] !== digest)
-            .map(({ hash }) => hash),
-          requester: payload.requester,
-          intentDigest: payload.intentDigest,
-          inPlace: checked.inPlace,
-        };
-        candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
       }
     }
     candidate = this.candidate(opId, blob);
@@ -1613,7 +2099,7 @@ export class Publisher {
       });
     } else {
       requireGlobalsMode(this, this.git.tree(this.head(this.options.dataBranch)));
-      if (!r.inPlace || r.globals)
+      if ((!r.inPlace && !r.translations) || r.globals)
         throw new ConsumerOutputRejected(
           'Use the pre-migration publisher to recover a legacy candidate.',
         );
@@ -1625,6 +2111,7 @@ export class Publisher {
           this.head(this.options.dataBranch),
           r.entries.map(({ hash }) => hash),
           !!r.batchId,
+          !!r.translations,
         );
       const checked = this.merge(l, r);
       const candidateBytes = this.git.blob(this.git.tree(c)['liveDescriptions.json']);
@@ -1639,7 +2126,12 @@ export class Publisher {
         undefined,
         undefined,
         { at: this.options.now(), source: 'cas' },
-        { parent: l, candidate: c, ...(r.batchId ? { runtime } : {}) },
+        {
+          parent: l,
+          candidate: c,
+          ...(r.batchId || r.translations ? { runtime } : {}),
+          ...(r.translations ? { translationDeadline } : {}),
+        },
       );
     }
     try {
@@ -2308,12 +2800,12 @@ export class Publisher {
     editIndex(this, tree, updated, payload.hashes, recordedAt);
     return { landedAt, landedAtSource: land.source, recordedAt };
   }
-  bundle() {
+  bundle(scoped?: { sourceCommit: string; value: Awaited<ReturnType<typeof bundleTranslations>> }) {
     const ref = dataRef('editor-data-bundle');
     let old = this.git.head(ref);
     for (let attempt = 0; ; attempt++) {
       try {
-        return this.bundleAt(ref, old);
+        return this.bundleAt(ref, old, scoped);
       } catch (error) {
         if (!(error instanceof RefRace) || attempt === 2) throw error;
         const current = this.git.head(ref);
@@ -2322,14 +2814,28 @@ export class Publisher {
       }
     }
   }
-  private bundleAt(ref: string, old: string | undefined) {
+  private bundleAt(
+    ref: string,
+    old: string | undefined,
+    scoped?: { sourceCommit: string; value: Awaited<ReturnType<typeof bundleTranslations>> },
+  ) {
     const h = this.head(this.options.dataBranch),
       t = this.git.tree(h),
       oldTree = old ? this.git.tree(old) : {};
     const fence = activeGlobalsFence(this, t);
     if (!fence) return;
-    const prior = old ? this.read<{ sourceCommit: string }>(oldTree, 'bundle.json') : undefined;
-    if (prior?.sourceCommit === h) return;
+    if (scoped && scoped.sourceCommit !== h) throw new RefRace('Translation bundle source moved');
+    const prior = old
+      ? this.read<{ sourceCommit: string; translationPublish?: { liveCommit: string } }>(
+          oldTree,
+          'bundle.json',
+        )
+      : undefined;
+    if (
+      prior?.sourceCommit === h &&
+      (!scoped || prior.translationPublish?.liveCommit === scoped.value.liveCommit)
+    )
+      return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
       throw new Error('Bundle source would move backwards');
     const tooltipPaths = Object.keys(t)
@@ -2354,11 +2860,12 @@ export class Publisher {
       createdAt: p.createdAt,
       notBefore: p.notBefore,
     });
-    const publishQueue = this.queue(h).map((id) => {
+    const publishQueue = this.queue(h).flatMap((id) => {
       try {
         const e = this.read<{ payload: string }>(t, paths(id).request);
         const value = JSON.parse(e!.payload);
         if (value?.kind === 'batch') return batchEntry(batchPublishPayloadSchema.parse(value));
+        if (value?.scope === 'translations') return [];
         const p = publishPayloadSchema.parse(value);
         return {
           opId: id,
@@ -2413,6 +2920,7 @@ export class Publisher {
       ...(scheduledQueue.length ? { scheduledQueue } : {}),
       globalsPending: inPlace.globalsPending,
       globalsReviewImports: inPlace.reviewImports,
+      ...(scoped ? { translationPublish: scoped.value } : {}),
       ...(Object.keys(inPlace.reviewDefinitions).length
         ? { globalsReviewDefinitions: inPlace.reviewDefinitions }
         : {}),
@@ -2443,9 +2951,93 @@ export class Publisher {
   }
   async prepareBundle() {
     await new GlobalsPublisher(this).maintainAuthored();
+    this.prepareTranslationRoots();
   }
 
-  async run(prepare = true) {
+  private prepareTranslationRoots() {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const sourceCommit = this.head(this.options.dataBranch);
+      const tree = this.git.tree(sourceCommit);
+      if (!activeGlobalsFence(this, tree) || !translationRuntimeInstalled(this, tree)) return;
+      const live = this.head(this.options.liveBranch);
+      const index = this.read<{ destination: string; liveCommit: string }>(
+        tree,
+        translationRootsPath,
+      );
+      if (index?.liveCommit === live && index.destination === this.options.liveBranch) return;
+      try {
+        const roots = translationRoots(this, tree, live, liveGlobalsInput(this, live));
+        if (this.head(this.options.liveBranch) !== live)
+          throw new RefRace('Translation root index LIVE source moved');
+        const next = this.git.commit(
+          sourceCommit,
+          { ...tree, [translationRootsPath]: this.git.writeBlob(json(roots)) },
+          'Index active translation sources',
+          appCredits,
+        );
+        this.git.cas(dataRef(this.options.dataBranch), sourceCommit, next);
+        return;
+      } catch (error) {
+        if (!(error instanceof RefRace)) throw error;
+      }
+    }
+  }
+
+  async refreshTranslationBundle() {
+    try {
+      const sourceCommit = this.head(this.options.dataBranch);
+      const tree = this.git.tree(sourceCommit);
+      if (!activeGlobalsFence(this, tree) || !translationRuntimeInstalled(this, tree)) return;
+      const live = this.head(this.options.liveBranch);
+      const index = this.read<{ destination: string; liveCommit: string }>(
+        tree,
+        translationRootsPath,
+      );
+      if (index?.liveCommit !== live || index.destination !== this.options.liveBranch) return;
+      const bundle = this.git.head(dataRef('editor-data-bundle'));
+      const prior =
+        bundle &&
+        this.read<{
+          sourceCommit: string;
+          translationPublish?: { liveCommit: string };
+        }>(this.git.tree(bundle), 'bundle.json');
+      if (
+        prior &&
+        prior.sourceCommit === sourceCommit &&
+        prior.translationPublish?.liveCommit === live
+      )
+        return;
+      const value = this.translationWork
+        ? await this.translationWork.preview(this.git, this.options, sourceCommit, live)
+        : await bundleTranslations(
+            this,
+            tree,
+            live,
+            new GlobalsPublisher(this).documents(tree, 'tooltips'),
+          );
+      if (value && value.liveCommit === live && this.head(this.options.liveBranch) === live)
+        this.bundle({ sourceCommit, value });
+    } catch (error) {
+      // Advance the ordinary bundle if a save won the race. Preview failures are optional.
+      if (error instanceof RefRace) {
+        try {
+          this.bundle();
+          return;
+        } catch {
+          // The ordinary bundle published before the check remains available.
+        }
+      }
+      console.warn('Translation readiness refresh unavailable.');
+    }
+  }
+
+  async publishBundle(materializeRoots = true) {
+    if (materializeRoots) this.prepareTranslationRoots();
+    this.bundle();
+    await this.refreshTranslationBundle();
+  }
+
+  async run(prepare = true, refreshTranslations = true) {
     const start = this.options.now();
     const runtime = this.git.tree(this.head(this.options.dataBranch));
     if (!activeGlobalsFence(this, runtime)) return;
@@ -2457,13 +3049,17 @@ export class Publisher {
       }
       await new SchedulePreparer(this).drain(true);
       if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
+      const deferred = new Set<string>();
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 60_000; n++) {
-        const [id] = this.queue(this.head(this.options.dataBranch));
+        const id = this.queue(this.head(this.options.dataBranch)).find(
+          (opId) => !deferred.has(opId),
+        );
         if (!id) break;
-        await this.operation(id, runtime);
+        if ((await this.operation(id, runtime)) === 'deferred') deferred.add(id);
       }
     } finally {
       this.bundle();
     }
+    if (refreshTranslations) await this.refreshTranslationBundle();
   }
 }
