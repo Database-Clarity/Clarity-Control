@@ -88,6 +88,23 @@ it('cleared: only a published English text that is gone is a removal', async () 
   expect(withClearedMoves(moves, [])).toBe(moves);
 });
 
+it('cleared: takes a newly grouped name member exactly as an Inactive move does', () => {
+  // Any publish turns that member's own row into a stub (mergeLivePerks); the clear takes the stub.
+  const grouped = { 77: { to: 42, kind: 'name' as const } };
+  const catalog = { 42: { name: 'A', type: 'x' }, 77: { name: 'A', type: 'x' } };
+  const live = { 42: exportLegacy([tooltip()], 0)[42], 77: { ...other(), editor: {} } };
+  const remove = (state: InactiveMoves) =>
+    applyInactiveLive(
+      mergeLivePerks(live, {}, undefined, { aliases: grouped, catalog }),
+      state,
+      [42],
+      grouped,
+      live,
+    );
+  expect(remove(withClearedMoves({}, [42]))).toEqual(remove(moves));
+  expect(remove(moves)).toEqual({});
+});
+
 it('admits batches only after their canonical and alias move decisions are already published', async () => {
   const original = await publishableHash(tooltip(), aliases);
   const aliasIn = { 77: moves[42]! };

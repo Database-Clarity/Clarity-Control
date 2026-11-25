@@ -418,8 +418,11 @@ export class Publisher {
   }
   /** A malformed published version has no English: it must not stop the bundle or the queue. */
   private publishedEnglish(tree: Tree, hash: number): boolean {
-    const { data } = tooltipSchema.safeParse(this.read(tree, `live/tooltips/${hash}.json`));
-    return !!data && !withoutEnglish(data);
+    try {
+      return !withoutEnglish(tooltipSchema.parse(this.read(tree, `live/tooltips/${hash}.json`)));
+    } catch {
+      return false;
+    }
   }
   /** Each document's cleared state at `tree` (core clearedState), for the ones that have one. */
   clearedStates(tree: Tree, documents: readonly Tooltip[], moves: InactiveMoves) {

@@ -80,12 +80,12 @@ export async function clearedStates(
     ),
   );
   for (const [index, document] of candidates.entries()) {
-    const published = versions[index];
+    const published = tooltipSchema.safeParse(versions[index]?.value).data;
     const state = clearedState(
       document,
       pushed[document.hash],
       await inactiveRemovalHash(document.hash),
-      !!published && !withoutEnglish(tooltipSchema.parse(published.value)),
+      !!published && !withoutEnglish(published),
     );
     if (state)
       states.set(document.hash, {

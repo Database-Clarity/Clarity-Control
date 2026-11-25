@@ -34,7 +34,8 @@ older one, like an older Worker and web, treats the translations of a cleared to
 change and would publish a row without English. Before any older stack publishes again, drain the
 queue and candidates, then make sure no tooltip without English keeps translations: publish the
 pending ones as removals and take the translations out, or type their English back. An older
-publisher that meets a removal in the queue records it as stale and publishes nothing for it.
+publisher that meets a removal in the queue records it as stale and publishes nothing for it. While
+an older PIN is installed the Worker refuses a clear by its own hash only: never send one by an alias.
 For `schedulePreparationV1`, install the verified runtime and serialized workflow first,
 reconcile legacy in-flight operations, and retain every installed capability floor. Only then
 deploy compatible Worker and web builds and enable asynchronous admission with owner approval.

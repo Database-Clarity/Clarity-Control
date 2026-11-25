@@ -1,5 +1,6 @@
 import {
   exportWithInactiveMoves,
+  withoutEnglish,
   exportLegacy,
   globalPublishedSchema,
   activeAliases,
@@ -1258,7 +1259,10 @@ export function bundleInPlaceReview(
   if (renames.length) {
     for (const document of publishedDocuments(pub, tree, input, false)) {
       const updated = rewriteTooltip(document, renames);
-      if (updated !== document) rewritten.set(document.hash, updated);
+      // A review of a clear names the published marker itself: its text is never rename-only.
+      const saved = current[document.hash];
+      const clears = saved && withoutEnglish(saved) && !withoutEnglish(document);
+      if (updated !== document && !clears) rewritten.set(document.hash, updated);
     }
     rewritePushed(pub, tree, pushed, rewritten);
     const pendingIds = new Set(pending.map(({ id }) => id));

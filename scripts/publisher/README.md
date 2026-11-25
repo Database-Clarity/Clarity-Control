@@ -142,7 +142,9 @@ caps, so a previously saved importer edit and its target removal cannot split ac
 Clearing the English text of a published tooltip (PIN capability `clearedRemovals`) publishes the
 same way: the saved text is the decision, nothing is added to `config/inactive.json`, and the
 published marker is the same removal marker. Only a row whose last published version
-(`live/tooltips`) has English counts, so an entry published empty stays as it is. Its saved
+(`live/tooltips`) has English counts, so an entry published empty stays as it is. It takes its own
+row and the live stubs that point at it, including a newly grouped name member, which any publish
+turns into a stub. Its saved
 translations stay saved and unpublished. The bundle names the tooltips whose saved text gained or
 lost its English since their publish (`englishChanged`, absent while there are none). Batches never
 carry a clear, and a removed tooltip publishes again once it has English.

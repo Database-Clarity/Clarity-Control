@@ -1172,6 +1172,37 @@ describe('in-place shared text publication', () => {
     expect(f.read('live/tooltips/141.json')).toEqual(cleared);
   });
 
+  it.each([false, true])(
+    'removes a cleared tooltip while a rename of its shared text waits (same part=%s)',
+    async (together) => {
+      const f = await inPlaceFixture();
+      const published = f.read('live/tooltips/141.json') as Tooltip;
+      const cleared = {
+        ...published,
+        text: { ...published.text, en: { ...published.text.en!, text: '' } },
+      };
+      f.change({
+        'live/pushed.json': { 141: await publishableHash(published) },
+        'tooltips/141.json': cleared,
+        [f.entryPath]: { ...f.entry, name: 'Renamed' },
+      });
+      const before = live(f);
+      const row = pending(f).find(({ name }) => name === 'Renamed')!;
+      // As Review computes it, from the bundle.
+      const bundle = f.pub.read<{ pushed: Record<string, string>; tooltips: Record<string, Tooltip> }>(
+        f.git.tree(f.pub.head('editor-data-bundle')),
+        'bundle.json',
+      )!;
+      const reviewed = await clearedReviewHash(bundle.tooltips[141]!, bundle.pushed[141]);
+      await f.request([141], A, together ? selection(row) : undefined, { 141: reviewed });
+      await f.pub.run(false);
+      expect(f.read(paths(A).log).result).toMatchObject({ status: 'done' });
+      expect(live(f).perks[141]).toBeUndefined();
+      expect(live(f).perks[140]).toEqual(before.perks[140]);
+      expect(f.read('live/pushed.json')).toEqual({ 141: await inactiveRemovalHash(141) });
+    },
+  );
+
   it('uses published bodies for ordinary requests and requires approvals for new names', async () => {
     const f = await inPlaceFixture();
     const doc = f.read('tooltips/141.json') as Tooltip;

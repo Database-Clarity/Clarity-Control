@@ -1140,6 +1140,10 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       'live/pushed.json': { 123: await publishableHash(first) },
     });
     expect(englishChanged(f)).toBeUndefined();
+    const malformed = f.git.tree(f.git.head(D)!);
+    malformed['live/tooltips/123.json'] = f.git.writeBlob('{');
+    f.git.cas(D, f.git.head(D), f.git.commit(f.git.head(D), malformed, 'Unreadable snapshot'));
+    expect(englishChanged(f)).toBeUndefined();
     f.change(D, { 'live/tooltips/123.json': empty });
     // Its first English lists as gained, so a later clear in the same tab is not a removal.
     f.change(D, {

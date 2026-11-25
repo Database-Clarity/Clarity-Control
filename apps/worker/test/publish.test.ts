@@ -530,6 +530,7 @@ it.each([
   ['another published version', { 'live/pushed.json': { 123: 'b'.repeat(64) } }, 409],
   ['text typed back', { 'tooltips/123.json': tooltip() }, 409],
   ['a version published without English', { 'live/tooltips/123.json': { ...cleared } }, 409],
+  ['an unreadable published version', { 'live/tooltips/123.json': { hash: 123 } }, 409],
   ['no published version', { 'live/pushed.json': {} }, 409],
 ] as const)('refuses the removal of a cleared tooltip for %s', async (_name, over, status) => {
   const input = await clearPublished(over);
