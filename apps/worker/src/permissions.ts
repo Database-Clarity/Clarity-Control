@@ -89,7 +89,7 @@ export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): 
       ...value,
       text: Object.fromEntries(
         Object.entries(value.text).filter(
-          ([lang]) => !access.languages?.includes(lang as keyof Tooltip['text']),
+          ([lang]) => lang === 'en' || !access.languages?.includes(lang as keyof Tooltip['text']),
         ),
       ),
     });
