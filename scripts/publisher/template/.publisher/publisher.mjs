@@ -27921,6 +27921,7 @@ var translationPublishReasons = {
   "english-pending": "The English change is still waiting to be published.",
   "missing-live-english": "An editor or maintainer must publish English for this entry first.",
   "missing-live-input": "A number, variable, or import in this translation is missing from the published text.",
+  "translation-check-limit": "This text is too large to check here. Ask an editor to publish it.",
   "review-changed": "This translation or what it uses has changed. Review it again before publishing."
 };
 function translationEnglishGate(input2) {
@@ -34953,6 +34954,32 @@ var TranslationPartRefusal = class extends Error {
   }
   rows;
 };
+var translationWorkLimit = 2e6;
+var TranslationCheckLimit = class extends RowRefusal {
+  constructor() {
+    super("translation-check-limit");
+  }
+};
+function translationCheckRefusal(rows, reason = "translation-check-limit") {
+  return new TranslationPartRefusal(
+    rows.map(({ lang, ...row }) => ({
+      ...row.kind === "tooltip" ? { kind: row.kind, hash: row.hash } : { kind: row.kind, id: row.id },
+      lang,
+      status: "rejected",
+      reason,
+      message: translationPublishReasons[reason]
+    }))
+  );
+}
+function translationTextWork(text) {
+  let work = text.length;
+  for (const line of text.split("\n")) work += line.length * (line.match(/</g)?.length ?? 0);
+  return work;
+}
+function checkTranslationText(text) {
+  if (text.length > translationWorkLimit || translationTextWork(text) > translationWorkLimit)
+    throw new TranslationCheckLimit();
+}
 function translationRuntimeInstalled(pub, tree) {
   return pub.read(tree, ".publisher/PIN")?.capabilities?.includes(translationPublishCapability) === true;
 }
@@ -35030,16 +35057,27 @@ function effectFacts(input2, hash2, lang, aliases, facts, lookup) {
   if (!perk) throw new Error(`Missing LIVE tooltip ${hash2}.`);
   const cell = perk.editor[lang];
   if (!cell) return null;
+  checkTranslationText(cell.main);
+  checkTranslationText(cell.secondary);
   if (isHeldSetBonus({}, facts[hash2] ?? perk)) throw new Error(setBonusHoldMessage);
   if (unloweredEntry({ [hash2]: cell }) || cell.main.includes("{{") || cell.secondary.includes("{{"))
     throw new Error(`Tooltip ${hash2} (${lang}) contains markup held from publication.`);
   const language = cell.englishFallback ? "en" : lang;
   const reads = /* @__PURE__ */ new Set();
+  let importWork;
+  const importLanguages = /* @__PURE__ */ new Set([lang, "en"]);
   const database = new Proxy(lookup, {
     get(target, key, receiver) {
       const value2 = Reflect.get(target, key, receiver);
       if (typeof key === "string" && /^\d+$/.test(key) && Number(key) !== hash2)
         reads.add(aliases[key]?.to ?? Number(key));
+      if (importWork !== void 0 && value2) {
+        for (const language2 of importLanguages) {
+          const imported = value2.editor[language2];
+          if (imported) importWork += imported.main.length + imported.secondary.length;
+        }
+        if (importWork > translationWorkLimit) throw new TranslationCheckLimit();
+      }
       return value2;
     }
   });
@@ -35051,7 +35089,10 @@ function effectFacts(input2, hash2, lang, aliases, facts, lookup) {
       language: lang,
       descriptionString: cell[editorType]
     };
+    importWork = cell[editorType].length;
     const expanded = loadExports(args);
+    importWork = void 0;
+    checkTranslationText(expanded);
     const globals = {
       variables: lookup[2]?.editor[lang]?.main ?? "",
       titles: lookup[3]?.editor[lang]?.main ?? "",
@@ -35204,6 +35245,7 @@ function context(pub, tree, live) {
         throw new Error("Resolve the scheduled activation conflict first.");
       if (isHeldSetBonus(liveDoc, pub.options.facts[hash2])) throw new Error(setBonusHoldMessage);
       const entry = authored.text[lang];
+      if (entry) checkTranslationText(entry.text);
       const oldEntry = liveDoc.text[lang];
       const oldFallback = translationFallbackIds(liveDoc.text.en, lang);
       const checked = structuredClone(liveDoc);
@@ -35259,6 +35301,7 @@ function context(pub, tree, live) {
         })
       );
       const entry = authored.definitions[lang];
+      if (entry) checkTranslationText(entry.body);
       expected2 = await translationExpectedDigest(entry);
       english = await translationEnglishDigest(previous.definitions.en);
       before = await translationBeforeDigest(previous.definitions[lang]);
@@ -35274,7 +35317,10 @@ function context(pub, tree, live) {
         const options = releaseOptions(store, saved);
         if (entry) {
           const check2 = (body2, language) => {
-            if (body2.includes("{{") || resolveGlobalsInPlace(body2, language, options).includes("{{"))
+            checkTranslationText(body2);
+            const expanded = body2.includes("{{") ? body2 : resolveGlobalsInPlace(body2, language, options);
+            checkTranslationText(expanded);
+            if (expanded.includes("{{"))
               throw new Error("This shared text contains or imports markup held from publication.");
           };
           try {
@@ -35347,6 +35393,10 @@ function context(pub, tree, live) {
   return { input: input2, aliases, published, savedGlobals, liveGlobals, assess, active, checkCombined };
 }
 async function planTranslations(pub, tree, live, payload) {
+  const deadline = performance.now() + 45e3;
+  const checkTime = () => {
+    if (performance.now() >= deadline) throw translationCheckRefusal(payload.rows);
+  };
   const ctx = context(pub, tree, live);
   const catalog = structuredClone(ctx.published);
   const input2 = { ...ctx.input, perks: { ...ctx.input.perks } };
@@ -35357,6 +35407,7 @@ async function planTranslations(pub, tree, live, payload) {
   const effects = [];
   const changedGlobalLanes = /* @__PURE__ */ new Set();
   for (const signed of payload.rows) {
+    checkTime();
     const { lang } = signed;
     const id = signed.kind === "tooltip" ? { kind: signed.kind, hash: signed.hash, lang } : { kind: signed.kind, id: signed.id, lang };
     try {
@@ -35417,10 +35468,12 @@ async function planTranslations(pub, tree, live, payload) {
       });
     }
   }
+  checkTime();
   if (refused.length) throw new TranslationPartRefusal(refused);
   if (effects.length > 1) {
     const lookup = expandAliases(input2.perks);
     for (const { id, facts } of effects) {
+      checkTime();
       try {
         if (facts.every(
           ([hash2, expected2]) => same(
@@ -35429,7 +35482,8 @@ async function planTranslations(pub, tree, live, payload) {
           )
         ))
           continue;
-      } catch {
+      } catch (error62) {
+        if (error62 instanceof TranslationCheckLimit) throw translationCheckRefusal([id]);
       }
       const other = effects.find((effect) => effect.id !== id && effect.id.lang === id.lang)?.id;
       refused.push({
@@ -35443,6 +35497,7 @@ async function planTranslations(pub, tree, live, payload) {
     const beforeLookup = expandAliases(ctx.input.perks);
     const readers = publicationReaders(ctx.input, input2);
     for (const lang of new Set(effects.map(({ id }) => id.lang))) {
+      checkTime();
       const lane3 = effects.filter(({ id }) => id.lang === lang);
       if (lane3.length < 2) continue;
       const selected2 = lane3.map(({ id }) => id);
@@ -35462,7 +35517,8 @@ async function planTranslations(pub, tree, live, payload) {
           if (!same(before, after))
             throw new Error(`Combined translation changes affect tooltip ${hash2}.`);
         }
-      } catch {
+      } catch (error62) {
+        if (error62 instanceof TranslationCheckLimit) throw translationCheckRefusal(selected2);
         throw new TranslationPartRefusal(
           selected2.map((id) => ({
             ...id,
@@ -35495,7 +35551,13 @@ async function planTranslations(pub, tree, live, payload) {
     globalPublishedSchema.parse(catalog);
     data.set(globalsReleasePaths.published(pub.options.liveBranch), json5(catalog));
   }
-  return { data, input: input2, rows, changed: data.size > 0 };
+  const exported = Object.fromEntries(
+    Object.entries(input2.perks).filter(
+      ([hash2, row]) => row !== ctx.input.perks[hash2] && !same(row, ctx.input.perks[hash2])
+    )
+  );
+  checkTime();
+  return { data, exported, rows, changed: data.size > 0 };
 }
 async function bundleTranslations(pub, tree, liveCommit, tooltips) {
   const ctx = context(pub, tree, liveCommit);
@@ -35664,12 +35726,14 @@ var NamedPartRefusal = class extends ConsumerOutputRejected {
   outcomes;
 };
 var Publisher = class _Publisher {
-  constructor(git, options) {
+  constructor(git, options, translationWork) {
     this.git = git;
     this.options = options;
+    this.translationWork = translationWork;
   }
   git;
   options;
+  translationWork;
   checkedOutput;
   candidateOutput;
   head(branch) {
@@ -36310,13 +36374,7 @@ var Publisher = class _Publisher {
     }
   }
   async translationReceipt(blob, source2, live, payload, now = this.options.now()) {
-    const plan = await planTranslations(this, this.git.tree(source2), live, payload);
-    const before = liveGlobalsInput(this, live);
-    const exported = Object.fromEntries(
-      Object.entries(plan.input.perks).filter(
-        ([hash2, row]) => row !== before.perks[hash2] && stableStringify(row) !== stableStringify(before.perks[hash2])
-      )
-    );
+    const plan = this.translationWork ? await this.translationWork.plan(this.git, this.options, source2, live, payload) : await planTranslations(this, this.git.tree(source2), live, payload);
     return {
       opId: payload.opId,
       requestBlob: blob,
@@ -36328,7 +36386,7 @@ var Publisher = class _Publisher {
       ...this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {},
       outcome: plan.changed ? "published" : "unchanged",
       entries: [],
-      exported,
+      exported: plan.exported,
       changed: [],
       requester: payload.requester,
       intentDigest: payload.intentDigest,
@@ -36360,13 +36418,17 @@ var Publisher = class _Publisher {
     const config2 = receipt.generatorSha === this.options.generatorSha ? this.options : this.read(frozen, ".publisher/config.json");
     if (pin?.sourceSha !== receipt.publisherSha || config2?.generatorSha !== receipt.generatorSha || pin.verifierSha256 && pin.verifierSha256 !== receipt.verifierSha256)
       throw new ConsumerOutputRejected("Translation receipt pins differ from its frozen source.");
-    const verifier = new _Publisher(this.git, {
-      ...this.options,
-      ...config2,
-      publisherSha: receipt.publisherSha,
-      verifierDigest: receipt.verifierSha256,
-      runUrl: receipt.translations.runUrl
-    });
+    const verifier = new _Publisher(
+      this.git,
+      {
+        ...this.options,
+        ...config2,
+        publisherSha: receipt.publisherSha,
+        verifierDigest: receipt.verifierSha256,
+        runUrl: receipt.translations.runUrl
+      },
+      this.translationWork
+    );
     const signed = await verifier.verifyRequest(
       receipt.requestBlob,
       receipt.opId,
@@ -37598,8 +37660,12 @@ var Publisher = class _Publisher {
     const fence = activeGlobalsFence(this, t);
     if (!fence) return;
     if (scoped && scoped.sourceCommit !== h) throw new RefRace("Translation bundle source moved");
-    const prior = old ? this.read(oldTree, "bundle.json") : void 0;
-    if (prior?.sourceCommit === h) return;
+    const prior = old ? this.read(
+      oldTree,
+      "bundle.json"
+    ) : void 0;
+    if (prior?.sourceCommit === h && (!scoped || prior.translationPublish?.liveCommit === scoped.value.liveCommit))
+      return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
       throw new Error("Bundle source would move backwards");
     const tooltipPaths = Object.keys(t).filter((p) => p.startsWith("tooltips/")).sort();
@@ -37696,52 +37762,76 @@ var Publisher = class _Publisher {
   }
   async prepareBundle() {
     await new GlobalsPublisher(this).maintainAuthored();
+    this.prepareTranslationRoots();
   }
-  async publishBundle(materializeRoots = true) {
-    for (let attempt = 0; ; attempt++) {
+  prepareTranslationRoots() {
+    for (let attempt = 0; attempt < 3; attempt++) {
       const sourceCommit = this.head(this.options.dataBranch);
       const tree = this.git.tree(sourceCommit);
-      if (!activeGlobalsFence(this, tree) || !translationRuntimeInstalled(this, tree))
-        return this.bundle();
+      if (!activeGlobalsFence(this, tree) || !translationRuntimeInstalled(this, tree)) return;
       const live = this.head(this.options.liveBranch);
       const index = this.read(
         tree,
         translationRootsPath
       );
+      if (index?.liveCommit === live && index.destination === this.options.liveBranch) return;
       try {
-        if (index?.liveCommit !== live || index.destination !== this.options.liveBranch) {
-          if (!materializeRoots) return this.bundle();
-          const roots = translationRoots(this, tree, live, liveGlobalsInput(this, live));
-          if (this.head(this.options.liveBranch) !== live)
-            throw new RefRace("Translation root index LIVE source moved");
-          const next = this.git.commit(
-            sourceCommit,
-            {
-              ...tree,
-              [translationRootsPath]: this.git.writeBlob(json6(roots))
-            },
-            "Index active translation sources",
-            appCredits
-          );
-          this.git.cas(dataRef(this.options.dataBranch), sourceCommit, next);
-          continue;
-        }
-        const bundle = this.git.head(dataRef("editor-data-bundle"));
-        const prior = bundle && this.read(
-          this.git.tree(bundle),
-          "bundle.json"
+        const roots = translationRoots(this, tree, live, liveGlobalsInput(this, live));
+        if (this.head(this.options.liveBranch) !== live)
+          throw new RefRace("Translation root index LIVE source moved");
+        const next = this.git.commit(
+          sourceCommit,
+          { ...tree, [translationRootsPath]: this.git.writeBlob(json6(roots)) },
+          "Index active translation sources",
+          appCredits
         );
-        if (prior && prior.sourceCommit === sourceCommit && prior.translationPublish?.liveCommit === live)
-          return;
-        const docs = new GlobalsPublisher(this).documents(tree, "tooltips");
-        const value2 = await bundleTranslations(this, tree, live, docs);
-        return this.bundle({ sourceCommit, value: value2 });
+        this.git.cas(dataRef(this.options.dataBranch), sourceCommit, next);
+        return;
       } catch (error62) {
-        if (!(error62 instanceof RefRace) || attempt >= 2) throw error62;
+        if (!(error62 instanceof RefRace)) throw error62;
       }
     }
   }
-  async run(prepare = true) {
+  async refreshTranslationBundle() {
+    try {
+      const sourceCommit = this.head(this.options.dataBranch);
+      const tree = this.git.tree(sourceCommit);
+      if (!activeGlobalsFence(this, tree) || !translationRuntimeInstalled(this, tree)) return;
+      const live = this.head(this.options.liveBranch);
+      const index = this.read(
+        tree,
+        translationRootsPath
+      );
+      if (index?.liveCommit !== live || index.destination !== this.options.liveBranch) return;
+      const bundle = this.git.head(dataRef("editor-data-bundle"));
+      const prior = bundle && this.read(this.git.tree(bundle), "bundle.json");
+      if (prior && prior.sourceCommit === sourceCommit && prior.translationPublish?.liveCommit === live)
+        return;
+      const value2 = this.translationWork ? await this.translationWork.preview(this.git, this.options, sourceCommit, live) : await bundleTranslations(
+        this,
+        tree,
+        live,
+        new GlobalsPublisher(this).documents(tree, "tooltips")
+      );
+      if (value2 && value2.liveCommit === live && this.head(this.options.liveBranch) === live)
+        this.bundle({ sourceCommit, value: value2 });
+    } catch (error62) {
+      if (error62 instanceof RefRace) {
+        try {
+          this.bundle();
+          return;
+        } catch {
+        }
+      }
+      console.warn("Translation readiness refresh unavailable.");
+    }
+  }
+  async publishBundle(materializeRoots = true) {
+    if (materializeRoots) this.prepareTranslationRoots();
+    this.bundle();
+    await this.refreshTranslationBundle();
+  }
+  async run(prepare = true, refreshTranslations = true) {
     const start = this.options.now();
     const runtime = this.git.tree(this.head(this.options.dataBranch));
     if (!activeGlobalsFence(this, runtime)) return;
@@ -37752,15 +37842,16 @@ var Publisher = class _Publisher {
         await this.prepareBundle();
       }
       await new SchedulePreparer(this).drain(true);
-      if (this.queue(this.head(this.options.dataBranch)).length) await this.publishBundle();
+      if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 6e4; n++) {
         const [id] = this.queue(this.head(this.options.dataBranch));
         if (!id) break;
         await this.operation(id, runtime);
       }
     } finally {
-      await this.publishBundle();
+      this.bundle();
     }
+    if (refreshTranslations) await this.refreshTranslationBundle();
   }
 };
 
@@ -37965,7 +38056,7 @@ function simulationArtifact(repo2, out, bases) {
     ) + "\n"
   );
 }
-async function runPipeline(checkout, config2, output2, remoteMode = false) {
+async function runPipeline(checkout, config2, output2, remoteMode = false, translationWork) {
   if (config2.repo !== "Database-Clarity/Live-Clarity-Database" || config2.dataBranch !== "editor-data" || !["converter-v2-test", "converter"].includes(config2.liveBranch))
     throw new Error("Pipeline target is not an allowlisted publication target");
   const enabled = remoteMode && publisher_default.enabled && config2.publishWritesEnabled === true;
@@ -38017,14 +38108,17 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
       liveBranch: config2.liveBranch
     }) : new LocalRepository(repo2);
   }
-  async function publishBundle(repo2, options2, prepare = false) {
-    const pub = new Publisher(repo2, options2);
-    if (prepare) await pub.prepareBundle();
+  async function publishBundle(repo2, options2, mode = "plain") {
+    const pub = new Publisher(repo2, options2, translationWork);
+    if (mode === "prepare") await pub.prepareBundle();
     let next;
+    let moved = false;
     for (let attempt = 0; ; attempt++) {
       const old = repo2.head(bundleRef);
-      await pub.publishBundle(enabled && prepare);
+      if (mode === "translations") await pub.refreshTranslationBundle();
+      else pub.bundle();
       next = repo2.head(bundleRef);
+      moved ||= next !== old;
       if (next === old || repo2 instanceof RemoteRepository) break;
       gitAt(cwd, ["fetch", "--no-tags", repo2.path, `+${bundleRef}:refs/publisher/bundle`]);
       try {
@@ -38044,6 +38138,7 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
         repo2.cas(bundleRef, next, current);
       }
     }
+    if (mode === "translations" && !moved) return;
     const queue = pub.queue(pub.head(options2.dataBranch));
     reports.push({
       sourceCommit: pub.head(options2.dataBranch),
@@ -38080,14 +38175,14 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
       if (key.algorithm !== "Ed25519" || fingerprint !== config2.keyFingerprint || key.fingerprint !== fingerprint)
         throw new Error("Worker key fingerprint mismatch");
       options.publicKey = key.publicKey;
-      const publisher = new Publisher(initial, options);
+      const publisher = new Publisher(initial, options, translationWork);
       active = active && Boolean(activeGlobalsFence(publisher, initial.tree(publisher.head(options.dataBranch))));
       if (active) {
         await drainCurrentSaves(publisher);
         await new SchedulePreparer(publisher).drain();
-        if (enabled) await publishBundle(initial, options, true);
+        if (enabled) await publishBundle(initial, options, "prepare");
         else await publisher.prepareBundle();
-        await publisher.run(false);
+        await publisher.run(false, false);
       }
     } catch (e) {
       failure2 = e;
@@ -38109,6 +38204,11 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
               if (config2.liveBranch === "converter" && needsOutputs(latest, identity))
                 handoff2 = identity;
             }
+          }
+          try {
+            await publishBundle(latest, options, "translations");
+          } catch {
+            console.warn("Translation readiness refresh unavailable.");
           }
         }
       }
@@ -38159,6 +38259,101 @@ function verifyRuntime(root) {
   if (!/^[0-9a-f]{64}$/.test(pin.verifierSha256) || createHash8("sha256").update(readFileSync(join3(root, "verify-publication.mjs"))).digest("hex") !== pin.verifierSha256 || !/^[0-9a-f]{40}$/.test(pin.sourceSha) || createHash8("sha256").update(readFileSync(join3(root, "publisher.mjs"))).digest("hex") !== pin.sha256)
     throw new Error("Publisher PIN mismatch");
   return pin;
+}
+
+// scripts/publisher/translationWork.ts
+import { fork } from "node:child_process";
+var TranslationReadOnlyRepository = class extends LocalRepository {
+  preserveModes = true;
+  writeBlob() {
+    throw new Error("Translation check is read-only");
+  }
+  commit() {
+    throw new Error("Translation check is read-only");
+  }
+  cas() {
+    throw new Error("Translation check is read-only");
+  }
+  casMany() {
+    throw new Error("Translation check is read-only");
+  }
+};
+async function translationWorkChild(path) {
+  const job = await new Promise((resolve4) => process.once("message", resolve4));
+  const { source: source2, live, options } = job;
+  if (!/^[a-f0-9]{40}$/.test(source2) || !/^[a-f0-9]{40}$/.test(live))
+    throw new Error("Translation check requires pinned commits");
+  const git = new TranslationReadOnlyRepository(path);
+  const pub = new Publisher(git, { ...options, now: Date.now });
+  const tree = git.tree(source2);
+  let result;
+  if (job.kind === "preview") {
+    const docs = new GlobalsPublisher(pub).documents(tree, "tooltips");
+    result = { kind: "preview", value: await bundleTranslations(pub, tree, live, docs) };
+  } else {
+    try {
+      result = { kind: "plan", value: await planTranslations(pub, tree, live, job.payload) };
+    } catch (error62) {
+      if (!(error62 instanceof TranslationPartRefusal)) throw error62;
+      result = { kind: "refused", rows: error62.rows };
+    }
+  }
+  await new Promise((resolve4, reject2) => {
+    process.send(result, (error62) => error62 ? reject2(error62) : resolve4());
+  });
+  process.disconnect();
+}
+function createTranslationWork(runtime, previewTimeout = 12e4, planTimeout = 45e3) {
+  const run = (git, options, job, timeout) => {
+    if (!(git instanceof LocalRepository))
+      throw new Error("Missing translation check object store");
+    const snapshotOptions = { ...options, now: void 0 };
+    return new Promise((resolve4) => {
+      const child = fork(runtime, ["--translation-work", git.path], {
+        execArgv: ["--max-old-space-size=768"],
+        serialization: "advanced",
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          TEMP: process.env.TEMP,
+          TMP: process.env.TMP
+        }
+      });
+      let response;
+      let timedOut = false;
+      const finish = (result) => {
+        clearTimeout(timer);
+        resolve4(result);
+      };
+      const timer = setTimeout(() => {
+        timedOut = true;
+        if (!child.kill("SIGKILL")) finish("timeout");
+      }, timeout);
+      child.once("error", () => finish());
+      child.once(
+        "close",
+        (code) => finish(timedOut ? "timeout" : code === 0 ? response : void 0)
+      );
+      child.once("message", (message) => response = message);
+      child.send({ ...job, options: snapshotOptions }, (error62) => {
+        if (error62) child.kill("SIGKILL");
+      });
+    });
+  };
+  return {
+    async preview(git, options, source2, live) {
+      const result = await run(git, options, { kind: "preview", source: source2, live }, previewTimeout);
+      if (result && result !== "timeout" && result.kind === "preview") return result.value;
+    },
+    async plan(git, options, source2, live, payload) {
+      const result = await run(git, options, { kind: "plan", source: source2, live, payload }, planTimeout);
+      if (result === "timeout") throw translationCheckRefusal(payload.rows);
+      if (result?.kind === "plan") return result.value;
+      if (result?.kind === "refused") throw new TranslationPartRefusal(result.rows);
+      throw translationCheckRefusal(payload.rows, "review-changed");
+    }
+  };
 }
 
 // scripts/publisher/globalsMigration.ts
@@ -38392,8 +38587,14 @@ function restoreGlobalsMigration(pub) {
 // scripts/publisher/cli.ts
 async function main() {
   const [flag, source2, config2, output2, migrationInput] = process.argv.slice(2);
+  if (flag === "--translation-work" && source2 && process.send) {
+    await translationWorkChild(source2);
+    return;
+  }
+  const runtime = fileURLToPath(import.meta.url);
+  const translationWork = createTranslationWork(runtime);
   if (["--pipeline-dry-run", "--pipeline-publish"].includes(flag) && source2 && config2 && output2) {
-    const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
+    const pin = verifyRuntime(dirname(runtime));
     const bytes = readFileSync2(config2);
     const options = JSON.parse(bytes.toString("utf8"));
     if (options.publisherSha !== pin.sourceSha || !/^[0-9a-f]{40}$/.test(options.generatorSha))
@@ -38407,7 +38608,8 @@ async function main() {
         publisherConfigDigest: flag === "--pipeline-publish" ? createHash9("sha256").update(bytes).digest("hex") : void 0
       },
       output2,
-      flag === "--pipeline-publish"
+      flag === "--pipeline-publish",
+      translationWork
     );
     return;
   }
@@ -38429,13 +38631,17 @@ async function main() {
     });
     const git = new LocalRepository(repo2);
     const options = JSON.parse(readFileSync2(config2, "utf8"));
-    const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
-    const publisher = new Publisher(git, {
-      ...options,
-      publisherDigest: pin.sha256,
-      verifierDigest: pin.verifierSha256,
-      now: Date.now
-    });
+    const pin = verifyRuntime(dirname(runtime));
+    const publisher = new Publisher(
+      git,
+      {
+        ...options,
+        publisherDigest: pin.sha256,
+        verifierDigest: pin.verifierSha256,
+        now: Date.now
+      },
+      translationWork
+    );
     let failure2;
     let migration;
     let restored;
