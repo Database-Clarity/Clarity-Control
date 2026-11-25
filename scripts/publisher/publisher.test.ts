@@ -2982,10 +2982,10 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     // writer. With no global metadata, the golden consumer bytes remain unchanged.
     // Re-pinned for alias group removals: an unpublished removed member keeps its live stub. With
     // no removals in the config, as here, every byte is the same.
-    // Re-pinned for cleared removals: a published tooltip whose English was cleared leaves as a
-    // removal. With no cleared tooltip, as here, every byte is the same.
+    // Re-pinned for cleared removals: this route refuses a published tooltip whose English was
+    // cleared. With no cleared tooltip, as here, every byte is the same.
     for (const [path, expected] of [
-      ['apps/worker/src/push.ts', '8c939e1d80c2162c6a5a777e0fec28573e4ca0d5'],
+      ['apps/worker/src/push.ts', '54acc18bd2eefe0faf4ff6f84bca3121edf6316d'],
       ['apps/worker/src/stamp.ts', 'debdbefc1657c970f27b1304e4c8ea509c54b4a1'],
     ]) {
       const content = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
