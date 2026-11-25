@@ -1,5 +1,14 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { globalsInPlaceCapability, globalsInPlacePath, publishMonth } from '@clarity/core';
+import {
+  globalsInPlaceCapability,
+  globalsInPlacePath,
+  publishMonth,
+  translationBeforeDigest,
+  translationEnglishDigest,
+  translationExpectedDigest,
+  translationPublishCapability,
+  translationPublishContract,
+} from '@clarity/core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   batchSchema,
@@ -20,7 +29,7 @@ import publisherConfig from '../../../config/publisher.json';
 import scheduledConfig from '../../../config/scheduled.json';
 import { GitHub } from '../src/github.js';
 import { newUlid, switches } from '../src/schedule/store.js';
-import { Fixture, config, makePrivateKey, tooltip } from './fixture.js';
+import { blobOid, Fixture, config, makePrivateKey, sha, tooltip } from './fixture.js';
 
 const ID = '01K95H00000000000000000B01';
 let RID: string;
@@ -60,20 +69,20 @@ async function call(action: string, value?: unknown, user = 1, method = 'POST') 
     },
   };
 }
-function scheduled() {
+function scheduled(opId = OTHER) {
   const batch = {
     ...storedBatch(),
     status: 'scheduled' as const,
-    opId: OTHER,
+    opId,
     notBefore: nowMinute(Date.now() + 30 * 60_000),
     zone: 'UTC',
     scheduledContentRevision: 1,
   };
   f.moveData({
     [path]: batch,
-    [`publish/requests/${OTHER}.json`]: { payload: 'old signed approval', sig: 'old signature' },
+    [`publish/requests/${opId}.json`]: { payload: 'old signed approval', sig: 'old signature' },
     'schedule/due.json': {
-      entries: [{ batchId: ID, opId: OTHER, notBefore: batch.notBefore, claimed: false }],
+      entries: [{ batchId: ID, opId, notBefore: batch.notBefore, claimed: false }],
     },
   });
 }
@@ -304,7 +313,9 @@ describe('durable asynchronous admission', () => {
     const head = f.dataHead;
     expect((await call('schedule', scheduleBody())).status).toBe(409);
     expect(f.dataHead).toBe(head);
-    f.moveData({ '.publisher/PIN': { capabilities: [...pin.capabilities, globalsInPlaceCapability] } });
+    f.moveData({
+      '.publisher/PIN': { capabilities: [...pin.capabilities, globalsInPlaceCapability] },
+    });
     expect((await call('schedule', scheduleBody())).status).toBe(202);
     expect((await call('retry', { revision: 3, requestId: RID })).status).toBe(202);
     expect(f.kicks.size).toBe(1);
@@ -590,6 +601,104 @@ describe('durable asynchronous admission', () => {
     });
     expect(canClaimPreparedBatch(storedBatch(), RID)).toBe(false);
   });
+
+  it.each([false, true])(
+    'keeps a schedule operation ID reserved when a translator tries to publish it (Upcoming save=%s)',
+    async (upcomingSave) => {
+      const live = tooltip();
+      const de = {
+        text: 'Deutsche Beschreibung',
+        updatedBy: 'dan',
+        updatedAt: new Date().toISOString(),
+        sourceUpdatedAt: live.text.en!.updatedAt,
+      };
+      const destination = f.env.LIVE_BRANCH;
+      f.env.TRANSLATION_PUBLISH = '1';
+      f.moveData({
+        '.publisher/PIN': {
+          capabilities: [
+            ...pin.capabilities,
+            globalsInPlaceCapability,
+            translationPublishCapability,
+          ],
+        },
+        [globalsInPlacePath]: {
+          state: 'active',
+          destination,
+          legacyLive: sha(100),
+          legacyData: sha(101),
+          migratedLive: sha(102),
+        },
+        'live/translation-roots.json': {
+          destination,
+          liveCommit: f.liveHead,
+          roots: { 123: blobOid(live) },
+        },
+        'live/tooltips/123.json': live,
+        'tooltips/123.json': { ...live, text: { ...live.text, de } },
+      });
+      const draft = storedBatch();
+      expect((await call('schedule', scheduleBody())).status).toBe(202);
+      expect(storedBatch()).toMatchObject({ status: 'preparing', opId: RID });
+      expect(JSON.parse(record().envelope.payload).kind).toBe('schedule');
+
+      if (upcomingSave) {
+        // Stand in for the Action making the batch scheduled while retaining its reservation.
+        f.moveData({ [path]: draft });
+        scheduled(RID);
+        const base = tooltip('upcoming');
+        expect(
+          (
+            await call(
+              'save',
+              {
+                ...saveBody(),
+                requestId: newUlid(),
+                changes: [{ hash: 123, base, next: { ...base, text: { ...base.text, de } } }],
+              },
+              4,
+            )
+          ).status,
+        ).toBe(202);
+        expect(storedBatch()).toMatchObject({ status: 'preparing', opId: RID });
+        expect(f.current()[scheduleIntentPaths.publication(ID)]).toBeDefined();
+      }
+
+      const status = await call('status', undefined, 4, 'GET');
+      expect(status.status).toBe(202);
+      const opId = status.body.batch.opId!;
+      expect(opId).toBe(RID);
+      const queuePath = `publish/requests/${opId}.json`;
+      const reservation = record();
+      const head = f.dataHead;
+      expect(f.current()[queuePath]).toBeUndefined();
+      const response = await f.request(
+        `/publish?contract=${translationPublishContract}`,
+        'POST',
+        {
+          opId,
+          scope: 'translations',
+          rows: [
+            {
+              kind: 'tooltip',
+              hash: 123,
+              lang: 'de',
+              expected: await translationExpectedDigest(de),
+              english: await translationEnglishDigest(live.text.en!),
+              before: await translationBeforeDigest(undefined),
+              effects: 'e'.repeat(64),
+            },
+          ],
+        },
+        4,
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: 'opId already names another publish intent' });
+      expect(f.dataHead).toBe(head);
+      expect(record()).toEqual(reservation);
+      expect(f.current()[queuePath]).toBeUndefined();
+    },
+  );
 });
 
 describe('preparation cancellation, retry, and claim fences', () => {

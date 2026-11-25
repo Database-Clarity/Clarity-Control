@@ -47,7 +47,7 @@ import { unbase64 } from './crypto.js';
 import { body, HttpError, json } from './http.js';
 import { requireAccess } from './permissions.js';
 import type { GitHub, RepoFile, TreeNode } from './github.js';
-import { schedulePaths } from '@clarity/core/schedule';
+import { scheduleIntentPaths, schedulePaths } from '@clarity/core/schedule';
 import { switches } from './schedule/store.js';
 import type { Env, Identity } from './types.js';
 import { inPlaceAdmission } from './globals/inPlace.js';
@@ -352,6 +352,7 @@ async function publishTranslations(
     throw new HttpError(409, 'Reload Review changes before publishing translations.');
   const { opId, rows } = value;
   const [requestPath, logPath] = opPaths(opId);
+  const reservationPath = scheduleIntentPaths.request(opId);
   const { env } = github;
   const rowPaths = translationRowPaths(rows, env.LIVE_BRANCH);
   const intent = {
@@ -365,11 +366,18 @@ async function publishTranslations(
   const digest = await translationPublishIntentDigest(intent);
   for (let attempt = 0; attempt < 3; attempt++) {
     const snapshot = await github.publishSnapshot(
-      ['config/permissions.json', requestPath, logPath, ...translationReadinessPaths, ...rowPaths],
-      [],
+      [
+        'config/permissions.json',
+        requestPath,
+        logPath,
+        reservationPath,
+        ...translationReadinessPaths,
+        ...rowPaths,
+      ],
+      [reservationPath],
       [{ path: schedulePaths.conflictsDir, depth: 1 }],
     );
-    const [permissions, queued, logFile, ...sources] = snapshot.files;
+    const [permissions, queued, logFile, reservation, ...sources] = snapshot.files;
     const access = requireAccess(permissionsSchema.parse(permissions?.value), user, [
       'maintainer',
       'editor',
@@ -387,6 +395,8 @@ async function publishTranslations(
     if (decision.status === 'complete')
       return json({ opId, result: safeTranslationResult(log?.result, value) });
     if (decision.status === 'pending') return json({ opId, status: 'pending' }, 202);
+    // Schedule preparation reserves the publication ID before its signed request exists.
+    if (reservation) throw new HttpError(409, 'opId already names another publish intent');
     if (attempt === 2) break;
     if (!translationPublishEnabled(env))
       throw new HttpError(503, 'Translation publishing is not enabled.');
