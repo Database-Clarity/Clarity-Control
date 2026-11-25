@@ -19,7 +19,7 @@ import type { Publisher } from './publisher.js';
 import { appCredits, RefRace, requesterCredits, type Tree } from './git.js';
 import { json } from './batch.js';
 import { hasGlobals } from './globals.js';
-import { assertInPlaceDocuments, globalsFence, publishedGlobals } from './globalsInPlace.js';
+import { activeGlobalsFence, assertInPlaceDocuments, publishedGlobals } from './globalsInPlace.js';
 import {
   planSaveChanges,
   savedChangesSchema,
@@ -105,10 +105,13 @@ function discardStage(tree: Tree, id: string) {
 /** Both tooltip writes and their receipt become visible through one data ref CAS. */
 export async function drainCurrentSaves(pub: Publisher) {
   const ref = `refs/heads/${pub.options.dataBranch}`;
-  for (const id of requestIds(pub.git.tree(pub.head(pub.options.dataBranch)))) {
+  const initial = pub.git.tree(pub.head(pub.options.dataBranch));
+  if (!activeGlobalsFence(pub, initial)) return;
+  for (const id of requestIds(initial)) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const head = pub.head(pub.options.dataBranch);
       const tree = { ...pub.git.tree(head) };
+      if (!activeGlobalsFence(pub, tree)) return;
       const record = currentSaveStageRecord.safeParse(pub.read(tree, paths.record(id)));
       if (!record.success) break;
       const started = record.data;
@@ -175,8 +178,7 @@ export async function drainCurrentSaves(pub: Publisher) {
               409,
               'Use global entry mutations; Sync pending protection is required',
             );
-          const fence = globalsFence(pub, tree);
-          if (fence && !('conflicts' in validated))
+          if (!('conflicts' in validated))
             assertInPlaceDocuments(validated.tooltips, publishedGlobals(pub, tree));
           plan = validated;
         } catch (error) {

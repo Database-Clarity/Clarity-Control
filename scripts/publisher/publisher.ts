@@ -104,7 +104,7 @@ import {
   assertInPlaceRoots,
   authoredInPlaceOptions,
   bundleInPlaceReview,
-  globalsFence,
+  activeGlobalsFence,
   inPlacePublishError,
   liveGlobalsInput,
   neutralRenameHashes,
@@ -2326,9 +2326,8 @@ export class Publisher {
     const h = this.head(this.options.dataBranch),
       t = this.git.tree(h),
       oldTree = old ? this.git.tree(old) : {};
-    const mode = globalsFence(this, t);
-    if (mode?.state === 'hold') return;
-    const fence = mode ?? requireGlobalsMode(this, t);
+    const fence = activeGlobalsFence(this, t);
+    if (!fence) return;
     const prior = old ? this.read<{ sourceCommit: string }>(oldTree, 'bundle.json') : undefined;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
@@ -2449,8 +2448,7 @@ export class Publisher {
   async run(prepare = true) {
     const start = this.options.now();
     const runtime = this.git.tree(this.head(this.options.dataBranch));
-    if (globalsFence(this, runtime)?.state === 'hold') return;
-    requireGlobalsMode(this, runtime);
+    if (!activeGlobalsFence(this, runtime)) return;
     try {
       if (prepare) {
         await drainCurrentSaves(this);

@@ -69,12 +69,16 @@ export function globalsFence(pub: Publisher, tree: Tree): GlobalsInPlaceFence | 
   return fence;
 }
 
-export function requireGlobalsMode(pub: Publisher, tree: Tree) {
+export function activeGlobalsFence(pub: Publisher, tree: Tree) {
   const fence = globalsFence(pub, tree);
   if (!fence)
     throw new Error('Publication requires an active config/globals-in-place.json migration.');
-  if (fence.state === 'hold')
-    throw new Error('Publication is paused for the shared text migration.');
+  if (fence.state === 'active') return fence;
+}
+
+export function requireGlobalsMode(pub: Publisher, tree: Tree) {
+  const fence = activeGlobalsFence(pub, tree);
+  if (!fence) throw new Error('Publication is paused for the shared text migration.');
   return fence;
 }
 

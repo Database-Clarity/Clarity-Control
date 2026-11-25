@@ -43,6 +43,7 @@ import {
   type Publisher,
 } from '../publisher/publisher.js';
 import { hasGlobals } from '../publisher/globals.js';
+import { activeGlobalsFence } from '../publisher/globalsInPlace.js';
 import {
   publication,
   schedulePayload,
@@ -580,6 +581,7 @@ export class SchedulePreparer {
     for (let attempt = 0; attempt < 3; attempt++) {
       const head = this.pub.head(this.pub.options.dataBranch),
         tree = this.pub.git.tree(head);
+      if (!activeGlobalsFence(this.pub, tree)) return;
       const original = { ...tree };
       // Only outstanding requests are relevant; retained terminal evidence and *.body.json
       // never enter enumeration, regardless of the size of the request history.

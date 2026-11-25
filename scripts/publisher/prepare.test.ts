@@ -545,6 +545,37 @@ describe('offline staged Current saves', () => {
   });
 });
 
+it.each(['Current save', 'scheduled preparation'] as const)(
+  'keeps the pending %s when the migration hold wins the DATA lease',
+  async (work) => {
+    const f = work === 'Current save' ? await stagedCurrentFixture() : await fixture();
+    const pendingPath =
+      work === 'Current save' ? currentPaths.record(S) : scheduleIntentPaths.request(R);
+    if (work === 'scheduled preparation') f.admit('schedule');
+    const pending = f.read(pendingPath);
+    const active = f.read<object>(globalsInPlacePath);
+    const cas = f.git.cas.bind(f.git);
+    let raced = false;
+    let hold: string | undefined;
+    const update = vi.spyOn(f.git, 'cas').mockImplementation((ref, head, next) => {
+      if (!raced && ref === D) {
+        raced = true;
+        hold = f.change({ [globalsInPlacePath]: { ...active, state: 'hold' } });
+      }
+      cas(ref, head, next);
+    });
+    try {
+      if (work === 'Current save') await drainCurrentSaves(f.pub);
+      else await f.prep.drain();
+      expect(hold).toBeDefined();
+      expect(f.git.head(D)).toBe(hold);
+      expect(f.read(pendingPath)).toEqual(pending);
+    } finally {
+      update.mockRestore();
+    }
+  },
+);
+
 async function withGlobals(
   f: Awaited<ReturnType<typeof fixture>>,
   body = '#Alpha',

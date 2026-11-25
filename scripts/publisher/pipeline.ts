@@ -8,7 +8,7 @@ import { LocalRepository } from './git.js';
 import { RemoteRepository } from './remote.js';
 import publisherConfig from '../../config/publisher.json';
 import { Publisher, paths, type Receipt, type Options } from './publisher.js';
-import { globalsFence, requireGlobalsMode } from './globalsInPlace.js';
+import { activeGlobalsFence } from './globalsInPlace.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import { drainCurrentSaves } from './currentSave.js';
 
@@ -237,10 +237,7 @@ export async function runPipeline(
     const initial = snapshot('initial');
     const initialPublisher = new Publisher(initial, options);
     const initialTree = initial.tree(initialPublisher.head(options.dataBranch));
-    if (globalsFence(initialPublisher, initialTree)?.state !== 'hold') {
-      requireGlobalsMode(initialPublisher, initialTree);
-      active = true;
-    }
+    active = Boolean(activeGlobalsFence(initialPublisher, initialTree));
     if (config.liveBranch === 'converter') {
       const tree = initial.tree(initial.head('refs/heads/converter')!);
       if (
@@ -282,6 +279,9 @@ export async function runPipeline(
       const publisher = new Publisher(initial, options);
       // GITHUB_TOKEN commits do not trigger another workflow. Authored upkeep joins bundle
       // preparation before publication in the same serialized run.
+      active =
+        active &&
+        Boolean(activeGlobalsFence(publisher, initial.tree(publisher.head(options.dataBranch))));
       if (active) {
         await drainCurrentSaves(publisher);
         await new SchedulePreparer(publisher).drain();
@@ -300,13 +300,16 @@ export async function runPipeline(
       // Bounded catch-up bundle from real data, never simulated RECORDs.
       if (active) {
         const latest = snapshot('catch-up');
-        await publishBundle(latest, options);
-        if (enabled && !failure) {
-          const identity = publicationIdentity(latest, config.liveBranch);
-          if (identity) {
-            publications.push(identity);
-            if (config.liveBranch === 'converter' && needsOutputs(latest, identity))
-              handoff = identity;
+        const publisher = new Publisher(latest, options);
+        if (activeGlobalsFence(publisher, latest.tree(publisher.head(options.dataBranch)))) {
+          await publishBundle(latest, options);
+          if (enabled && !failure) {
+            const identity = publicationIdentity(latest, config.liveBranch);
+            if (identity) {
+              publications.push(identity);
+              if (config.liveBranch === 'converter' && needsOutputs(latest, identity))
+                handoff = identity;
+            }
           }
         }
       }

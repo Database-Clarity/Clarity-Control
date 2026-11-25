@@ -17,6 +17,8 @@ import {
   publishableHash,
   inactivePublishableHash,
   inactiveRemovalHash,
+  currentSaveStagePaths,
+  globalsInPlacePath,
   exportLegacy,
   classifyPublishIntent,
   validatePublishBody,
@@ -1207,6 +1209,73 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.pub.run();
     f.assertDone();
   });
+  it.skipIf(transport !== 'simulator')(
+    'preserves staged Current uploads when the migration hold lands during the key fetch',
+    async () => {
+      const f = await setup();
+      const upstream = new LocalRepository(f.upstream);
+      const active = f.pub.read<object>(upstream.tree(upstream.head(D)!), globalsInPlacePath)!;
+      const stagedPath = currentSaveStagePaths.record(A);
+      f.change(D, {
+        [stagedPath]: {
+          requester: { id: 1, login: 'alice' },
+          status: 'uploading',
+          parts: 1,
+          updatedAt: '2020-01-01T00:00:00Z',
+        },
+      });
+      const root = mkdtempSync(join(tmpdir(), 'publisher-hold-'));
+      roots.push(root);
+      const checkout = join(root, 'checkout');
+      execFileSync('git', ['clone', '--branch', 'editor-data', f.upstream, checkout], {
+        stdio: 'pipe',
+      });
+      let heldRefs: string | undefined;
+      vi.stubEnv('GITHUB_TOKEN', 'fixture-token');
+      vi.stubGlobal('fetch', async () => {
+        f.change(D, { [globalsInPlacePath]: { ...active, state: 'hold' } });
+        heldRefs = upstream.git(['show-ref']);
+        return Response.json({
+          algorithm: 'Ed25519',
+          publicKey: f.options.publicKey,
+          fingerprint: f.options.keyFingerprint,
+        });
+      });
+      const remoteGit = RemoteRepository.prototype.remoteGit;
+      const transportStub = vi
+        .spyOn(RemoteRepository.prototype, 'remoteGit')
+        .mockImplementation(function (this: RemoteRepository, args) {
+          return remoteGit.call(
+            this,
+            args.map((arg) =>
+              arg === 'https://github.com/Database-Clarity/Live-Clarity-Database.git'
+                ? pathToFileURL(f.upstream).href
+                : arg,
+            ),
+          );
+        });
+      publisherConfig.enabled = true;
+      try {
+        await runPipeline(
+          checkout,
+          {
+            ...f.options,
+            repo: 'Database-Clarity/Live-Clarity-Database',
+            keyEndpoint: 'https://worker.invalid/publish/key',
+            publishWritesEnabled: true,
+          },
+          join(root, 'out'),
+          true,
+        );
+        expect(heldRefs).toBeDefined();
+        expect(upstream.git(['show-ref'])).toBe(heldRefs);
+        expect(upstream.tree(upstream.head(D)!)[stagedPath]).toBeDefined();
+      } finally {
+        publisherConfig.enabled = false;
+        transportStub.mockRestore();
+      }
+    },
+  );
   it.each(['test', 'production', 'rejected', 'atomic-failure', 'stale', 'concurrent'])(
     'cutover handoff: %s',
     async (scenario) => {
@@ -1664,7 +1733,13 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         writeFileSync(join(root, 'config.json'), JSON.stringify(f.options));
         execFileSync(
           process.execPath,
-          [join(directory, 'publisher.mjs'), '--dry-run', f.upstream, join(root, 'config.json'), join(root, 'out')],
+          [
+            join(directory, 'publisher.mjs'),
+            '--dry-run',
+            f.upstream,
+            join(root, 'config.json'),
+            join(root, 'out'),
+          ],
           { stdio: 'pipe' },
         );
         expect(f.git.git(['show-ref'])).toBe(before);
