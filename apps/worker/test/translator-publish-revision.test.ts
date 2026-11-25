@@ -34,7 +34,8 @@ it.each([2, 3, 4])('checks role %s when English is restored after removal', asyn
       as,
     );
 
-  const first = await save(live, removed, role === 4 ? 2 : role);
+  // Only editors and maintainers clear English.
+  const first = await save(live, removed, 2);
   expect(first.status, await first.clone().text()).toBe(200);
   const second = await save(removed, readded);
   if (role !== 4) {

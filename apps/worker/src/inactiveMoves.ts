@@ -70,7 +70,13 @@ export async function clearedStates(
     ['live/pushed.json', ...candidates.map(({ hash }) => `live/tooltips/${hash}.json`)],
     head,
   );
-  const pushed = pushedSchema.parse(markers?.value);
+  // Only these markers: the whole schema over every published row costs request CPU.
+  const all = (markers?.value ?? {}) as Record<string, unknown>;
+  const pushed = pushedSchema.parse(
+    Object.fromEntries(
+      candidates.flatMap(({ hash }) => (Object.hasOwn(all, hash) ? [[hash, all[hash]]] : [])),
+    ),
+  );
   for (const [index, document] of candidates.entries()) {
     const published = versions[index];
     const state = clearedState(
