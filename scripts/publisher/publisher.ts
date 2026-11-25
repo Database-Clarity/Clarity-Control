@@ -1401,7 +1401,19 @@ export class Publisher {
         if (!receipt || !this.git.casMany)
           throw new ConsumerOutputRejected('Atomic globals publication is unavailable');
         const source = receipt.sourceCommit;
-        if (receipt.translations) this.assertBatchRuntime(tree, atomicLive.runtime);
+        if (receipt.translations) {
+          if (tree[p.request] !== receipt.requestBlob)
+            throw new SourceAdvanced(
+              atomicLive.candidate,
+              receipt.requestBlob,
+              source,
+              h,
+              [],
+              false,
+              true,
+            );
+          this.assertBatchRuntime(tree, atomicLive.runtime);
+        }
         if (receipt.batchId) {
           this.assertBatchRuntime(tree, atomicLive.runtime);
           const path = schedulePaths.batch(receipt.batchId);
@@ -1803,13 +1815,19 @@ export class Publisher {
           undefined,
           refusal || rebuilding?.scoped ? { requestBlob } : rebuilding?.batch ? s : undefined,
         );
-        if (recorded === false) return 'deferred';
         try {
-          if (pending) this.git.cas(p.candidate, pending, undefined);
+          if (
+            pending &&
+            (recorded !== false ||
+              (this.receipt(pending, opId)?.requestBlob === requestBlob &&
+                this.git.tree(this.head(this.options.dataBranch))[p.request] !== requestBlob &&
+                !this.git.ancestor(pending, this.head(this.options.liveBranch))))
+          )
+            this.git.cas(p.candidate, pending, undefined);
         } catch {
-          /* A terminal Record is authoritative; candidate cleanup is best effort. */
+          /* A changed candidate lease belongs to the winning writer. */
         }
-        return;
+        return recorded === false ? 'deferred' : undefined;
       }
     }
   }

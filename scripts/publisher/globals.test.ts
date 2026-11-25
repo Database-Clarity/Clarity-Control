@@ -580,7 +580,15 @@ describe('in-place shared text publication', () => {
     expect(f.read(paths(ordinary).log).result.status).toBe('done');
     for (const { hash } of drafts) expect(live(f).perks[hash]).toEqual(input.perks[hash]);
   });
-  it.each(['timeout', 'ready', 'one save', 'replaced request'] as const)(
+  const scopedPartQueueCases = [
+    'timeout',
+    'ready',
+    'one save',
+    'replacement before timeout',
+    'replacement after a valid plan',
+    'replacement during a rebuild',
+  ] as const;
+  it.each(scopedPartQueueCases)(
     'drains ordinary work behind a scoped part with %s',
     async (kind) => {
       const f = await inPlaceFixture();
@@ -624,6 +632,8 @@ describe('in-place shared text publication', () => {
       const ordinary = '01K95H00000000000000000002';
       await f.request([142], ordinary);
       const beforeLive = live(f);
+      const replacesRequest = kind.startsWith('replacement');
+      const replaceOnPlan = kind === 'replacement during a rebuild' ? 2 : 1;
       let plans = 0;
       const publisher = new Publisher(f.git, f.options, {
         preview: async () => undefined,
@@ -631,8 +641,9 @@ describe('in-place shared text publication', () => {
           plans++;
           if (kind !== 'one save' || plans === 1)
             f.change({ 'tooltips/140.json': tooltip(140, `Unrelated save ${plans}`) });
-          if (kind === 'replaced request') f.change({ [paths(A).request]: replacementSigned });
-          if (kind === 'timeout' || kind === 'replaced request')
+          const replacing = replacesRequest && plans === replaceOnPlan;
+          if (replacing) f.change({ [paths(A).request]: replacementSigned });
+          if (kind === 'timeout' || (replacing && kind !== 'replacement after a valid plan'))
             throw translationCheckRefusal(part.rows);
           return planTranslations(f.pub, f.git.tree(source), parent, part);
         },
@@ -645,11 +656,21 @@ describe('in-place shared text publication', () => {
         expect(live(f).perks[141]).not.toEqual(beforeLive.perks[141]);
         return;
       }
-      expect(plans).toBe(kind === 'ready' ? 2 : 1);
+      expect(plans).toBe(kind === 'ready' || kind === 'replacement during a rebuild' ? 2 : 1);
       expect(live(f).perks[141]).toEqual(beforeLive.perks[141]);
-      if (kind === 'replaced request') {
+      if (replacesRequest) {
         expect(f.current()[paths(A).log]).toBeUndefined();
         expect(f.read(paths(A).request)).toEqual(replacementSigned);
+        const next = '01K95H00000000000000000003';
+        f.change({ 'tooltips/142.json': tooltip(142, 'Second ordinary edit') });
+        await f.request([142], next);
+        await publisher.run(false);
+        expect(f.read(paths(A).log)).toMatchObject({
+          request: replacementSigned,
+          result: { status: 'rejected', rows: [{ id, reason: 'review-changed' }] },
+        });
+        expect(f.read(paths(next).log).result.status).toBe('done');
+        expect(f.git.head(paths(A).candidate)).toBeUndefined();
         return;
       }
       expect(f.read(paths(A).log)).toMatchObject({
