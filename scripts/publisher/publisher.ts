@@ -136,6 +136,7 @@ import {
   verifyPreparedPublication,
   type PreparedPublication,
 } from '../schedule-prepare/intents.js';
+import type { TranslationWork } from './translationWork.js';
 
 const json = (v: unknown) => JSON.stringify(v, null, 2) + '\n';
 
@@ -297,6 +298,7 @@ export class Publisher {
   constructor(
     readonly git: Repository,
     readonly options: Options,
+    private readonly translationWork?: TranslationWork,
   ) {}
   head(branch: string) {
     const h = this.git.head(dataRef(branch));
@@ -1203,15 +1205,9 @@ export class Publisher {
     payload: TranslationPublishPayload,
     now = this.options.now(),
   ): Promise<Receipt> {
-    const plan = await planTranslations(this, this.git.tree(source), live, payload);
-    const before = liveGlobalsInput(this, live);
-    const exported = Object.fromEntries(
-      Object.entries(plan.input.perks).filter(
-        ([hash, row]) =>
-          row !== before.perks[hash] &&
-          stableStringify(row) !== stableStringify(before.perks[hash]),
-      ),
-    ) as Receipt['exported'];
+    const plan = this.translationWork
+      ? await this.translationWork.plan(this.git, this.options, source, live, payload)
+      : await planTranslations(this, this.git.tree(source), live, payload);
     return {
       opId: payload.opId,
       requestBlob: blob,
@@ -1223,7 +1219,7 @@ export class Publisher {
       ...(this.options.verifierDigest ? { verifierSha256: this.options.verifierDigest } : {}),
       outcome: plan.changed ? 'published' : 'unchanged',
       entries: [],
-      exported,
+      exported: plan.exported,
       changed: [],
       requester: payload.requester,
       intentDigest: payload.intentDigest,
@@ -1263,13 +1259,17 @@ export class Publisher {
       (pin.verifierSha256 && pin.verifierSha256 !== receipt.verifierSha256)
     )
       throw new ConsumerOutputRejected('Translation receipt pins differ from its frozen source.');
-    const verifier = new Publisher(this.git, {
-      ...this.options,
-      ...config,
-      publisherSha: receipt.publisherSha,
-      verifierDigest: receipt.verifierSha256,
-      runUrl: receipt.translations!.runUrl,
-    });
+    const verifier = new Publisher(
+      this.git,
+      {
+        ...this.options,
+        ...config,
+        publisherSha: receipt.publisherSha,
+        verifierDigest: receipt.verifierSha256,
+        runUrl: receipt.translations!.runUrl,
+      },
+      this.translationWork,
+    );
     const signed = await verifier.verifyRequest(
       receipt.requestBlob,
       receipt.opId,
@@ -2751,8 +2751,17 @@ export class Publisher {
     const fence = activeGlobalsFence(this, t);
     if (!fence) return;
     if (scoped && scoped.sourceCommit !== h) throw new RefRace('Translation bundle source moved');
-    const prior = old ? this.read<{ sourceCommit: string }>(oldTree, 'bundle.json') : undefined;
-    if (prior?.sourceCommit === h) return;
+    const prior = old
+      ? this.read<{ sourceCommit: string; translationPublish?: { liveCommit: string } }>(
+          oldTree,
+          'bundle.json',
+        )
+      : undefined;
+    if (
+      prior?.sourceCommit === h &&
+      (!scoped || prior.translationPublish?.liveCommit === scoped.value.liveCommit)
+    )
+      return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
       throw new Error('Bundle source would move backwards');
     const tooltipPaths = Object.keys(t)
@@ -2868,60 +2877,93 @@ export class Publisher {
   }
   async prepareBundle() {
     await new GlobalsPublisher(this).maintainAuthored();
+    this.prepareTranslationRoots();
   }
 
-  async publishBundle(materializeRoots = true) {
-    for (let attempt = 0; ; attempt++) {
+  private prepareTranslationRoots() {
+    for (let attempt = 0; attempt < 3; attempt++) {
       const sourceCommit = this.head(this.options.dataBranch);
       const tree = this.git.tree(sourceCommit);
-      if (!activeGlobalsFence(this, tree) || !translationRuntimeInstalled(this, tree))
-        return this.bundle();
+      if (!activeGlobalsFence(this, tree) || !translationRuntimeInstalled(this, tree)) return;
       const live = this.head(this.options.liveBranch);
       const index = this.read<{ destination: string; liveCommit: string }>(
         tree,
         translationRootsPath,
       );
+      if (index?.liveCommit === live && index.destination === this.options.liveBranch) return;
       try {
-        if (index?.liveCommit !== live || index.destination !== this.options.liveBranch) {
-          if (!materializeRoots) return this.bundle();
-          const roots = translationRoots(this, tree, live, liveGlobalsInput(this, live));
-          if (this.head(this.options.liveBranch) !== live)
-            throw new RefRace('Translation root index LIVE source moved');
-          const next = this.git.commit(
-            sourceCommit,
-            {
-              ...tree,
-              [translationRootsPath]: this.git.writeBlob(json(roots)),
-            },
-            'Index active translation sources',
-            appCredits,
-          );
-          this.git.cas(dataRef(this.options.dataBranch), sourceCommit, next);
-          continue;
-        }
-        const bundle = this.git.head(dataRef('editor-data-bundle'));
-        const prior =
-          bundle &&
-          this.read<{ sourceCommit: string; translationPublish?: { liveCommit: string } }>(
-            this.git.tree(bundle),
-            'bundle.json',
-          );
-        if (
-          prior &&
-          prior.sourceCommit === sourceCommit &&
-          prior.translationPublish?.liveCommit === live
-        )
-          return;
-        const docs = new GlobalsPublisher(this).documents(tree, 'tooltips');
-        const value = await bundleTranslations(this, tree, live, docs);
-        return this.bundle({ sourceCommit, value });
+        const roots = translationRoots(this, tree, live, liveGlobalsInput(this, live));
+        if (this.head(this.options.liveBranch) !== live)
+          throw new RefRace('Translation root index LIVE source moved');
+        const next = this.git.commit(
+          sourceCommit,
+          { ...tree, [translationRootsPath]: this.git.writeBlob(json(roots)) },
+          'Index active translation sources',
+          appCredits,
+        );
+        this.git.cas(dataRef(this.options.dataBranch), sourceCommit, next);
+        return;
       } catch (error) {
-        if (!(error instanceof RefRace) || attempt >= 2) throw error;
+        if (!(error instanceof RefRace)) throw error;
       }
     }
   }
 
-  async run(prepare = true) {
+  async refreshTranslationBundle() {
+    try {
+      const sourceCommit = this.head(this.options.dataBranch);
+      const tree = this.git.tree(sourceCommit);
+      if (!activeGlobalsFence(this, tree) || !translationRuntimeInstalled(this, tree)) return;
+      const live = this.head(this.options.liveBranch);
+      const index = this.read<{ destination: string; liveCommit: string }>(
+        tree,
+        translationRootsPath,
+      );
+      if (index?.liveCommit !== live || index.destination !== this.options.liveBranch) return;
+      const bundle = this.git.head(dataRef('editor-data-bundle'));
+      const prior =
+        bundle &&
+        this.read<{
+          sourceCommit: string;
+          translationPublish?: { liveCommit: string };
+        }>(this.git.tree(bundle), 'bundle.json');
+      if (
+        prior &&
+        prior.sourceCommit === sourceCommit &&
+        prior.translationPublish?.liveCommit === live
+      )
+        return;
+      const value = this.translationWork
+        ? await this.translationWork.preview(this.git, this.options, sourceCommit, live)
+        : await bundleTranslations(
+            this,
+            tree,
+            live,
+            new GlobalsPublisher(this).documents(tree, 'tooltips'),
+          );
+      if (value && value.liveCommit === live && this.head(this.options.liveBranch) === live)
+        this.bundle({ sourceCommit, value });
+    } catch (error) {
+      // Advance the ordinary bundle if a save won the race. Preview failures are optional.
+      if (error instanceof RefRace) {
+        try {
+          this.bundle();
+          return;
+        } catch {
+          // The ordinary bundle published before the check remains available.
+        }
+      }
+      console.warn('Translation readiness refresh unavailable.');
+    }
+  }
+
+  async publishBundle(materializeRoots = true) {
+    if (materializeRoots) this.prepareTranslationRoots();
+    this.bundle();
+    await this.refreshTranslationBundle();
+  }
+
+  async run(prepare = true, refreshTranslations = true) {
     const start = this.options.now();
     const runtime = this.git.tree(this.head(this.options.dataBranch));
     if (!activeGlobalsFence(this, runtime)) return;
@@ -2932,14 +2974,15 @@ export class Publisher {
         await this.prepareBundle();
       }
       await new SchedulePreparer(this).drain(true);
-      if (this.queue(this.head(this.options.dataBranch)).length) await this.publishBundle();
+      if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
       for (let n = 0; n < 20 && this.options.now() - start < 20 * 60_000; n++) {
         const [id] = this.queue(this.head(this.options.dataBranch));
         if (!id) break;
         await this.operation(id, runtime);
       }
     } finally {
-      await this.publishBundle();
+      this.bundle();
     }
+    if (refreshTranslations) await this.refreshTranslationBundle();
   }
 }

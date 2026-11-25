@@ -63,7 +63,7 @@ import {
   releaseOptions,
   requireGlobalsMode,
 } from './globalsInPlace.js';
-import type { Publisher } from './publisher.js';
+import type { Publisher, Receipt } from './publisher.js';
 
 export const translationRootsPath = 'live/translation-roots.json';
 export const translationLivePath = 'liveDescriptions.json';
@@ -102,6 +102,43 @@ export class TranslationPartRefusal extends Error {
   constructor(readonly rows: ResultRow[]) {
     super(rows[0].message ?? translationPublishReasons[rows[0].reason ?? 'review-changed']);
   }
+}
+
+const translationWorkLimit = 2_000_000;
+
+class TranslationCheckLimit extends RowRefusal {
+  constructor() {
+    super('translation-check-limit');
+  }
+}
+
+export function translationCheckRefusal(
+  rows: readonly Identity[],
+  reason: 'translation-check-limit' | 'review-changed' = 'translation-check-limit',
+) {
+  return new TranslationPartRefusal(
+    rows.map(({ lang, ...row }) => ({
+      ...(row.kind === 'tooltip'
+        ? { kind: row.kind, hash: row.hash }
+        : { kind: row.kind, id: row.id }),
+      lang,
+      status: 'rejected',
+      reason,
+      message: translationPublishReasons[reason],
+    })),
+  );
+}
+
+export function translationTextWork(text: string) {
+  let work = text.length;
+  // Tag scans can revisit the remaining characters on the same line for each opener.
+  for (const line of text.split('\n')) work += line.length * (line.match(/</g)?.length ?? 0);
+  return work;
+}
+
+function checkTranslationText(text: string) {
+  if (text.length > translationWorkLimit || translationTextWork(text) > translationWorkLimit)
+    throw new TranslationCheckLimit();
 }
 
 export function translationRuntimeInstalled(pub: Publisher, tree: Tree) {
@@ -233,16 +270,27 @@ function effectFacts(
   if (!perk) throw new Error(`Missing LIVE tooltip ${hash}.`);
   const cell = perk.editor[lang];
   if (!cell) return null;
+  checkTranslationText(cell.main);
+  checkTranslationText(cell.secondary);
   if (isHeldSetBonus({}, facts[hash] ?? perk)) throw new Error(setBonusHoldMessage);
   if (unloweredEntry({ [hash]: cell }) || cell.main.includes('{{') || cell.secondary.includes('{{'))
     throw new Error(`Tooltip ${hash} (${lang}) contains markup held from publication.`);
   const language: Lang = cell.englishFallback ? 'en' : lang;
   const reads = new Set<number>();
+  let importWork: number | undefined;
+  const importLanguages = new Set([lang, 'en'] as const);
   const database = new Proxy(lookup, {
     get(target, key, receiver) {
-      const value = Reflect.get(target, key, receiver);
+      const value: (typeof lookup)[string] | undefined = Reflect.get(target, key, receiver);
       if (typeof key === 'string' && /^\d+$/.test(key) && Number(key) !== hash)
         reads.add(aliases[key]?.to ?? Number(key));
+      if (importWork !== undefined && value) {
+        for (const language of importLanguages) {
+          const imported = value.editor[language];
+          if (imported) importWork += imported.main.length + imported.secondary.length;
+        }
+        if (importWork > translationWorkLimit) throw new TranslationCheckLimit();
+      }
       return value;
     },
   });
@@ -254,7 +302,10 @@ function effectFacts(
       language: lang,
       descriptionString: cell[editorType],
     };
+    importWork = cell[editorType].length;
     const expanded = loadExports(args);
+    importWork = undefined;
+    checkTranslationText(expanded);
     const globals = {
       variables: lookup[2]?.editor[lang]?.main ?? '',
       titles: lookup[3]?.editor[lang]?.main ?? '',
@@ -433,6 +484,7 @@ function context(pub: Publisher, tree: Tree, live: string) {
         throw new Error('Resolve the scheduled activation conflict first.');
       if (isHeldSetBonus(liveDoc!, pub.options.facts[hash])) throw new Error(setBonusHoldMessage);
       const entry = authored!.text[lang];
+      if (entry) checkTranslationText(entry.text);
       const oldEntry = liveDoc!.text[lang];
       const oldFallback = translationFallbackIds(liveDoc!.text.en, lang);
       const checked = structuredClone(liveDoc!);
@@ -493,6 +545,7 @@ function context(pub: Publisher, tree: Tree, live: string) {
         }),
       );
       const entry = authored!.definitions[lang];
+      if (entry) checkTranslationText(entry.body);
       expected = await translationExpectedDigest(entry);
       english = await translationEnglishDigest(previous!.definitions.en!);
       before = await translationBeforeDigest(previous!.definitions[lang]);
@@ -508,10 +561,13 @@ function context(pub: Publisher, tree: Tree, live: string) {
         const options = releaseOptions(store, saved);
         if (entry) {
           const check = (body: string, language: Lang) => {
-            if (
-              body.includes('{{') ||
-              resolveGlobalsInPlace(body, language, options).includes('{{')
-            )
+            checkTranslationText(body);
+            // Preserve the literal markup refusal before resolving a possible fallback.
+            const expanded = body.includes('{{')
+              ? body
+              : resolveGlobalsInPlace(body, language, options);
+            checkTranslationText(expanded);
+            if (expanded.includes('{{'))
               throw new Error('This shared text contains or imports markup held from publication.');
           };
           try {
@@ -596,6 +652,10 @@ export async function planTranslations(
   live: string,
   payload: TranslationPublishPayload,
 ) {
+  const deadline = performance.now() + 45_000;
+  const checkTime = () => {
+    if (performance.now() >= deadline) throw translationCheckRefusal(payload.rows);
+  };
   const ctx = context(pub, tree, live);
   const catalog = structuredClone(ctx.published);
   const input = { ...ctx.input, perks: { ...ctx.input.perks } };
@@ -608,6 +668,7 @@ export async function planTranslations(
   })[] = [];
   const changedGlobalLanes = new Set<string>();
   for (const signed of payload.rows) {
+    checkTime();
     const { lang } = signed;
     const id: Identity =
       signed.kind === 'tooltip'
@@ -684,10 +745,12 @@ export async function planTranslations(
       });
     }
   }
+  checkTime();
   if (refused.length) throw new TranslationPartRefusal(refused);
   if (effects.length > 1) {
     const lookup = expandAliases(input.perks);
     for (const { id, facts } of effects) {
+      checkTime();
       try {
         if (
           facts.every(([hash, expected]) =>
@@ -698,7 +761,8 @@ export async function planTranslations(
           )
         )
           continue;
-      } catch {
+      } catch (error) {
+        if (error instanceof TranslationCheckLimit) throw translationCheckRefusal([id]);
         // A selected dependency changed the previewed effect.
       }
       const other = effects.find((effect) => effect.id !== id && effect.id.lang === id.lang)?.id;
@@ -715,6 +779,7 @@ export async function planTranslations(
     const beforeLookup = expandAliases(ctx.input.perks);
     const readers = publicationReaders(ctx.input, input);
     for (const lang of new Set(effects.map(({ id }) => id.lang))) {
+      checkTime();
       const lane = effects.filter(({ id }) => id.lang === lang);
       if (lane.length < 2) continue;
       const selected = lane.map(({ id }) => id);
@@ -738,7 +803,8 @@ export async function planTranslations(
           if (!same(before, after))
             throw new Error(`Combined translation changes affect tooltip ${hash}.`);
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof TranslationCheckLimit) throw translationCheckRefusal(selected);
         throw new TranslationPartRefusal(
           selected.map((id) => ({
             ...id,
@@ -771,7 +837,13 @@ export async function planTranslations(
     globalPublishedSchema.parse(catalog);
     data.set(globalsReleasePaths.published(pub.options.liveBranch), json(catalog));
   }
-  return { data, input, rows, changed: data.size > 0 };
+  const exported = Object.fromEntries(
+    Object.entries(input.perks).filter(
+      ([hash, row]) => row !== ctx.input.perks[hash] && !same(row, ctx.input.perks[hash]),
+    ),
+  ) as Receipt['exported'];
+  checkTime();
+  return { data, exported, rows, changed: data.size > 0 };
 }
 
 export async function bundleTranslations(

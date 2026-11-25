@@ -1,6 +1,6 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -13,6 +13,9 @@ import {
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
 import {
   stableStringify,
+  translationBeforeDigest,
+  translationEnglishDigest,
+  translationExpectedDigest,
   translationPublishCapability,
   translationPublishIntentDigest,
   type TranslationPublishPayload,
@@ -39,6 +42,7 @@ import { migrateInPlace } from './globalsInPlace.js';
 import { dryRunGlobalsMigration, restoreGlobalsMigration } from './globalsMigration.js';
 import { Publisher, paths, type Options } from './publisher.js';
 import { bundleTranslations, translationRootsPath } from './translations.js';
+import { createTranslationWork } from './translationWork.js';
 import { createRequest } from './request.js';
 import { LocalRepository, RefRace, type Repository, type Tree } from './git.js';
 import { RemoteRepository, TransportUnresolved } from './remote.js';
@@ -381,6 +385,187 @@ describe('in-place shared text publication', () => {
   const selection = (row: GlobalsPending[number]) => [{ id: row.id, expected: row.digest }];
   const live = (f: Awaited<ReturnType<typeof inPlaceFixture>>) =>
     f.pub.read<LegacyInput>(f.git.tree(f.pub.head(f.options.liveBranch)), 'liveDescriptions.json')!;
+  it('drains ordinary work while sustained saves race the optional translation summary', async () => {
+    const f = await inPlaceFixture();
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    f.change({ '.publisher/PIN': pin });
+    await f.pub.publishBundle();
+    await f.request([142]);
+    let saves = 0;
+    const bundle = f.pub.bundle.bind(f.pub);
+    const churn = vi.spyOn(f.pub, 'bundle').mockImplementation((scoped) => {
+      if (scoped) {
+        expect(f.read(paths(A).log).result.status).toBe('done');
+        f.change({ 'tooltips/140.json': tooltip(140, `Unrelated save ${++saves}`) });
+      }
+      return bundle(scoped);
+    });
+    await f.pub.run(false);
+    churn.mockRestore();
+    expect(saves).toBeGreaterThan(0);
+    expect(f.read(paths(A).log).result).toMatchObject({ status: 'done' });
+    const readBundle = () =>
+      f.pub.read<{ sourceCommit: string; translationPublish?: unknown }>(
+        f.git.tree(f.pub.head('editor-data-bundle')),
+        'bundle.json',
+      )!;
+    const dataHead = f.git.head(D);
+    expect(readBundle()).toMatchObject({ sourceCommit: dataHead });
+    expect(readBundle().translationPublish).toBeUndefined();
+    await f.pub.publishBundle();
+    expect(readBundle()).toMatchObject({
+      sourceCommit: dataHead,
+      translationPublish: { liveCommit: f.git.head(L) },
+    });
+    expect(f.git.head(D)).toBe(dataHead);
+  });
+  it('terminates an isolated translation check that never returns', async () => {
+    const f = await inPlaceFixture();
+    const root = mkdtempSync(resolve(tmpdir(), 'publisher-translation-check-'));
+    try {
+      const path = resolve(root, 'cache.git');
+      execFileSync('git', ['init', '--bare', path]);
+      execFileSync('git', ['--git-dir', path, 'config', 'publisher.simulator', 'true']);
+      const runtime = resolve(root, 'stuck.mjs');
+      const started = resolve(root, 'started');
+      writeFileSync(
+        runtime,
+        "import { appendFileSync } from 'node:fs';\n" +
+          `process.on('message', () => { appendFileSync(${JSON.stringify(started)}, 'started\\n'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0); });\n`,
+      );
+      const git = new LocalRepository(path);
+      const work = createTranslationWork(runtime, 750, 750);
+      const source = 'a'.repeat(40);
+      const live = 'b'.repeat(40);
+      const payload: TranslationPublishPayload = {
+        kind: 'push',
+        scope: 'translations',
+        opId: A,
+        rows: [
+          {
+            kind: 'tooltip',
+            hash: 142,
+            lang: 'de',
+            english: '',
+            before: '',
+            expected: '',
+            effects: '',
+          },
+        ],
+        repo: f.options.repo,
+        dataBranch: f.options.dataBranch,
+        liveBranch: f.options.liveBranch,
+        requester: { id: 2, login: 'translator' },
+        createdAt: new Date(now).toISOString(),
+        intentDigest: '',
+      };
+      await expect(work.preview(git, f.options, source, live)).resolves.toBeUndefined();
+      await expect(work.plan(git, f.options, source, live, payload)).rejects.toMatchObject({
+        rows: [
+          {
+            kind: 'tooltip',
+            hash: 142,
+            lang: 'de',
+            status: 'rejected',
+            reason: 'translation-check-limit',
+          },
+        ],
+      });
+      expect(readFileSync(started, 'utf8')).toBe('started\nstarted\n');
+      expect(git.git(['for-each-ref'])).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('refuses expensive scoped renders and still publishes the following ordinary request', async () => {
+    const f = await inPlaceFixture();
+    const raw = (hash: number, de: string): Tooltip => ({
+      ...tooltip(hash, 'Published English'),
+      text: { en: cell('Published English'), de: cell(de) },
+    });
+    const imports = (hash: number) => `import main from ${hash}\n`.repeat(60);
+    const sources = [
+      raw(201, 'Vorher'),
+      raw(202, 'Vorher'),
+      raw(203, imports(204)),
+      raw(204, 'x'.repeat(2_000)),
+    ];
+    const drafts = [raw(201, '<'.repeat(64_000)), raw(202, imports(203))];
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const changes: Record<string, unknown> = { '.publisher/PIN': pin };
+    const markers: Record<number, string> = {};
+    for (const source of sources) {
+      const { hash } = source;
+      f.options.facts[hash] = { name: String(hash), type: 'Weapon Perk' };
+      markers[hash] = await inactivePublishableHash(source, {});
+      changes[`live/tooltips/${hash}.json`] = source;
+      changes[`tooltips/${hash}.json`] = drafts.find((draft) => draft.hash === hash) ?? source;
+    }
+    f.change({ ...changes, 'live/pushed.json': markers });
+    const parent = f.git.head(L)!;
+    const input = live(f);
+    Object.assign(input.perks, exportLegacy(sources, 0, f.options.facts));
+    f.git.cas(
+      L,
+      parent,
+      f.git.commit(parent, {
+        ...f.git.tree(parent),
+        'liveDescriptions.json': f.git.writeBlob(encode(input)),
+      }),
+    );
+    const reason = 'This text is too large to check here. Ask an editor to publish it.';
+    const preview = await bundleTranslations(
+      f.pub,
+      f.current(),
+      f.git.head(L)!,
+      Object.fromEntries(drafts.map((draft) => [draft.hash, draft])),
+    );
+    expect(preview.lanes.de).toMatchObject(
+      drafts.map(({ hash }) => ({ hash, status: 'refused', reason })),
+    );
+    const rows = await Promise.all(
+      drafts.map(async (draft, index) => ({
+        kind: 'tooltip' as const,
+        hash: draft.hash,
+        lang: 'de' as const,
+        english: await translationEnglishDigest(sources[index].text.en!),
+        before: await translationBeforeDigest(sources[index].text.de),
+        expected: await translationExpectedDigest(draft.text.de),
+        effects: 'a'.repeat(64),
+      })),
+    );
+    const payload: TranslationPublishPayload = {
+      kind: 'push',
+      scope: 'translations',
+      opId: A,
+      rows,
+      repo: f.options.repo,
+      dataBranch: f.options.dataBranch,
+      liveBranch: f.options.liveBranch,
+      requester: { id: 2, login: 'translator' },
+      createdAt: new Date(now).toISOString(),
+      intentDigest: '',
+    };
+    payload.intentDigest = await translationPublishIntentDigest(payload);
+    const bytes = stableStringify(payload);
+    f.change({ [paths(A).request]: { payload: bytes, sig: f.sign(bytes) } });
+    const ordinary = '01K95H00000000000000000002';
+    await f.request([142], ordinary);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      rows: drafts.map(({ hash }) => ({
+        hash,
+        status: 'rejected',
+        reason: 'translation-check-limit',
+        message: reason,
+      })),
+    });
+    expect(f.read(paths(ordinary).log).result.status).toBe('done');
+    for (const { hash } of drafts) expect(live(f).perks[hash]).toEqual(input.perks[hash]);
+  });
   it('refuses a part whose combined edits affect an unreviewed reader', async () => {
     const f = await inPlaceFixture();
     const pin = f.read('.publisher/PIN');

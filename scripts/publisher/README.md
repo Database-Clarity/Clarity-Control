@@ -98,7 +98,8 @@ and records only the selected source cells, their LIVE projections, and publicat
 An earlier publish can leave a request unchanged or require a fresh review.
 
 The bundle carries an optional `translationPublish` member with pending rows and their effect
-digests. DATA records publish `live/translation-roots.json` with verified active-root blob IDs
+digests. A separate check builds it after the queue and may leave it absent when the source
+moves or the check times out. DATA records publish `live/translation-roots.json` with verified active-root blob IDs
 for Worker admission. The index is seeded during bundle preparation and advances with RECORD.
 For a scoped receipt, pass its exact DATA RECORD commit after `outputDir` to `parity.mjs`. The
 adapter configuration includes the public verification key whose fingerprint is pinned at the
