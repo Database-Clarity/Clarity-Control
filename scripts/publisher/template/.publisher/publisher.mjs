@@ -36514,7 +36514,19 @@ var Publisher = class _Publisher {
         if (!receipt || !this.git.casMany)
           throw new ConsumerOutputRejected("Atomic globals publication is unavailable");
         const source2 = receipt.sourceCommit;
-        if (receipt.translations) this.assertBatchRuntime(tree, atomicLive.runtime);
+        if (receipt.translations) {
+          if (tree[p.request] !== receipt.requestBlob)
+            throw new SourceAdvanced(
+              atomicLive.candidate,
+              receipt.requestBlob,
+              source2,
+              h,
+              [],
+              false,
+              true
+            );
+          this.assertBatchRuntime(tree, atomicLive.runtime);
+        }
         if (receipt.batchId) {
           this.assertBatchRuntime(tree, atomicLive.runtime);
           const path = schedulePaths.batch(receipt.batchId);
@@ -36861,12 +36873,12 @@ var Publisher = class _Publisher {
           void 0,
           refusal2 || rebuilding?.scoped ? { requestBlob } : rebuilding?.batch ? s : void 0
         );
-        if (recorded === false) return "deferred";
         try {
-          if (pending) this.git.cas(p.candidate, pending, void 0);
+          if (pending && (recorded !== false || this.receipt(pending, opId)?.requestBlob === requestBlob && this.git.tree(this.head(this.options.dataBranch))[p.request] !== requestBlob && !this.git.ancestor(pending, this.head(this.options.liveBranch))))
+            this.git.cas(p.candidate, pending, void 0);
         } catch {
         }
-        return;
+        return recorded === false ? "deferred" : void 0;
       }
     }
   }
