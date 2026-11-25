@@ -32869,7 +32869,9 @@ function inPlacePublishError(error62, pub, tree, live, plan) {
   if (!(dependency instanceof UnpublishedGlobal)) return String(error62);
   const { kind, globalName } = dependency;
   const { published, saved } = stores(pub, tree);
-  const entry = saved.entries.find((entry2) => entry2.kind === kind && entry2.name === globalName);
+  const entry = saved.entries.find(
+    (entry2) => !entry2.tombstone && entry2.kind === kind && entry2.name === globalName
+  );
   const previous = entry && published.store.entries.find(({ id }) => id === entry.id);
   if (!entry || !previous || previous.tombstone || previous.name === entry.name)
     return String(error62);
