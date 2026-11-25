@@ -31465,12 +31465,15 @@ function globalsFence(pub, tree) {
     throw new Error("The shared text migration belongs to another LIVE branch.");
   return fence;
 }
-function requireGlobalsMode(pub, tree) {
+function activeGlobalsFence(pub, tree) {
   const fence = globalsFence(pub, tree);
   if (!fence)
     throw new Error("Publication requires an active config/globals-in-place.json migration.");
-  if (fence.state === "hold")
-    throw new Error("Publication is paused for the shared text migration.");
+  if (fence.state === "active") return fence;
+}
+function requireGlobalsMode(pub, tree) {
+  const fence = activeGlobalsFence(pub, tree);
+  if (!fence) throw new Error("Publication is paused for the shared text migration.");
   return fence;
 }
 function assertInPlaceRoots(hashes) {
@@ -34103,6 +34106,7 @@ var SchedulePreparer = class {
     const ref = `refs/heads/${this.pub.options.dataBranch}`;
     for (let attempt = 0; attempt < 3; attempt++) {
       const head = this.pub.head(this.pub.options.dataBranch), tree = this.pub.git.tree(head);
+      if (!activeGlobalsFence(this.pub, tree)) return;
       const original = { ...tree };
       const requests = this.batches(tree).filter(() => !readyOnly).filter((b) => b.status === "preparing" && b.preparation).map((b) => scheduleIntentPaths.request(b.preparation.requestId)).sort();
       for (const path of requests) {
@@ -34585,10 +34589,13 @@ function discardStage(tree, id) {
 }
 async function drainCurrentSaves(pub) {
   const ref = `refs/heads/${pub.options.dataBranch}`;
-  for (const id of requestIds(pub.git.tree(pub.head(pub.options.dataBranch)))) {
+  const initial = pub.git.tree(pub.head(pub.options.dataBranch));
+  if (!activeGlobalsFence(pub, initial)) return;
+  for (const id of requestIds(initial)) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const head = pub.head(pub.options.dataBranch);
       const tree = { ...pub.git.tree(head) };
+      if (!activeGlobalsFence(pub, tree)) return;
       const record3 = currentSaveStageRecord.safeParse(pub.read(tree, currentSaveStagePaths.record(id)));
       if (!record3.success) break;
       const started = record3.data;
@@ -34644,8 +34651,7 @@ async function drainCurrentSaves(pub) {
               409,
               "Use global entry mutations; Sync pending protection is required"
             );
-          const fence = globalsFence(pub, tree);
-          if (fence && !("conflicts" in validated))
+          if (!("conflicts" in validated))
             assertInPlaceDocuments(validated.tooltips, publishedGlobals(pub, tree));
           plan = validated;
         } catch (error62) {
@@ -36392,9 +36398,8 @@ var Publisher = class _Publisher {
   }
   bundleAt(ref, old) {
     const h = this.head(this.options.dataBranch), t = this.git.tree(h), oldTree = old ? this.git.tree(old) : {};
-    const mode = globalsFence(this, t);
-    if (mode?.state === "hold") return;
-    const fence = mode ?? requireGlobalsMode(this, t);
+    const fence = activeGlobalsFence(this, t);
+    if (!fence) return;
     const prior = old ? this.read(oldTree, "bundle.json") : void 0;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
@@ -36495,8 +36500,7 @@ var Publisher = class _Publisher {
   async run(prepare = true) {
     const start = this.options.now();
     const runtime = this.git.tree(this.head(this.options.dataBranch));
-    if (globalsFence(this, runtime)?.state === "hold") return;
-    requireGlobalsMode(this, runtime);
+    if (!activeGlobalsFence(this, runtime)) return;
     try {
       if (prepare) {
         await drainCurrentSaves(this);
@@ -36811,10 +36815,7 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
     const initial = snapshot("initial");
     const initialPublisher = new Publisher(initial, options);
     const initialTree = initial.tree(initialPublisher.head(options.dataBranch));
-    if (globalsFence(initialPublisher, initialTree)?.state !== "hold") {
-      requireGlobalsMode(initialPublisher, initialTree);
-      active = true;
-    }
+    active = Boolean(activeGlobalsFence(initialPublisher, initialTree));
     if (config2.liveBranch === "converter") {
       const tree = initial.tree(initial.head("refs/heads/converter"));
       if (!tree[".exports/PIN"] || !/^[a-f0-9]{40}$/.test(initial.blob(tree[".exports/PIN"]).trim()) || !tree[".exports/engine.mjs"])
@@ -36836,6 +36837,7 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
         throw new Error("Worker key fingerprint mismatch");
       options.publicKey = key.publicKey;
       const publisher = new Publisher(initial, options);
+      active = active && Boolean(activeGlobalsFence(publisher, initial.tree(publisher.head(options.dataBranch))));
       if (active) {
         await drainCurrentSaves(publisher);
         await new SchedulePreparer(publisher).drain();
@@ -36853,13 +36855,16 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
     try {
       if (active) {
         const latest = snapshot("catch-up");
-        await publishBundle(latest, options);
-        if (enabled && !failure2) {
-          const identity = publicationIdentity(latest, config2.liveBranch);
-          if (identity) {
-            publications.push(identity);
-            if (config2.liveBranch === "converter" && needsOutputs(latest, identity))
-              handoff2 = identity;
+        const publisher = new Publisher(latest, options);
+        if (activeGlobalsFence(publisher, latest.tree(publisher.head(options.dataBranch)))) {
+          await publishBundle(latest, options);
+          if (enabled && !failure2) {
+            const identity = publicationIdentity(latest, config2.liveBranch);
+            if (identity) {
+              publications.push(identity);
+              if (config2.liveBranch === "converter" && needsOutputs(latest, identity))
+                handoff2 = identity;
+            }
           }
         }
       }
