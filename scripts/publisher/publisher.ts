@@ -180,6 +180,24 @@ export interface Receipt {
   translations?: {
     rows: Awaited<ReturnType<typeof planTranslations>>['rows'];
     data: Record<string, string>;
+    runUrl: string;
+  };
+}
+export function translationRecordLog(receipt: Receipt, candidate: string, request: unknown) {
+  return {
+    request,
+    intentDigest: receipt.intentDigest,
+    candidateCommit: candidate,
+    result: {
+      status: receipt.outcome === 'unchanged' ? 'unchanged' : 'done',
+      outcomes: [],
+      rows: receipt.translations!.rows,
+    },
+    liveCommit: candidate,
+    recordCommit: null,
+    pins: { publisherSha: receipt.publisherSha, generatorSha: receipt.generatorSha },
+    runUrl: receipt.translations!.runUrl,
+    times: { now: receipt.now },
   };
 }
 /** When the live write was confirmed by this run's CAS, or first observed after an ambiguity (R8). */
@@ -651,7 +669,7 @@ export class Publisher {
       throw new Error('Credit request target mismatch');
     return requesterCredits(payload.requester);
   }
-  private async duplicateIntent(blob: string, opId: string) {
+  async duplicateIntent(blob: string, opId: string) {
     const raw = JSON.parse(JSON.parse(this.git.blob(blob)).payload);
     if (raw.scope === 'translations') {
       this.credits(blob, opId);
@@ -839,6 +857,56 @@ export class Publisher {
       const request = nameProofRequestSchema.safeParse(this.read(snapshot, path));
       return request.success && request.data.id === id;
     };
+    let peerWrites: Map<string, string | null> | undefined;
+    const scopedRecord = (path: string) => {
+      if (
+        !/^(?:live\/(?:pushed\.json|translation-roots\.json|tooltips\/\d+\.json)|publish\/requests\/[^/]+\.json)$/.test(
+          path,
+        )
+      )
+        return false;
+      if (!peerWrites) {
+        peerWrites = new Map();
+        const live = this.head(this.options.liveBranch);
+        for (const name of Object.keys(tree)) {
+          const id = /^publish\/log\/\d{4}-\d{2}\/([0-7][0-9A-HJKMNP-TV-Z]{25})\.json$/.exec(
+            name,
+          )?.[1];
+          if (!id || id === opId || reviewed[name] || paths(id).log !== name) continue;
+          const record = this.read<{
+            liveCommit?: string;
+            candidateCommit?: string;
+            intentDigest?: string;
+          }>(tree, name);
+          const candidate = record?.candidateCommit;
+          if (
+            !candidate ||
+            !/^[a-f0-9]{40}$/.test(candidate) ||
+            record.liveCommit !== candidate ||
+            !this.git.ancestor(candidate, live)
+          )
+            continue;
+          const peer = this.receipt(candidate, id);
+          if (!peer?.translations || peer.opId !== id || peer.intentDigest !== record.intentDigest)
+            continue;
+          const requested = paths(id).request;
+          if (reviewed[requested] && reviewed[requested] !== peer.requestBlob) continue;
+          if (this.git.tree(peer.sourceCommit)[requested] !== peer.requestBlob) continue;
+          peerWrites.set(requested, null);
+          for (const [key, oid] of Object.entries(peer.translations.data))
+            if (tree[key] === oid) peerWrites.set(key, oid);
+          if (candidate === live && tree[translationRootsPath]) {
+            const index = this.read<{ liveCommit: string; destination: string }>(
+              tree,
+              translationRootsPath,
+            );
+            if (index?.liveCommit === live && index.destination === this.options.liveBranch)
+              peerWrites.set(translationRootsPath, tree[translationRootsPath]);
+          }
+        }
+      }
+      return peerWrites.has(path) && peerWrites.get(path) === (tree[path] ?? null);
+    };
     let rebuild = false;
     const acceptChange = (path: string) => {
       if (
@@ -877,6 +945,10 @@ export class Publisher {
         path.startsWith('schedule/') ||
         [snippetsPath, inactiveMovesPath, aliasGroupsPath, sandboxPointersPath].includes(path)
       ) {
+        rebuild = true;
+        return true;
+      }
+      if (scopedRecord(path)) {
         rebuild = true;
         return true;
       }
@@ -1157,6 +1229,7 @@ export class Publisher {
       intentDigest: payload.intentDigest,
       translations: {
         rows: plan.rows,
+        runUrl: this.options.runUrl,
         data: Object.fromEntries(
           [...plan.data].map(([path, bytes]) => [path, this.git.writeBlob(bytes)]),
         ),
@@ -1190,6 +1263,7 @@ export class Publisher {
       ...config,
       publisherSha: receipt.publisherSha,
       verifierDigest: receipt.verifierSha256,
+      runUrl: receipt.translations!.runUrl,
     });
     const signed = await verifier.verifyRequest(
       receipt.requestBlob,
@@ -1226,7 +1300,7 @@ export class Publisher {
     return { input: JSON.parse(bytes) as LegacyInput, bytes, data: expected.translations!.data };
   }
 
-  private assertTranslationModes(
+  assertTranslationModes(
     parent: string,
     candidate: string,
     paths: ReadonlyMap<string, string | null>,
@@ -1236,6 +1310,26 @@ export class Publisher {
       [...paths].map(([path, oid]) => [path, oid === null ? null : '100644']),
     );
     assertTranslationTree(this.git.treeModes(parent), this.git.treeModes(candidate), regular);
+  }
+  assertScopedRecordParent(receipt: Receipt, head: string, tree: Tree, candidate: string) {
+    if (this.head(this.options.liveBranch) !== candidate)
+      throw new RefRace('Cannot recover a translation RECORD over a changed publication.');
+    if (head === receipt.sourceCommit) return;
+    const frozen = this.git.tree(receipt.sourceCommit);
+    const catalog = globalsReleasePaths.published(this.options.liveBranch);
+    const publication = (snapshot: Tree) =>
+      Object.fromEntries(
+        Object.entries(snapshot).filter(
+          ([path]) =>
+            path === catalog || (path.startsWith('live/') && path !== translationRootsPath),
+        ),
+      );
+    if (
+      !this.git.ancestor(receipt.sourceCommit, head) ||
+      tree[globalsInPlacePath] !== frozen[globalsInPlacePath] ||
+      stableStringify(publication(frozen)) !== stableStringify(publication(tree))
+    )
+      throw new RefRace('Cannot recover a translation RECORD over a changed publication.');
   }
 
   async record(
@@ -1367,24 +1461,7 @@ export class Publisher {
         : undefined;
       const beforeRecord = scoped ? { ...tree } : undefined;
       if (scoped) {
-        if (!atomicLive) {
-          const source = receipt!.sourceCommit;
-          const frozen = this.git.tree(source);
-          const catalog = globalsReleasePaths.published(this.options.liveBranch);
-          const publication = (snapshot: Tree) =>
-            Object.fromEntries(
-              Object.entries(snapshot).filter(
-                ([path]) =>
-                  path === catalog || (path.startsWith('live/') && path !== translationRootsPath),
-              ),
-            );
-          if (
-            this.head(this.options.liveBranch) !== candidate ||
-            !this.git.ancestor(source, h) ||
-            stableStringify(publication(frozen)) !== stableStringify(publication(tree))
-          )
-            throw new RefRace('Cannot recover a translation RECORD over a changed publication.');
-        }
+        if (!atomicLive) this.assertScopedRecordParent(receipt!, h, tree, candidate!);
         Object.assign(tree, scoped.data);
       } else if (receipt) {
         const pushed = pushedSchema.parse(this.read(tree, 'live/pushed.json'));
@@ -1485,31 +1562,37 @@ export class Publisher {
       }
       // A commit cannot contain its own SHA. recordCommit is deliberately null; resolve it via log blob history.
       tree[p.log] = this.git.writeBlob(
-        json({
-          request,
-          intentDigest: receipt?.intentDigest ?? intentDigest ?? null,
-          candidateCommit: candidate ?? null,
-          result: result ?? {
-            status: receipt?.outcome === 'unchanged' ? 'unchanged' : 'done',
-            outcomes: receipt?.entries.map((e) => ({
-              hash: e.hash,
-              digest: e.digest,
-              status: receipt.outcome,
-            })),
-            ...(receipt?.inPlace?.globals.length ? { globals: receipt.inPlace.globals } : {}),
-            ...(receipt?.inPlace?.refusals?.length
-              ? { globalRefusals: receipt.inPlace.refusals }
-              : {}),
-            ...(receipt?.translations ? { rows: receipt.translations.rows } : {}),
-          },
-          liveCommit: candidate ?? null,
-          recordCommit: null,
-          pins: receipt
-            ? { publisherSha: receipt.publisherSha, generatorSha: receipt.generatorSha }
-            : { publisherSha: this.options.publisherSha, generatorSha: this.options.generatorSha },
-          runUrl: this.options.runUrl,
-          times: { now: receipt?.now ?? this.options.now(), ...batchTimes },
-        }),
+        json(
+          scoped
+            ? translationRecordLog(receipt!, candidate!, request)
+            : {
+                request,
+                intentDigest: receipt?.intentDigest ?? intentDigest ?? null,
+                candidateCommit: candidate ?? null,
+                result: result ?? {
+                  status: receipt?.outcome === 'unchanged' ? 'unchanged' : 'done',
+                  outcomes: receipt?.entries.map((e) => ({
+                    hash: e.hash,
+                    digest: e.digest,
+                    status: receipt.outcome,
+                  })),
+                  ...(receipt?.inPlace?.globals.length ? { globals: receipt.inPlace.globals } : {}),
+                  ...(receipt?.inPlace?.refusals?.length
+                    ? { globalRefusals: receipt.inPlace.refusals }
+                    : {}),
+                },
+                liveCommit: candidate ?? null,
+                recordCommit: null,
+                pins: receipt
+                  ? { publisherSha: receipt.publisherSha, generatorSha: receipt.generatorSha }
+                  : {
+                      publisherSha: this.options.publisherSha,
+                      generatorSha: this.options.generatorSha,
+                    },
+                runUrl: this.options.runUrl,
+                times: { now: receipt?.now ?? this.options.now(), ...batchTimes },
+              },
+        ),
       );
       const c = this.git.commit(h, tree, `Record ${opId}`, credits);
       if (scoped && beforeRecord) {

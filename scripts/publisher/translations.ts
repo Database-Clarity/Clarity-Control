@@ -54,6 +54,7 @@ import type { Tree } from './git.js';
 import {
   assertInPlaceDocuments,
   affectedRows,
+  assertHistoricalSecondaries,
   authoredInPlaceOptions,
   inPlaceStores,
   liveGlobalsInput,
@@ -218,7 +219,8 @@ function effectFacts(
   facts: Publisher['options']['facts'],
   lookup: ReturnType<typeof expandAliases>,
 ) {
-  const perk = liveEntry(input, hash);
+  const perk = lookup[hash];
+  if (!perk) throw new Error(`Missing LIVE tooltip ${hash}.`);
   const cell = perk.editor[lang];
   if (!cell) return null;
   if (isHeldSetBonus({}, facts[hash] ?? perk)) throw new Error(setBonusHoldMessage);
@@ -283,7 +285,22 @@ function effectFacts(
       throw new Error(`Publish tooltip ${target} first.`);
     if (isHeldSetBonus({}, facts[target] ?? dependency)) throw new Error(setBonusHoldMessage);
   }
-  return { cell, parts, v2, imports: [...reads].sort((a, b) => a - b) };
+  const alias = aliases[hash];
+  return {
+    cell,
+    parts,
+    v2,
+    imports: [...reads].sort((a, b) => a - b),
+    ...(alias
+      ? {
+          alias,
+          name: perk.name,
+          type: perk.type,
+          itemHash: perk.itemHash,
+          itemName: perk.itemName,
+        }
+      : {}),
+  };
 }
 
 function context(pub: Publisher, tree: Tree, live: string) {
@@ -466,6 +483,7 @@ function context(pub: Publisher, tree: Tree, live: string) {
       removed = !entry;
       if (!unchanged) {
         global = composeGlobalTranslation(previous!, lang, entry);
+        assertHistoricalSecondaries(pub, tree, input, [global], lang);
         const store = {
           ...published.store,
           entries: published.store.entries.map((old) => (old.id === global!.id ? global! : old)),
@@ -515,9 +533,9 @@ function context(pub: Publisher, tree: Tree, live: string) {
       const beforeLookup = expandAliases(input.perks);
       for (const key of affectedRows(input, next, changed)) {
         const hash = Number(key);
-        if (changed.includes(hash) || !('editor' in next.perks[key])) continue;
-        const before = fact(input, hash, beforeLookup);
-        const after = fact(next, hash, lookup);
+        if (changed.includes(hash) || (!beforeLookup[hash] && !lookup[hash])) continue;
+        const before = beforeLookup[hash] && fact(input, hash, beforeLookup);
+        const after = lookup[hash] && fact(next, hash, lookup);
         if (!same(before, after)) facts.push([hash, after]);
       }
     }
@@ -526,8 +544,7 @@ function context(pub: Publisher, tree: Tree, live: string) {
       row.kind === 'tooltip' && hash === row.hash ? [] : [hash],
     );
     const englishFallback =
-      globalFallback ||
-      facts.some(([hash]) => !!liveEntry(next, hash).editor[lang]?.englishFallback);
+      globalFallback || facts.some(([hash]) => !!lookup[hash]?.editor[lang]?.englishFallback);
     const effects = await translationReviewDigest({ removed, englishFallback, affected, facts });
     const ready: Ready = {
       ...id,

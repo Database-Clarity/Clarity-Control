@@ -25,7 +25,7 @@ import {
 } from '../../packages/core/src/index.js';
 import { stampUploads } from '../../apps/worker/src/stamp.js';
 import { maxBuffer } from './childProcess.mjs';
-import { Publisher, paths, type Options, type Receipt } from './publisher.js';
+import { Publisher, paths, translationRecordLog, type Options, type Receipt } from './publisher.js';
 import { GlobalsPublisher } from './globals.js';
 import { assertTranslationTree, translationRoots, translationRootsPath } from './translations.js';
 import {
@@ -131,21 +131,39 @@ async function scopedParity() {
   });
   const verified = await publisher.verifyTranslationReceipt(receipt, commit);
   const parent = sourceTree(recordParent);
+  publisher.assertScopedRecordParent(receipt, recordParent, parent, commit);
   const after = sourceTree(recordCommit);
   const expected = { ...parent, ...verified.data };
   const allowed = new Map<string, string | null>(Object.entries(verified.data));
   const { request, log } = paths(receipt.opId);
-  const record = read(recordCommit, log);
-  if (
-    record.candidateCommit !== commit ||
-    record.liveCommit !== commit ||
-    record.intentDigest !== receipt.intentDigest ||
-    record.result.status !== (receipt.outcome === 'published' ? 'done' : 'unchanged') ||
-    stableStringify(record.result.rows) !== stableStringify(receipt.translations!.rows) ||
-    stableStringify(record.request) !==
-      stableStringify(JSON.parse(readOnly.blob(receipt.requestBlob)))
-  )
-    throw new Error('DATA RECORD does not match scoped receipt');
+  const logValue = translationRecordLog(
+    receipt,
+    commit,
+    JSON.parse(readOnly.blob(receipt.requestBlob)),
+  );
+  allowed.set(log, readOnly.writeBlob(JSON.stringify(logValue, null, 2) + '\n'));
+  if (parent[request] && parent[request] !== receipt.requestBlob) {
+    const intent = await publisher
+      .duplicateIntent(parent[request], receipt.opId)
+      .catch(() => undefined);
+    let n = 1;
+    const path = (i: number) => log.replace('.json', `.dup-${i}.json`);
+    while (parent[path(n)]) n++;
+    allowed.set(
+      path(n),
+      readOnly.writeBlob(
+        JSON.stringify(
+          {
+            status:
+              intent !== undefined && intent === receipt.intentDigest ? 'duplicate' : 'conflict',
+            requestBlob: parent[request],
+          },
+          null,
+          2,
+        ) + '\n',
+      ),
+    );
+  }
   await new GlobalsPublisher(publisher).recordProofs(expected, recordParent, commit);
   for (const path of new Set([...Object.keys(parent), ...Object.keys(expected)])) {
     if (path.startsWith('globals/proofs/') && parent[path] !== expected[path])
@@ -158,8 +176,8 @@ async function scopedParity() {
     ),
   );
   allowed.set(request, null);
-  allowed.set(log, after[log]);
   assertTranslationTree(parent, after, allowed);
+  publisher.assertTranslationModes(recordParent, recordCommit, allowed);
   return verified.bytes;
 }
 async function ordinaryParity() {

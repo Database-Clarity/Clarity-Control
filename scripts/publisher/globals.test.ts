@@ -308,7 +308,12 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
   };
 }
 
-async function inPlaceFixture(titleSource = '', exports = false, secondary?: string) {
+async function inPlaceFixture(
+  titleSource = '',
+  exports = false,
+  secondary?: string,
+  secondaryLang: 'de' | 'en' = 'en',
+) {
   const f = await fixture(titleSource, exports, true, 100);
   const legacyData = f.pub.head(f.options.dataBranch);
   let legacyLive = f.pub.head(f.options.liveBranch);
@@ -316,8 +321,8 @@ async function inPlaceFixture(titleSource = '', exports = false, secondary?: str
     const tree = f.git.tree(legacyLive);
     const input = f.pub.read<LegacyInput>(tree, 'liveDescriptions.json')!;
     const row = input.perks[141];
-    if (!('editor' in row) || !row.editor.en) throw new Error('Missing test tooltip');
-    row.editor.en.secondary = secondary;
+    if (!('editor' in row) || !row.editor[secondaryLang]) throw new Error('Missing test tooltip');
+    row.editor[secondaryLang]!.secondary = secondary;
     const historical = f.git.commit(legacyLive, {
       ...tree,
       'liveDescriptions.json': f.git.writeBlob(encode(input)),
@@ -372,6 +377,103 @@ describe('in-place shared text publication', () => {
   const selection = (row: GlobalsPending[number]) => [{ id: row.id, expected: row.digest }];
   const live = (f: Awaited<ReturnType<typeof inPlaceFixture>>) =>
     f.pub.read<LegacyInput>(f.git.tree(f.pub.head(f.options.liveBranch)), 'liveDescriptions.json')!;
+  it('binds alias copies and their LIVE facts to the scoped global preview', async () => {
+    const f = await inPlaceFixture();
+    const source = f
+      .read('globals/live/converter-v2-test.json')
+      .store.entries.find((entry: { id: string }) => entry.id === f.entry.id);
+    const migratedLive = f.git.head(L)!;
+    const migratedTree = f.git.tree(migratedLive);
+    const previouslyLive = live(f);
+    previouslyLive.perks[999] = { hash: 999, aliasOf: 141, aliasKind: 'frame' };
+    const row = previouslyLive.perks[141];
+    if (!('editor' in row) || !row.editor.de) throw new Error('Missing German fixture');
+    row.editor.de.secondary = 'Historisch 80';
+    const after = f.git.commit(migratedLive, {
+      ...migratedTree,
+      'liveDescriptions.json': f.git.writeBlob(encode(previouslyLive)),
+    });
+    f.git.cas(L, migratedLive, after);
+
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const selected = {
+      ...source,
+      definitions: { ...source.definitions, de: { ...source.definitions.de, body: '35' } },
+    };
+    f.change({ '.publisher/PIN': pin, [f.entryPath]: selected });
+    const bundle = await bundleTranslations(f.pub, f.current(), after, {});
+    const preview = bundle.lanes.de?.find((row) => row.kind === 'global' && row.id === f.entry.id);
+    expect(preview).toMatchObject({ status: 'ready', affectedHashes: [141, 999] });
+  });
+  it('rebuilds an ordinary request after a scoped RECORD lands at its fence', async () => {
+    const f = await inPlaceFixture();
+    const source = f
+      .read('globals/live/converter-v2-test.json')
+      .store.entries.find((entry: { id: string }) => entry.id === f.entry.id);
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const desired = {
+      ...source,
+      definitions: { ...source.definitions, de: { ...source.definitions.de, body: '35' } },
+    };
+    f.change({ '.publisher/PIN': pin, [f.entryPath]: desired });
+    const preview = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, {});
+    const row = preview.lanes.de?.find((row) => row.kind === 'global' && row.id === f.entry.id);
+    if (!row || row.status !== 'ready' || row.kind !== 'global')
+      throw new Error(JSON.stringify(row));
+    const { kind, id, lang, expected, english, before, effects, affected } = row;
+    const payload: TranslationPublishPayload = {
+      kind: 'push',
+      scope: 'translations',
+      opId: A,
+      rows: [{ kind, id, lang, expected, english, before, effects, affected }],
+      repo: f.options.repo,
+      dataBranch: f.options.dataBranch,
+      liveBranch: f.options.liveBranch,
+      requester: { id: 2, login: 'translator' },
+      createdAt: new Date(now).toISOString(),
+      intentDigest: '',
+    };
+    payload.intentDigest = await translationPublishIntentDigest(payload);
+    const bytes = stableStringify(payload);
+    f.change({ [paths(A).request]: { payload: bytes, sig: f.sign(bytes) } });
+    const ordinary = A.slice(0, -1) + '2';
+    await f.request([141], ordinary);
+    const earlierData = f.git.head(D)!;
+    const earlierLive = f.git.head(L)!;
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    const advancedData = f.git.head(D)!;
+    const advancedLive = f.git.head(L)!;
+    f.git.refs.set(D, earlierData);
+    f.git.refs.set(L, earlierLive);
+    f.git.beforeAtomic = () => {
+      f.git.refs.set(D, advancedData);
+      f.git.refs.set(L, advancedLive);
+    };
+    await f.pub.operation(ordinary);
+    expect(f.read(paths(ordinary).log).result.status).toBe('done');
+  });
+  it('refuses a global change used by a historical German secondary', async () => {
+    const f = await inPlaceFixture('', false, 'Historisch #Beta', 'de');
+    const source = f
+      .read('globals/live/converter-v2-test.json')
+      .store.entries.find((entry: { id: string }) => entry.id === f.entry.id);
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const selected = {
+      ...source,
+      definitions: { ...source.definitions, de: { ...source.definitions.de, body: '35' } },
+    };
+    f.change({ '.publisher/PIN': pin, [f.entryPath]: selected });
+    const bundle = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, {});
+    const preview = bundle.lanes.de?.find((row) => row.kind === 'global' && row.id === f.entry.id);
+    expect(preview).toMatchObject({
+      status: 'refused',
+      reason: expect.stringContaining('older text still uses Beta'),
+    });
+  });
   it('refills only the reviewed global language, then withdraws it with the same scope', async () => {
     const f = await inPlaceFixture();
     const { id } = f.entry;

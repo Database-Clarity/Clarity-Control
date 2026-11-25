@@ -554,6 +554,7 @@ export function assertHistoricalSecondaries(
   tree: Tree,
   live: LegacyInput,
   selected: readonly GlobalRecord[],
+  language?: Lang,
 ) {
   if (
     !Object.values(live.perks).some(
@@ -570,6 +571,7 @@ export function assertHistoricalSecondaries(
     legacy.perks as Parameters<typeof legacyGlobalsInPlaceDefinitions>[0],
   );
   for (const { hash, lang, kind, name } of historicalSecondaryUses(legacy, definitions)) {
+    if (language && lang !== language) continue;
     const row = live.perks[hash];
     const active = row && 'editor' in row ? row.editor[lang] : undefined;
     if (!active?.secondary || !independentSecondary(active)) continue;
