@@ -12,6 +12,7 @@ import {
   permissionsSchema,
   publishOpIdSchema,
   stableStringify,
+  tooltipSchema,
   type CurrentSaveStageRecord,
 } from '@clarity/core';
 import type { Publisher } from './publisher.js';
@@ -155,6 +156,15 @@ export async function drainCurrentSaves(pub: Publisher) {
             pub.aliasesAt(tree),
             () => ({ value: pin }),
             now,
+            {
+              login: started.requester.login,
+              headCommit: head,
+              read(commit, hash) {
+                if (!pub.git.ancestor(commit, head)) return null;
+                const value = pub.read(pub.git.tree(commit), `tooltips/${hash}.json`);
+                return value === undefined ? null : tooltipSchema.parse(value);
+              },
+            },
           );
           if (
             !('conflicts' in validated) &&

@@ -4,6 +4,7 @@ import {
   reconcileNumberMap,
   refreshNumberFallbacks,
   stableStringify,
+  type Lang,
   type Tooltip,
 } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
@@ -34,7 +35,11 @@ function sameSubmission(saved: Tooltip | undefined, sent: Tooltip): boolean {
 }
 
 /** Derive the server-owned number metadata and translation carry for an unchanged base. */
-export function expectedSubmission(base: Tooltip | null, sent: Tooltip): Tooltip {
+export function expectedSubmission(
+  base: Tooltip | null,
+  sent: Tooltip,
+  revised: readonly Lang[] = [],
+): Tooltip {
   const next = structuredClone(sent);
   if (next.text.en && base?.text.en?.text !== next.text.en.text) {
     const numbers = reconcileNumberMap(base?.text.en, next.text.en, next);
@@ -45,7 +50,7 @@ export function expectedSubmission(base: Tooltip | null, sent: Tooltip): Tooltip
     if (lang !== 'en' && next.text[lang]?.text !== base?.text[lang]?.text)
       refreshNumberFallbacks(next, lang);
   return base && base.text.en?.text !== next.text.en?.text
-    ? carryNumberTranslations(base, next).tooltip
+    ? carryNumberTranslations(base, next, revised).tooltip
     : next;
 }
 
@@ -86,7 +91,13 @@ export function startSaveRecovery(): () => void {
                 receipt.tooltips.map(({ hash }) => hash),
               );
               if (!stillCurrent()) return;
-              const confirmed = { ...receipt, confirmed: true, tooltips, savedAt: result.savedAt };
+              const confirmed = {
+                ...receipt,
+                confirmed: true,
+                commit: result.commit,
+                tooltips,
+                savedAt: result.savedAt,
+              };
               await writeSaveReceipt(owner, receipt.id, confirmed);
               records[index] = confirmed;
             } catch {
@@ -108,7 +119,8 @@ export function startSaveRecovery(): () => void {
     const records = receipts;
     receipts = null;
     for (const receipt of records)
-      if (receipt.confirmed) rememberSaved(receipt.tooltips, [], receipt.at, receipt.savedAt);
+      if (receipt.confirmed)
+        rememberSaved(receipt.tooltips, [], receipt.at, receipt.savedAt, receipt.commit);
     const bundle = applySavedOverlay(data.bundle);
     if (bundle !== data.bundle) useDataStore.setState({ data: { ...data, bundle } });
     if (external || error) {
@@ -129,7 +141,13 @@ export function startSaveRecovery(): () => void {
             (!receipt.confirmed &&
               sameSubmission(
                 bundle.tooltips[tooltip.hash],
-                expectedSubmission(submitted.base, tooltip),
+                expectedSubmission(
+                  submitted.base,
+                  tooltip,
+                  languages.filter(
+                    (lang) => lang !== 'en' && submitted.translationRevisions?.[lang],
+                  ),
+                ),
               )))
         ) {
           if (remaining === drafts) remaining = { ...drafts };

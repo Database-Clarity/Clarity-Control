@@ -1,7 +1,9 @@
 import { create } from 'zustand';
-import { type Lang, type Tooltip } from '@clarity/core';
+import { stableStringify, type Lang, type Tooltip } from '@clarity/core';
+import type { TranslationRevisions } from '../../../../packages/core/src/translationRevision';
 import {
   draftStorage,
+  retainedRevisions,
   sameDraftContent,
   type Drafts,
   type DraftStorage,
@@ -42,6 +44,11 @@ interface DraftState {
   keepSeparate(): void;
   dismissPreviousAccountError(): void;
   edit(base: Tooltip, lang: Lang, text: string, author: string): void;
+  setTranslationRevision(
+    base: Tooltip,
+    lang: Exclude<Lang, 'en'>,
+    revision: TranslationRevisions[Exclude<Lang, 'en'>],
+  ): void;
   updateDraft(base: Tooltip, update: (tooltip: Tooltip) => Tooltip): void;
   updateDrafts(updates: { base: Tooltip; update: (tooltip: Tooltip) => Tooltip }[]): void;
   discard(hash: number): void;
@@ -323,6 +330,22 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
       edit(base, lang, text, author) {
         get().editAt(String(base.hash), base, lang, text, author);
       },
+      setTranslationRevision(base, lang, revision) {
+        if (!get().hydrated) throw new Error('Drafts must finish recovery before editing');
+        const key = String(base.hash);
+        checkKey(key, base.hash);
+        const draft = get().drafts[key] ?? { base, next: base };
+        const translationRevisions = { ...draft.translationRevisions };
+        if (revision) translationRevisions[lang] = revision;
+        else delete translationRevisions[lang];
+        const drafts = { ...get().drafts };
+        if (Object.keys(translationRevisions).length)
+          drafts[key] = { ...draft, translationRevisions, changedAt: new Date().toISOString() };
+        else if (stableStringify(draft.base) === stableStringify(draft.next)) delete drafts[key];
+        else drafts[key] = { ...draft, translationRevisions: undefined };
+        set({ drafts });
+        persist(drafts);
+      },
       editAt(key, base, lang, text, author) {
         if (!get().hydrated) throw new Error('Drafts must finish recovery before editing');
         if (options.requireOwner && owner === null) throw new Error('Sign in to edit these drafts');
@@ -347,12 +370,26 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
           if (draft.base.text[lang]) next.text[lang] = draft.base.text[lang];
           else delete next.text[lang];
         }
-        const drafts: Drafts = { ...get().drafts, [key]: { base: draft.base, next, changedAt } };
+        const translationRevisions = retainedRevisions(
+          draft.translationRevisions,
+          draft.next,
+          next,
+        );
+        const drafts: Drafts = {
+          ...get().drafts,
+          [key]: {
+            base: draft.base,
+            next,
+            changedAt,
+            ...(translationRevisions && { translationRevisions }),
+          },
+        };
         // Returning text to its base value should not create a metadata-only draft.
         // A changed edited string already proves inequality. Compare all fields
         // only on a return to the saved text, rather than serializing every
         // language and metadata field on each ordinary native keystroke.
         if (
+          !translationRevisions &&
           text === (draft.base.text[lang]?.text ?? '') &&
           JSON.stringify(next) === JSON.stringify(draft.base)
         ) {
@@ -380,8 +417,19 @@ export function createDraftStore(storage: DraftStorage, options: DraftStoreOptio
           const next = update(structuredClone(draft.next));
           if (next.hash !== base.hash)
             throw new Error('A draft update cannot change the tooltip hash');
-          drafts[key] = { base: draft.base, next, changedAt };
-          if (JSON.stringify(next) === JSON.stringify(draft.base)) delete drafts[key];
+          const translationRevisions = retainedRevisions(
+            draft.translationRevisions,
+            draft.next,
+            next,
+          );
+          drafts[key] = {
+            base: draft.base,
+            next,
+            changedAt,
+            ...(translationRevisions && { translationRevisions }),
+          };
+          if (!translationRevisions && JSON.stringify(next) === JSON.stringify(draft.base))
+            delete drafts[key];
         }
         set({ drafts });
         persist(drafts);

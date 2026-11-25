@@ -1,10 +1,21 @@
-import { publishOpIdSchema, stableStringify, tooltipSchema } from '@clarity/core';
+import {
+  languages,
+  publishOpIdSchema,
+  stableStringify,
+  tooltipSchema,
+  type Tooltip,
+} from '@clarity/core';
 import { z } from 'zod';
+import {
+  translationRevisionsSchema,
+  type TranslationRevisions,
+} from '../../../../packages/core/src/translationRevision';
 
 export const draftSchema = z.object({
   base: tooltipSchema,
   next: tooltipSchema,
   changedAt: z.iso.datetime().optional(),
+  translationRevisions: translationRevisionsSchema.optional(),
 });
 
 export const draftsSchema = z
@@ -18,11 +29,29 @@ export const draftsSchema = z
   );
 export type Drafts = z.infer<typeof draftsSchema>;
 
+/** A text edit supersedes any pending stamp for that language. */
+export function retainedRevisions(
+  revisions: TranslationRevisions | undefined,
+  previous: Tooltip,
+  next: Tooltip,
+): TranslationRevisions | undefined {
+  if (!revisions) return undefined;
+  const retained: TranslationRevisions = {};
+  for (const lang of languages) {
+    if (lang === 'en') continue;
+    const proof = revisions[lang];
+    if (proof && next.text[lang] && previous.text[lang]?.text === next.text[lang].text)
+      retained[lang] = proof;
+  }
+  return Object.keys(retained).length ? retained : undefined;
+}
+
 /** The local change time is display metadata, independent of the draft's content. */
 export function sameDraftContent(a: Drafts[string], b: Drafts[string]): boolean {
   return (
     stableStringify(a.base) === stableStringify(b.base) &&
-    stableStringify(a.next) === stableStringify(b.next)
+    stableStringify(a.next) === stableStringify(b.next) &&
+    stableStringify(a.translationRevisions ?? {}) === stableStringify(b.translationRevisions ?? {})
   );
 }
 
@@ -33,6 +62,7 @@ const saveReceiptSchema = z.object({
   tooltips: z.array(tooltipSchema),
   savedAt: z.number().optional(),
   stageId: publishOpIdSchema.optional(),
+  commit: z.string().optional(),
   confirmed: z.boolean(),
 });
 export type SaveReceipt = z.infer<typeof saveReceiptSchema>;

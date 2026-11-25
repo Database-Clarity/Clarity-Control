@@ -12,7 +12,7 @@ import { rememberSaved } from '../../../stores/savedOverlay';
 
 /** `tooltip` null: the tooltip is absent from current. `commit`: the write that made it so. */
 export function adoptCurrent(hash: number, tooltip: Tooltip | null, commit?: string): void {
-  rememberSaved(tooltip ? [tooltip] : [], tooltip ? [] : [hash]);
+  rememberSaved(tooltip ? [tooltip] : [], tooltip ? [] : [hash], Date.now(), undefined, commit);
   useDataStore.setState(({ data }) => {
     if (!data) return {};
     const tooltips = { ...data.bundle.tooltips };

@@ -139,17 +139,31 @@ export function changesFromTrailer(message: string, hash: number): RevisionChang
 
 /** Per-tooltip carry hint from the final save trailer block, independent of line order. */
 export function carriedFromTrailer(message: string, hash: number): Lang[] {
+  return languagesFromTrailer(message, hash, 'Clarity-Carried');
+}
+
+export function stillCorrectFromTrailer(message: string, hash: number): Lang[] {
+  const changed = changesFromTrailer(message, hash);
+  return changed
+    ? languagesFromTrailer(message, hash, 'Clarity-Still-Correct').filter((lang) =>
+        changed.languages.includes(lang),
+      )
+    : [];
+}
+
+function languagesFromTrailer(message: string, hash: number, key: string): Lang[] {
   const lines =
     message
       .trimEnd()
       .split(/\r?\n\r?\n/)
       .at(-1)
       ?.split(/\r?\n/) ?? [];
-  const carried = lines.filter((line) => line.startsWith('Clarity-Carried:'));
-  if (carried.length !== 1 || !carried[0].startsWith('Clarity-Carried: ')) return [];
+  const carried = lines.filter((line) => line.startsWith(`${key}:`));
+  const prefix = `${key}: `;
+  if (carried.length !== 1 || !carried[0].startsWith(prefix)) return [];
   const seen = new Set<string>();
   let result: Lang[] = [];
-  for (const entry of carried[0].slice('Clarity-Carried: '.length).split(';')) {
+  for (const entry of carried[0].slice(prefix.length).split(';')) {
     const match = /^([1-9]\d*)=([a-z,-]+)$/.exec(entry);
     if (!match || seen.has(match[1])) return [];
     seen.add(match[1]);

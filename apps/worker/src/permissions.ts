@@ -206,9 +206,10 @@ export function checkTranslationStamps(
   head: Tooltip | null,
   next: Tooltip,
   english = next.text.en,
+  verified: readonly Lang[] = [],
 ): void {
   for (const lang of languages) {
-    if (lang === 'en') continue;
+    if (lang === 'en' || verified.includes(lang)) continue;
     const before = head?.text[lang];
     const after = next.text[lang];
     if (!after) continue;

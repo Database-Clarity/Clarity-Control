@@ -7,6 +7,7 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import type { SaveEnricher } from './index';
+import type { TranslationRevisions } from '../../../../../../packages/core/src/translationRevision';
 
 /** Whether a tooltip has any saved or drafted translation the English revision is compared with. */
 function hasTranslation(tooltip: Tooltip): boolean {
@@ -54,6 +55,7 @@ export function stampRevisions(
   login: string,
   now: string,
   noTranslationImpact = false,
+  translationRevisions?: TranslationRevisions,
 ): Tooltip {
   const text: Tooltip['text'] = { ...next.text };
   const markupOnly = (lang: Lang, previous: string | undefined, after: string) => {
@@ -80,7 +82,15 @@ export function stampRevisions(
     if (!entry) continue;
     const previous = before?.text[lang];
     if (entry.text === previous?.text) {
-      text[lang] = previous;
+      const revision = lang === 'en' ? undefined : translationRevisions?.[lang];
+      text[lang] = revision
+        ? {
+            ...previous,
+            updatedAt: now,
+            updatedBy: login,
+            sourceUpdatedAt: revision.sourceUpdatedAt,
+          }
+        : previous;
       continue;
     }
     if (
@@ -158,5 +168,19 @@ export function stampEnglish(
   return en === english ? next : { ...next, text: { ...next.text, en } };
 }
 
-export const metadata: SaveEnricher = async ({ before, next, user, now, noTranslationImpact }) =>
-  stampRevisions(before, next, user.login, now ?? new Date().toISOString(), noTranslationImpact);
+export const metadata: SaveEnricher = async ({
+  before,
+  next,
+  user,
+  now,
+  noTranslationImpact,
+  translationRevisions,
+}) =>
+  stampRevisions(
+    before,
+    next,
+    user.login,
+    now ?? new Date().toISOString(),
+    noTranslationImpact,
+    translationRevisions,
+  );

@@ -1,6 +1,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type Permissions, type Tooltip } from '@clarity/core';
-import { config, Fixture, makePrivateKey, tooltip } from './fixture.js';
+import {
+  exportLegacy,
+  publishableHash,
+  usesEnglishFallback,
+  type Permissions,
+  type Tooltip,
+} from '@clarity/core';
+import { config, Fixture, makePrivateKey, sha, tooltip } from './fixture.js';
 
 // The legacy /push-live exporter (switch OFF) under test; the checked-in switch is ON since
 // PUB-ENABLE, and these paths stay for the publisher rollback.
@@ -218,6 +224,7 @@ describe('save concurrency', () => {
           hash: 123,
           base: tooltip(),
           head: tooltip('theirs'),
+          headCommit: fixture.dataHead,
           next: tooltip('mine'),
           fields: ['text.en'],
         },
@@ -486,6 +493,232 @@ it('checks the real head even if a translator forges a written base for a link-o
   );
   expect(response.status).toBe(422);
   expect(fixture.commits).toHaveLength(0);
+});
+
+describe('still correct', () => {
+  const old = '2026-01-01T00:00:00Z';
+  const reviewedAt = '2026-06-01T00:00:00Z';
+  const revised = '2026-07-01T00:00:00Z';
+  const sentAt = '2026-11-01T00:00:00Z';
+  const path = 'tooltips/123.json';
+  const setup = () => {
+    const base = tooltip('Damage increased.', reviewedAt);
+    base.text.de = {
+      text: 'Mehr Schaden.',
+      updatedAt: old,
+      updatedBy: 'other',
+      sourceUpdatedAt: old,
+    };
+    fixture.moveData({ [path]: base });
+    const next = structuredClone(base);
+    next.text.de = {
+      ...base.text.de,
+      updatedAt: sentAt,
+      updatedBy: 'dan',
+      sourceUpdatedAt: reviewedAt,
+    };
+    const proof = { commit: fixture.dataHead, sourceUpdatedAt: reviewedAt };
+    return { base, next, proof };
+  };
+  const send = (base: Tooltip, next: Tooltip, revisions?: Record<string, unknown>) =>
+    fixture.request(
+      '/save',
+      'POST',
+      {
+        message: 'Checked German',
+        changes: [
+          { hash: base.hash, base, next, ...(revisions && { translationRevisions: revisions }) },
+        ],
+      },
+      4,
+    );
+
+  it('changes only the assigned translation stamps, recovers publishable German, and is retryable', async () => {
+    const { base, next, proof } = setup();
+    const request = () => send(base, next, { de: proof });
+    const first = await request();
+    expect(first.status).toBe(200);
+    expect((await first.json()).tooltips).toEqual([next]);
+    expect(fixture.commits[0]).toMatchObject({
+      message: 'Checked German\n\nClarity-Changed: 123=de\nClarity-Still-Correct: 123=de',
+      author: { name: 'dan' },
+    });
+    expect(usesEnglishFallback(base, 'de')).toBe(true);
+    expect(usesEnglishFallback(next, 'de')).toBe(false);
+    expect(exportLegacy([base], Date.parse(sentAt))[123]).toMatchObject({
+      editor: { de: { main: base.text.en!.text, englishFallback: true } },
+    });
+    expect(exportLegacy([next], Date.parse(sentAt))[123]).toMatchObject({
+      editor: { de: { main: next.text.de!.text } },
+      updateTracker: { descriptions: { de: { lastUpdate: Date.parse(sentAt), updatedBy: 'dan' } } },
+    });
+    expect(await publishableHash(base, {})).not.toBe(await publishableHash(next, {}));
+    const retry = await request();
+    expect(retry.status).toBe(200);
+    expect(fixture.commits).toHaveLength(1);
+  });
+
+  it('keeps the reviewed source when newer English arrives and accepts a historical restore', async () => {
+    const { base, next, proof } = setup();
+    const head = structuredClone(base);
+    head.text.en = { ...head.text.en!, text: 'Damage reduced.', updatedAt: revised };
+    fixture.moveData({ [path]: head });
+    const result = await send(base, next, { de: proof });
+    expect(result.status).toBe(200);
+    const [saved] = (await result.json()).tooltips as Tooltip[];
+    expect(saved.text.en).toEqual(head.text.en);
+    expect(saved.text.de).toEqual(next.text.de);
+    const restored = structuredClone(saved);
+    restored.text.de = { ...restored.text.de!, sourceUpdatedAt: old };
+    const restore = await send(saved, restored, {
+      de: { ...proof, sourceUpdatedAt: old, restore: true },
+    });
+    expect(restore.status).toBe(200);
+    expect((await restore.json()).tooltips).toEqual([restored]);
+    expect(usesEnglishFallback(restored, 'de')).toBe(true);
+  });
+
+  it('requires proof, assigned language, unchanged bytes, a real source, and the signed-in author', async () => {
+    const { base, next, proof } = setup();
+    expect((await send(base, next)).status).toBe(422);
+    expect((await send(base, next, { fr: proof })).status).toBe(403);
+    expect((await send(base, next, { de: { ...proof, commit: sha(99) } })).status).toBe(422);
+    const oldSource = {
+      ...next,
+      text: { ...next.text, de: { ...next.text.de!, sourceUpdatedAt: old } },
+    };
+    expect((await send(base, oldSource, { de: { ...proof, sourceUpdatedAt: old } })).status).toBe(
+      422,
+    );
+    const futureSource = {
+      ...next,
+      text: { ...next.text, de: { ...next.text.de!, sourceUpdatedAt: revised } },
+    };
+    expect(
+      (await send(base, futureSource, { de: { ...proof, sourceUpdatedAt: revised } })).status,
+    ).toBe(422);
+    next.text.de!.updatedBy = 'alice';
+    expect((await send(base, next, { de: proof })).status).toBe(422);
+    next.text.de!.updatedBy = 'dan';
+    next.text.de!.text = 'Mehr Schaden. ';
+    expect((await send(base, next, { de: proof })).status).toBe(422);
+    expect(fixture.commits).toHaveLength(0);
+  });
+
+  it('keeps the stored stamps when a restore names the current source', async () => {
+    const { base, next, proof } = setup();
+    const sourceUpdatedAt = base.text.de!.sourceUpdatedAt!;
+    next.text.de!.sourceUpdatedAt = sourceUpdatedAt;
+    const response = await send(base, next, {
+      de: { ...proof, sourceUpdatedAt, restore: true },
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).tooltips).toEqual([base]);
+    expect(fixture.commits).toHaveLength(0);
+  });
+
+  it('requires the reviewed snapshot to be part of data branch history', async () => {
+    const { base, next, proof } = setup();
+    const unmerged = sha(99);
+    fixture.snapshots.set(unmerged, { ...fixture.current() });
+    fixture.commitParents.set(unmerged, [fixture.dataHead]);
+    const response = await send(base, next, { de: { ...proof, commit: unmerged } });
+    expect(response.status).toBe(422);
+    expect(fixture.current()[path]).toEqual(base);
+    expect(fixture.commits).toHaveLength(0);
+  });
+
+  it('refuses a confirmation of a removed number and retains the proof in conflicts', async () => {
+    const { base, next, proof } = setup();
+    const head = structuredClone(base);
+    head.text.de!.text = 'Weniger Schaden.';
+    fixture.moveData({ [path]: head });
+    const conflict = await send(base, next, { de: proof });
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).conflicts).toMatchObject([
+      { translationRevisions: { de: proof }, fields: ['text.de'] },
+    ]);
+    base.text.de!.text = next.text.de!.text = 'Schaden: #{=1}';
+    base.text.en!.numbers = next.text.en!.numbers = { ids: [], next: 2, retired: { 1: '5' } };
+    fixture.moveData({ [path]: base });
+    const refused = await send(base, next, { de: { ...proof, commit: fixture.dataHead } });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({
+      error: 'Tooltip 123: invalid de translation revision',
+    });
+    expect(fixture.commits).toHaveLength(0);
+  });
+
+  it('keeps a newly obsolete confirmation out of a save with unrelated changes', async () => {
+    const { base, next, proof } = setup();
+    base.text.en!.text = next.text.en!.text = 'Damage: 5.';
+    base.text.de!.text = next.text.de!.text = 'Schaden: #{=1}';
+    fixture.moveData({ [path]: base });
+    proof.commit = fixture.dataHead;
+    const head = structuredClone(base);
+    head.text.en = {
+      ...head.text.en!,
+      text: 'Damage changed.',
+      updatedAt: revised,
+      numbers: { ids: [], next: 2, retired: { 1: '5' } },
+    };
+    const other = { ...tooltip('Unchanged other tooltip'), hash: 321 };
+    fixture.moveData({ [path]: head, 'tooltips/321.json': other });
+    const result = await fixture.request(
+      '/save',
+      'POST',
+      {
+        message: 'Checked translations',
+        changes: [
+          { hash: base.hash, base, next, translationRevisions: { de: proof } },
+          {
+            hash: other.hash,
+            base: other,
+            next: {
+              ...other,
+              text: {
+                ...other.text,
+                de: {
+                  ...next.text.de!,
+                  text: 'Geändert.',
+                  sourceUpdatedAt: other.text.en!.updatedAt,
+                },
+              },
+            },
+          },
+        ],
+      },
+      4,
+    );
+    expect(result.status).toBe(200);
+    expect(fixture.current()[path]).toEqual(head);
+    expect(fixture.commits[0]?.message).toBe('Checked translations\n\nClarity-Changed: 321=de');
+  });
+
+  it('batches historical evidence and reuses it when the branch advances at CAS', async () => {
+    const { base, next, proof } = setup();
+    const input = Array.from({ length: 60 }, (_, index) => ({
+      hash: 10_000 + index,
+      base: { ...base, hash: 10_000 + index },
+      next: { ...next, hash: 10_000 + index },
+      translationRevisions: { de: proof },
+    }));
+    fixture.moveData(
+      Object.fromEntries(input.map(({ hash, base }) => [`tooltips/${hash}.json`, base])),
+    );
+    proof.commit = fixture.dataHead;
+    fixture.moveData();
+    fixture.patchRaces = 1;
+    const result = await fixture.request(
+      '/save',
+      'POST',
+      { changes: input, message: 'Batch confirmation' },
+      4,
+    );
+    expect(result.status).toBe(200);
+    expect(fixture.subrequests).toBeLessThan(48);
+    expect((await result.json()).tooltips).toHaveLength(60);
+  });
 });
 
 describe('No translation impact (TR3)', () => {

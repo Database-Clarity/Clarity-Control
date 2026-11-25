@@ -1,4 +1,5 @@
 import type { CompendiumData, Tooltip } from '@clarity/core';
+import type { TranslationRevisions } from '../../../../../../packages/core/src/translationRevision';
 import type { Me } from '../../api';
 import type { Item } from '../../generator';
 import { metadata } from './metadata';
@@ -16,6 +17,7 @@ export type SaveEnricher = (ctx: {
   now?: string;
   /** "No translation impact" ticked: English wording changes keep the English revision. */
   noTranslationImpact?: boolean;
+  translationRevisions?: TranslationRevisions;
 }) => Promise<Tooltip>;
 
 export const saveEnrichers: SaveEnricher[] = [metadata, bungie, compendiumEnricher];

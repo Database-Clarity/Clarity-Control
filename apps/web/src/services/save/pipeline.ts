@@ -32,7 +32,8 @@ export function permissionError(changes: Change[], user: Me | null): string | nu
     for (const lang of languages) {
       if (
         !canEditLanguage(user, lang) &&
-        JSON.stringify(beforeText[lang]) !== JSON.stringify(nextText[lang])
+        (JSON.stringify(beforeText[lang]) !== JSON.stringify(nextText[lang]) ||
+          (lang !== 'en' && change.translationRevisions?.[lang]))
       ) {
         return `Tooltip ${change.hash}: you cannot edit ${languageLabel(lang)}. Your draft was preserved.`;
       }
@@ -65,7 +66,7 @@ export async function prepareChanges(
   const issues = await requestSaveValidation(
     changes,
     data,
-    liveFallback(changes, now, noTranslationImpact),
+    liveFallback(changes, now, noTranslationImpact, data.bundle.tooltips),
   );
   if (issues.some((issue) => issue.severity === 'error')) {
     const dependents = [
@@ -92,6 +93,7 @@ export async function prepareChanges(
         item: data.items[change.hash],
         ...(compendium ? { compendium } : {}),
         now,
+        ...(change.translationRevisions && { translationRevisions: change.translationRevisions }),
         ...(noTranslationImpact ? { noTranslationImpact } : {}),
       }),
     })),

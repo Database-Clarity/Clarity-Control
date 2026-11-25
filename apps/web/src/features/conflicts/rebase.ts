@@ -1,5 +1,6 @@
 import {
   langSchema,
+  languages,
   mergeTextWithMarkers,
   merge3,
   stableStringify,
@@ -9,7 +10,8 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import type { SaveConflict } from '../../services/api';
-import { sameDraftContent, type Drafts } from '../../services/draftStorage';
+import { retainedRevisions, sameDraftContent, type Drafts } from '../../services/draftStorage';
+import type { TranslationRevisions } from '../../../../../packages/core/src/translationRevision';
 import { resolveConflicts, resolutionKey, type Resolutions } from './reducer';
 
 /** "2026-11-03 18:02" in the viewer's local time: the stamp on the closing marker. */
@@ -64,6 +66,15 @@ export function rebaseConflict(
   let markers = 0;
   for (const field of fields.filter(isTextField)) {
     const lang = fieldLanguage(field);
+    if (
+      lang !== 'en' &&
+      conflict.translationRevisions?.[lang] &&
+      next.text[lang]?.text === base.text[lang]?.text
+    ) {
+      if (head.text[lang]) merged.text[lang] = head.text[lang];
+      else delete merged.text[lang];
+      continue;
+    }
     const result = mergeTextWithMarkers(
       base.text[lang]?.text ?? '',
       next.text[lang]?.text ?? '',
@@ -131,16 +142,33 @@ function reconcileOne(
     (theirs.changedAt ?? '') > (mine.changedAt ?? '') ? theirs.changedAt : mine.changedAt;
   const draft = changedAt ? { base, changedAt } : { base };
   const merge = merge3(origin, theirs.next, mine.next);
-  if (merge.ok) return { ...draft, next: merge.merged };
-  const rebased = rebaseConflict(
-    {
-      hash: mine.next.hash,
-      base: origin,
-      head: theirs.next,
-      next: mine.next,
-      fields: merge.conflicts.map(({ field }) => field),
-    },
-    () => '(other tab)',
-  );
-  return { ...draft, next: rebased?.next ?? mine.next };
+  const revisions: TranslationRevisions = {};
+  const next = merge.ok
+    ? merge.merged
+    : (rebaseConflict(
+        {
+          hash: mine.next.hash,
+          base: origin,
+          head: theirs.next,
+          next: mine.next,
+          fields: merge.conflicts.map(({ field }) => field),
+        },
+        () => '(other tab)',
+      )?.next ?? mine.next);
+  if (ancestor?.translationRevisions || mine.translationRevisions || theirs.translationRevisions) {
+    for (const lang of languages) {
+      if (lang === 'en') continue;
+      const a = ancestor?.translationRevisions?.[lang];
+      const m = mine.translationRevisions?.[lang];
+      const t = theirs.translationRevisions?.[lang];
+      const mineChanged = stableStringify(m ?? null) !== stableStringify(a ?? null);
+      const theirsChanged = stableStringify(t ?? null) !== stableStringify(a ?? null);
+      const useMine = mineChanged && (!theirsChanged || changedAt === mine.changedAt);
+      const winner = useMine ? m : t;
+      const original = useMine ? mine.base : theirs.base;
+      if (winner && original.text[lang]?.text === next.text[lang]?.text) revisions[lang] = winner;
+    }
+  }
+  const translationRevisions = retainedRevisions(revisions, base, next);
+  return { ...draft, next, ...(translationRevisions && { translationRevisions }) };
 }

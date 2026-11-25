@@ -35,7 +35,8 @@ function changedLanguages(draft: DraftPair) {
   const languages = new Set([...Object.keys(draft.base.text), ...Object.keys(draft.next.text)]);
   return [...languages].filter(
     (language) =>
-      draft.next.text[language as Lang]?.text !== draft.base.text[language as Lang]?.text,
+      draft.next.text[language as Lang]?.text !== draft.base.text[language as Lang]?.text ||
+      (language !== 'en' && draft.translationRevisions?.[language as Exclude<Lang, 'en'>]),
   );
 }
 
@@ -67,6 +68,7 @@ export interface DraftRow {
   kind: DraftKind;
   languages: string[];
   time?: string;
+  revisionNote?: string;
 }
 
 /** One row per draft, newest first within its kind. */
@@ -74,11 +76,25 @@ export function draftRows(drafts: Drafts): DraftRow[] {
   return Object.entries(drafts)
     .map(([hash, draft]) => {
       const languages = changedLanguages(draft);
+      const revisions = Object.entries(draft.translationRevisions ?? {});
+      const marks = revisions
+        .filter(([, proof]) => !proof.restore)
+        .map(([lang]) => languageLabel(lang));
+      const restores = revisions
+        .filter(([, proof]) => proof.restore)
+        .map(([lang]) => languageLabel(lang));
+      const revisionNote = [
+        marks.length ? `Marked as still correct (${marks.join(', ')})` : '',
+        restores.length ? `Restored translation revision (${restores.join(', ')})` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
       return {
         hash: Number(hash),
         kind: draftKind(draft, languages),
         languages,
         time: draft.changedAt ?? latest(draft, languages),
+        ...(revisionNote && { revisionNote }),
       };
     })
     .sort((a, b) => timeOf(b.time) - timeOf(a.time) || a.hash - b.hash);
@@ -140,6 +156,7 @@ const Row = memo(function Row({
             </span>
           ) : null,
           row.time ? <When key="t" value={row.time} /> : null,
+          row.revisionNote,
         ]
           .filter(Boolean)
           .map((part, at) => (

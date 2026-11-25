@@ -18,11 +18,14 @@ export function saveEnvelopeBytes(message: string, noTranslationImpact: boolean)
 }
 
 /** No live text changes in any language: a Compendium link or other metadata-only change. */
-export function metadataOnly({ base, next }: Change) {
-  return languages.every(
-    (lang) =>
-      base?.text[lang]?.text === next.text[lang]?.text &&
-      (!base || usesEnglishFallback(base, lang) === usesEnglishFallback(next, lang)),
+export function metadataOnly({ base, next, translationRevisions }: Change) {
+  return (
+    !translationRevisions &&
+    languages.every(
+      (lang) =>
+        base?.text[lang]?.text === next.text[lang]?.text &&
+        (!base || usesEnglishFallback(base, lang) === usesEnglishFallback(next, lang)),
+    )
   );
 }
 

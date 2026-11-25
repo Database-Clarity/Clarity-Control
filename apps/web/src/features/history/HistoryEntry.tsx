@@ -34,6 +34,7 @@ import {
 } from '../../ui/anchorPlacement';
 import { plainError } from '../../services/httpError';
 import { InlineAlert } from '../../ui/InlineAlert';
+import { languageLabel } from '../../languageLabels';
 
 const HOVER_DELAY = 120;
 const LEAVE_DELAY = 160;
@@ -68,12 +69,13 @@ export interface HistoryEntryProps {
   /** The save marked this tooltip's English change "No translation impact" (TR3 audit line). */
   noTranslationImpact?: boolean;
   carriedLanguages?: readonly Lang[];
+  stillCorrectLanguages?: readonly Lang[];
   /** Restore is offered only when the page may edit and drafts have loaded. */
   canRestore: boolean;
   /** Published artifacts compare the selected state to its next published state. */
   legacy?: boolean;
   /** Replaces the local draft with this revision; throws a readable error when not allowed. */
-  onRestore(version: Tooltip): void;
+  onRestore(version: Tooltip, commit: string): void;
   /** The language this user may roll back whole uploads in (managers, maintainers), if any. */
   rollbackLang?: Lang;
   /** Receives the outcome of an upload rollback (the history list remounts after it). */
@@ -297,6 +299,11 @@ export const HistoryEntry = memo(function HistoryEntry(props: HistoryEntryProps)
         {!!props.carriedLanguages?.length && (
           <span className={styles.noImpact}>
             Numbers carried to {props.carriedLanguages.join(', ')}
+          </span>
+        )}
+        {!!props.stillCorrectLanguages?.length && (
+          <span className={styles.noImpact}>
+            Marked {props.stillCorrectLanguages.map(languageLabel).join(', ')} as still correct
           </span>
         )}
         {props.noTranslationImpact && (
@@ -551,7 +558,7 @@ function RevisionPopover({
   function restore() {
     if (!source?.revision) return;
     try {
-      onRestore(source.revision);
+      onRestore(source.revision, entry.commit);
       onClose(true);
     } catch (reason) {
       setRestoreError(errorMessage(reason));

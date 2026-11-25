@@ -30,7 +30,7 @@ import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from '
 import { translationQueue, type Lang, type MarkupGlobals, type Tooltip } from '@clarity/core';
 import { apiUrl } from '../../services/api';
 import { importGlobals, previewNumberGlobals } from '../../services/tooltipImports';
-import { useDataStore, type EditorData } from '../../stores/data';
+import { tooltipSourceCommit, useDataStore, type EditorData } from '../../stores/data';
 import type { Drafts } from '../../services/draftStorage';
 import { useDraftStore } from '../../stores/drafts';
 import { usePausedForOtherTab, useConflictStore } from '../../stores/conflicts';
@@ -563,6 +563,22 @@ function TooltipWorkspace({
     (batchEditing ? upcoming.overlay?.[activeHash]?.next : undefined) ??
     tooltipFor(activeHash, data);
   const activeTooltip = drafts[activeHash]?.next ?? activeBase;
+  const activeDraft = drafts[activeHash];
+  const revision = lang !== 'en' ? activeDraft?.translationRevisions?.[lang] : undefined;
+  const reviewedCommit = tooltipSourceCommit(data, activeBase);
+  const reviewedEnglish = activeBase.text.en;
+  const canConfirmTranslation =
+    lang !== 'en' &&
+    !revision &&
+    !batchEditing &&
+    !sessions[activeHash] &&
+    access.reason === null &&
+    reviewedCommit &&
+    /^[0-9a-f]{40}$/.test(reviewedCommit) &&
+    reviewedEnglish &&
+    reviewedEnglish.text === activeTooltip.text.en?.text &&
+    activeBase.text[lang]?.text === activeTooltip.text[lang]?.text &&
+    (!activeDraft || activeDraft.base.text[lang]?.text === activeTooltip.text[lang]?.text);
   if (batchEditing && !upcoming.overlay?.[activeHash])
     access.reason =
       batchEditing.reason ?? 'Read-only: this tooltip is not in the destination batch.';
@@ -707,7 +723,9 @@ function TooltipWorkspace({
           <LanguageSummary
             base={activeBase}
             lang={lang}
-            draft={activeTooltip.text[lang]?.text !== activeBase.text[lang]?.text}
+            draft={
+              Boolean(revision) || activeTooltip.text[lang]?.text !== activeBase.text[lang]?.text
+            }
             plain
           />
         }
@@ -1015,7 +1033,7 @@ function TooltipWorkspace({
                 {!loading && access.reason === null && !textOf(activeHash) && (
                   <StartEnglishLoader hash={activeHash} />
                 )}
-                <div className={bannerStyles.status} role="status">
+                <div className={bannerStyles.status}>
                   {!loading && (
                     <TranslationBanner
                       saved={activeBase}
@@ -1027,6 +1045,26 @@ function TooltipWorkspace({
                       lang={lang}
                       data={data}
                       suspended={suspended}
+                      translationRevisions={activeDraft?.translationRevisions}
+                      onConfirm={
+                        canConfirmTranslation
+                          ? () => {
+                              useDraftStore.getState().setTranslationRevision(activeBase, lang, {
+                                commit: reviewedCommit,
+                                sourceUpdatedAt: reviewedEnglish.updatedAt,
+                              });
+                            }
+                          : undefined
+                      }
+                      onUndo={
+                        revision && !revision.restore && access.reason === null && !batchEditing
+                          ? () => {
+                              useDraftStore
+                                .getState()
+                                .setTranslationRevision(activeBase, lang, undefined);
+                            }
+                          : undefined
+                      }
                     />
                   )}
                 </div>

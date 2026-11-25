@@ -1,6 +1,7 @@
 import {
   hasConflictMarkers,
   isTranslatable,
+  languages,
   merge3,
   translationStateOf,
   type Lang,
@@ -10,11 +11,13 @@ import { stampRevisions } from '../../services/save/enrichers/metadata';
 import { expectedSubmission } from '../../services/save/recovery';
 import type { EditorData } from '../../stores/data';
 import { translatableEntry } from './queue';
+import type { TranslationRevisions } from '../../../../../packages/core/src/translationRevision';
 
 /** A draft's two sides. */
 interface Edit {
   base: Tooltip;
   next: Tooltip;
+  translationRevisions?: TranslationRevisions;
 }
 
 export type Update = ReturnType<typeof translationStateOf> & {
@@ -35,16 +38,27 @@ export function pendingTooltip(
   now = new Date().toISOString(),
 ): Tooltip {
   const typed = draft?.next.text[lang]?.text;
+  const revision = lang === 'en' ? undefined : draft?.translationRevisions?.[lang];
   if (
     !draft?.next.text.en ||
-    typed === draft.base.text[lang]?.text ||
+    (!revision && typed === draft.base.text[lang]?.text) ||
     hasConflictMarkers(typed ?? '')
   )
     return saved;
-  const stamped = stampRevisions(draft.base, draft.next, '', now);
-  if (draft.base === saved) return expectedSubmission(saved, stamped);
+  const stamped = stampRevisions(
+    draft.base,
+    draft.next,
+    '',
+    now,
+    false,
+    draft.translationRevisions,
+  );
+  const revised = revision
+    ? languages.filter((other) => other !== 'en' && draft.translationRevisions?.[other])
+    : [];
+  if (draft.base === saved) return expectedSubmission(saved, stamped, revised);
   const merged = merge3(draft.base, saved, stamped);
-  return merged.ok ? expectedSubmission(saved, merged.merged) : saved;
+  return merged.ok ? expectedSubmission(saved, merged.merged, revised) : saved;
 }
 
 /**

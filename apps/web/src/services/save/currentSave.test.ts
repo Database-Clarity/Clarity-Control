@@ -386,6 +386,21 @@ it('keeps a real resolver import target with or before its importer', () => {
   expect(chunks.flat()).toHaveLength(changes.length);
 });
 
+it('keeps a translation confirmation when planning save parts', () => {
+  const base = makeTooltip(99_001, 'English description. '.repeat(400));
+  base.text.de = { ...english, text: 'Deutsch.', sourceUpdatedAt: '2024-01-01T00:00:00Z' };
+  const sourceUpdatedAt = base.text.en!.updatedAt;
+  const next = { ...base, text: { ...base.text, de: { ...base.text.de, sourceUpdatedAt } } };
+  const change = {
+    hash: base.hash, base, next,
+    translationRevisions: { de: { commit: 'a'.repeat(40), sourceUpdatedAt } },
+  };
+  const data = loaded();
+  data.bundle.tooltips = { [base.hash]: base };
+  expect(fitsSaveRequest([change], 'Confirm German', false)).toBe(false);
+  expect(saveChunks([change], data, 'Confirm German', false)).toEqual([[change]]);
+});
+
 it('saves the importer repair before removing its old export', () => {
   const text = 'Existing text. '.repeat(120);
   const target = makeTooltip(10_001, `export Detail (\nText\n)\n${text}`);

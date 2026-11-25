@@ -41,6 +41,21 @@ const state = (saved: Tooltip, draft?: { base: Tooltip; next: Tooltip }) =>
   translationStateOf(pendingTooltip(saved, draft, 'de', at(300)), 'de');
 
 describe('the state once the draft is saved', () => {
+  it('confirms the reviewed English without editing German or hiding a newer English revision', () => {
+    const base = tooltip(100);
+    const draft = {
+      base,
+      next: base,
+      translationRevisions: { de: { commit: 'a'.repeat(40), sourceUpdatedAt: at(200) } },
+    };
+    const pending = pendingTooltip(base, draft, 'de', at(300));
+    expect(pending.text.de).toMatchObject({ text: base.text.de!.text, sourceUpdatedAt: at(200) });
+    expect(state(base, draft).state).toBe('current');
+    expect(state(base).state).toBe('outdated');
+    const head = structuredClone(base);
+    head.text.en = { ...head.text.en!, text: 'Another revision.', updatedAt: at(201) };
+    expect(state(head, draft)).toMatchObject({ state: 'outdated', ageMs: 86_400_000 });
+  });
   it('is the saved state without a draft', () => {
     expect(state(tooltip(null)).state).toBe('missing');
     expect(state(tooltip(200)).state).toBe('current');
