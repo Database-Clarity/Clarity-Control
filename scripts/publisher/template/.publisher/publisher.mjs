@@ -22676,7 +22676,7 @@ function validGlobalName(kind, name2) {
 body
 )`, declaration), name2);
 }
-var globalIdSchema, globalRevisionSchema, globalDigestSchema, globalKindSchema, sourceSchema, globalDefinitionSchema, globalRecordSchema, globalSegmentSchema, globalAggregateSchema, globalStoreSchema, globalConsumerSchema, globalCauseSchema, globalReviewSchema;
+var globalIdSchema, globalRevisionSchema, globalDigestSchema, globalKindSchema, sourceSchema, globalDefinitionSchema, globalRecordSchema, globalSegmentSchema, globalAggregateSchema, globalStoreSchema, globalConsumerSchema, globalCauseSchema;
 var init_model = __esm({
   "packages/core/src/globals/model.ts"() {
     "use strict";
@@ -22813,22 +22813,6 @@ var init_model = __esm({
       globalId: globalIdSchema,
       beforeRevision: globalRevisionSchema.nullable(),
       afterRevision: globalRevisionSchema.nullable()
-    }).strict();
-    globalReviewSchema = external_exports.object({
-      version: external_exports.literal(1),
-      consumer: globalConsumerSchema,
-      causes: external_exports.array(globalCauseSchema).min(1),
-      contentDigest: globalDigestSchema,
-      dependencyDigest: globalDigestSchema,
-      acknowledgement: external_exports.object({
-        by: external_exports.string().min(1),
-        at: timestampSchema,
-        contentDigest: globalDigestSchema,
-        dependencyDigest: globalDigestSchema,
-        /** Binds the before/after rendered review, including its complete cause set. */
-        impactDigest: globalDigestSchema,
-        decision: external_exports.enum(["edited", "no-text-change"])
-      }).strict().optional()
     }).strict();
   }
 });
@@ -28389,209 +28373,6 @@ function assertGlobalTransition(beforeInput, afterInput, tooltips) {
 init_prepare();
 init_schemas3();
 init_model();
-var keyOf = (hash2, lang) => `${hash2}:${lang}`;
-function resolveSnapshot(snapshot, blockers) {
-  const result = /* @__PURE__ */ new Map();
-  try {
-    const { tooltips: _tooltips, ...header } = snapshot;
-    void _tooltips;
-    globalImpactHeaderSchema.parse(header);
-    for (const [key, tooltip] of Object.entries(snapshot.tooltips)) {
-      tooltipSchema.parse(tooltip);
-      if (key !== String(tooltip.hash)) throw new Error(`Catalogue key/hash mismatch: ${key}`);
-      if (resolveAlias(tooltip.hash, snapshot.aliases) !== tooltip.hash)
-        throw new Error(`Alias ${key} has its own tooltip`);
-    }
-    const contexts = Object.values(snapshot.tooltips).map((tooltip) => ({
-      tooltip,
-      hash: tooltip.hash,
-      // Match exportLegacy's exact custom-tooltip fallback, including reserved hash 0.
-      type: snapshot.types[tooltip.hash] ?? tooltip.custom?.categoryId
-    }));
-    for (const alias of Object.keys(snapshot.aliases)) {
-      const canonical = resolveAlias(Number(alias), snapshot.aliases);
-      const target = snapshot.tooltips[canonical];
-      if (!target || snapshot.mode === "live" && isTextlessDescription(target)) continue;
-      const canonicalType = snapshot.types[canonical] ?? target.custom?.categoryId;
-      const type = snapshot.types[alias] ?? canonicalType;
-      if (type !== canonicalType) contexts.push({ tooltip: target, hash: Number(alias), type });
-    }
-    const resolvedContexts = /* @__PURE__ */ new Map();
-    for (const { tooltip, hash: hash2, type } of contexts) {
-      if (tooltip.hash >= 1 && tooltip.hash <= 3 || snapshot.mode === "live" && isTextlessDescription(tooltip))
-        continue;
-      if (type === void 0)
-        blockers.add(`Missing converter type provenance: ${snapshot.revision}/${tooltip.hash}`);
-      for (const language of Object.keys(tooltip.text)) {
-        const lang = language;
-        const context = JSON.stringify([tooltip.hash, type, lang]);
-        const existing2 = resolvedContexts.get(context);
-        if (existing2) {
-          result.set(keyOf(hash2, lang), { hash: hash2, lang, result: existing2 });
-          continue;
-        }
-        const blockHiddenImports = (source2) => {
-          const visible = removeUnusedText(source2, false);
-          if (markupImports(source2).some((line) => !visible.includes(line.trim())))
-            blockers.add(
-              `Hidden import context requires review: ${snapshot.revision}/${tooltip.hash}/${lang}`
-            );
-        };
-        const catalog = new Proxy(
-          {},
-          {
-            get(_target, key) {
-              if (typeof key !== "string") return void 0;
-              const hash3 = key === "global" ? 1 : Number(key);
-              if (!Number.isInteger(hash3)) return void 0;
-              const imported = snapshot.tooltips[resolveAlias(hash3, snapshot.aliases)];
-              const source2 = imported && !(snapshot.mode === "live" && isTextlessDescription(imported)) ? globalSourceText(imported, lang, snapshot.mode) : void 0;
-              if (source2 !== void 0) blockHiddenImports(source2);
-              return source2;
-            }
-          }
-        );
-        const text = globalSourceText(tooltip, lang, snapshot.mode);
-        blockHiddenImports(text);
-        const numberLanguage2 = globalSourceLanguage(tooltip, lang, snapshot.mode);
-        const globals = {
-          variables: catalog[2] ?? "",
-          titles: catalog[3] ?? "",
-          imports: catalog,
-          type,
-          lang: numberLanguage2
-        };
-        const validation = validateTextWithReads(
-          text,
-          lang,
-          globals,
-          false,
-          tooltip.hash,
-          snapshot.aliases
-        );
-        const parsed = parseMarkup(text, globals);
-        for (const issue2 of parsed.diagnostics) {
-          if (issue2.severity === "error")
-            blockers.add(`${snapshot.revision}/${tooltip.hash}/${lang}: ${issue2.message}`);
-        }
-        const rendered = {
-          rendered: JSON.stringify(parsed.lines),
-          reads: {
-            imports: [...validation.reads.imports].map(([key, hash3]) => ({ key, hash: hash3 })),
-            variables: [...validation.reads.variables],
-            conservativeTitles: true
-          }
-        };
-        resolvedContexts.set(context, rendered);
-        result.set(keyOf(hash2, lang), {
-          hash: hash2,
-          lang,
-          result: rendered
-        });
-      }
-    }
-  } catch (error62) {
-    blockers.add(
-      `Unproven snapshot ${snapshot.revision}: ${error62 instanceof Error ? error62.message : String(error62)}`
-    );
-  }
-  return result;
-}
-var GlobalSnapshotScans = class {
-  resolved = /* @__PURE__ */ new WeakMap();
-  referenced = /* @__PURE__ */ new WeakMap();
-  /** Every rendered cell, with whatever keeps the snapshot from being proven. */
-  resolve(snapshot) {
-    let resolved = this.resolved.get(snapshot);
-    if (!resolved) {
-      const blockers = /* @__PURE__ */ new Set();
-      resolved = { cells: resolveSnapshot(snapshot, blockers), blockers };
-      this.resolved.set(snapshot, resolved);
-    }
-    return resolved;
-  }
-  /** Every authored reference name of one kind in one language of the snapshot's sources. */
-  references(snapshot, kind, lang) {
-    const scans = this.referenced.get(snapshot) ?? /* @__PURE__ */ new Map();
-    this.referenced.set(snapshot, scans);
-    let names = scans.get(`${kind}:${lang}`);
-    if (!names) {
-      names = new Set(
-        Object.values(snapshot.tooltips).flatMap(
-          (tooltip) => globalReferenceSpans(globalSourceText(tooltip, lang, snapshot.mode) ?? "", kind).map(
-            (span2) => span2.name
-          )
-        )
-      );
-      scans.set(`${kind}:${lang}`, names);
-    }
-    return names;
-  }
-};
-function languageAffected(snapshot, change, lang) {
-  if (!change.languages) return true;
-  if (change.languages.includes("en")) return true;
-  const aggregate = snapshot.tooltips[globalAggregateHash(change.kind)];
-  const source2 = aggregate ? globalSourceLanguage(aggregate, lang, snapshot.mode) : lang;
-  return change.languages.includes(source2);
-}
-function calculateGlobalImpact(before, after, changes2, destination, scans = new GlobalSnapshotScans()) {
-  for (const change of changes2) {
-    globalCauseSchema.parse(change.cause);
-    for (const name2 of [change.beforeName, change.afterName])
-      if (name2 !== void 0 && !validGlobalName(change.kind, name2))
-        throw new Error("Invalid changed global name");
-    if (!change.beforeName && !change.afterName) throw new Error("Missing changed global identity");
-  }
-  const blockers = /* @__PURE__ */ new Set();
-  if (before.repository !== after.repository || before.mode !== after.mode)
-    blockers.add("Before/after snapshots must describe the same repository and resolution mode");
-  const old = scans.resolve(before), next = scans.resolve(after);
-  for (const blocker of [...old.blockers, ...next.blockers]) blockers.add(blocker);
-  const rows = [];
-  for (const key of /* @__PURE__ */ new Set([...old.cells.keys(), ...next.cells.keys()])) {
-    const a = old.cells.get(key), b = next.cells.get(key), { hash: hash2, lang } = a ?? b;
-    const causes = [];
-    let reason = "variable-read";
-    for (const change of changes2) {
-      let affected = false;
-      for (const [snapshot, cell] of [
-        [before, a],
-        [after, b]
-      ]) {
-        if (!cell || !languageAffected(snapshot, change, lang)) continue;
-        if (cell.result.reads.imports.some((read) => read.hash === globalAggregateHash(change.kind))) {
-          affected = true;
-          reason = "aggregate-import";
-        } else if (change.kind === "titles") {
-          affected = true;
-          reason = "title-preparation";
-        } else if (change.kind === "variables" && cell.result.reads.variables.some(
-          (name2) => name2 === change.beforeName || name2 === change.afterName
-        )) {
-          affected = true;
-        }
-      }
-      if (affected || blockers.size) causes.push(change.cause);
-    }
-    if (causes.length)
-      rows.push({
-        consumer: { hash: hash2, lang, destination },
-        causes,
-        reason: blockers.size ? "unproven" : reason,
-        before: a?.result ?? null,
-        after: b?.result ?? null
-      });
-  }
-  return globalImpactSchema.parse({
-    version: 1,
-    beforeRevision: before.revision,
-    afterRevision: after.revision,
-    complete: blockers.size === 0,
-    blockers: [...blockers],
-    rows
-  });
-}
 
 // packages/core/src/index.ts
 init_inPlaceReview();
@@ -28747,417 +28528,6 @@ function composeGlobalRelease(published, saved, ids) {
     if (!entries.some((old) => old.id === entry.id)) entries.push(entry);
   return reconcileGlobalStore(published.aggregates, entries);
 }
-function changedGlobalIds(published, saved) {
-  const next = new Map(saved.entries.map((entry) => [entry.id, entry]));
-  for (const entry of published.entries)
-    if (!next.has(entry.id)) throw new Error("Missing global tombstone");
-  return saved.entries.filter((entry) => {
-    const previous = published.entries.find((old) => old.id === entry.id);
-    return stableStringify(previous ?? null) !== stableStringify(entry);
-  }).map((entry) => entry.id);
-}
-
-// packages/core/src/globalsRelease/plan.ts
-init_contentHash();
-function consumerDocument(snapshot, hash2) {
-  return snapshot.tooltips[resolveAlias(hash2, snapshot.aliases)];
-}
-function changes(input2, ids, names) {
-  return ids.flatMap((id) => {
-    const old = input2.published.entries.find((entry) => entry.id === id);
-    const next = input2.saved.entries.find((entry) => entry.id === id);
-    const causes = input2.causes.filter((cause) => cause.globalId === id);
-    if (!causes.length)
-      causes.push({
-        globalId: id,
-        beforeRevision: old?.revision ?? null,
-        afterRevision: next.revision
-      });
-    return causes.map((cause) => ({
-      cause,
-      kind: next.kind,
-      beforeName: names?.[id] ?? old?.name,
-      afterName: next.name
-    }));
-  });
-}
-function impacts(input2, store, ids, scans, withdrawals) {
-  const beforeGlobals = projectGlobals(input2.published), afterGlobals = projectGlobals(store);
-  const alternativeGlobals = /* @__PURE__ */ new Map();
-  const fallbackAlternatives = (before, singleton) => {
-    return new Map(
-      ids.map((id) => {
-        const key = `${singleton}:${id}`;
-        if (!alternativeGlobals.has(key)) {
-          try {
-            alternativeGlobals.set(
-              key,
-              projectGlobals(
-                composeGlobalRelease(
-                  input2.published,
-                  input2.saved,
-                  singleton ? [id] : ids.filter((candidate) => candidate !== id)
-                )
-              )
-            );
-          } catch {
-            alternativeGlobals.set(key, void 0);
-          }
-        }
-        const globals = alternativeGlobals.get(key);
-        return [
-          id,
-          globals && scans.resolve({
-            ...before,
-            tooltips: { ...before.tooltips, ...globals }
-          })
-        ];
-      })
-    );
-  };
-  const afterLive = Object.fromEntries(
-    Object.entries({ ...input2.live.tooltips, ...input2.authored.tooltips, ...afterGlobals }).filter(
-      ([, document]) => resolveAlias(document.hash, input2.authored.aliases) === document.hash
-    )
-  );
-  const pairs = [
-    [
-      { ...input2.authored, tooltips: { ...input2.authored.tooltips, ...beforeGlobals } },
-      { ...input2.authored, tooltips: { ...input2.authored.tooltips, ...afterGlobals } },
-      void 0,
-      void 0
-    ],
-    ...(input2.priorAuthored ?? []).map(
-      ({ snapshot, names, published }) => [
-        snapshot,
-        { ...input2.authored, tooltips: { ...input2.authored.tooltips, ...afterGlobals } },
-        names,
-        published
-      ]
-    ),
-    [
-      { ...input2.live, tooltips: { ...input2.live.tooltips, ...beforeGlobals } },
-      {
-        ...input2.live,
-        aliases: input2.authored.aliases,
-        types: input2.authored.types,
-        tooltips: afterLive
-      },
-      void 0,
-      void 0
-    ]
-  ];
-  return pairs.map(([before, after, names, published]) => {
-    const edited = changes(input2, ids, names);
-    if (published && !calculateGlobalImpact(published, published, [], input2.destination, scans).complete)
-      throw new Error("Sync pending: historical published closure is incomplete");
-    let observedBefore = before;
-    let result = calculateGlobalImpact(
-      observedBefore,
-      after,
-      edited,
-      input2.destination,
-      scans
-    );
-    if (!result.complete && names && published) {
-      observedBefore = {
-        ...before,
-        tooltips: {
-          ...before.tooltips,
-          ...Object.fromEntries(
-            store.aggregates.map(({ document }) => [
-              document.hash,
-              published.tooltips[document.hash]
-            ])
-          )
-        }
-      };
-      result = calculateGlobalImpact(
-        observedBefore,
-        after,
-        edited,
-        input2.destination,
-        scans
-      );
-    }
-    if (!result.complete) throw new Error("Sync pending: resolver closure is incomplete");
-    if (withdrawals?.size) {
-      const current = names ? calculateGlobalImpact(after, after, edited, input2.destination, scans) : result;
-      for (const row of current.rows)
-        for (const { globalId } of row.causes) {
-          const removed = withdrawals.get(globalId);
-          if (removed === null || removed?.includes(row.consumer.lang) || removed?.includes("en"))
-            throw new Error("Sync pending: a removed global dependency is still referenced");
-        }
-    }
-    return expandReleaseDependencies(
-      input2,
-      observedBefore,
-      after,
-      result,
-      edited.map((change) => change.cause),
-      scans,
-      withdrawals && ids.length > 1 ? (singleton) => fallbackAlternatives(observedBefore, singleton) : void 0
-    );
-  });
-}
-function expandReleaseDependencies(input2, before, after, impact, causes, scans, counterfactuals) {
-  const probe = [
-    { kind: "titles", beforeName: "Release", afterName: "Release", cause: causes[0] }
-  ];
-  const census = calculateGlobalImpact(before, after, probe, input2.destination, scans);
-  if (!census.complete) throw new Error("Sync pending: import release closure is incomplete");
-  const key = (row) => `${row.consumer.hash}:${row.consumer.lang}`;
-  const rows = new Map(impact.rows.map((row) => [key(row), row]));
-  const globalOnly = calculateGlobalImpact(
-    before,
-    {
-      ...before,
-      tooltips: {
-        ...before.tooltips,
-        ...Object.fromEntries(
-          input2.saved.aggregates.map(({ document }) => [
-            document.hash,
-            after.tooltips[document.hash]
-          ])
-        )
-      }
-    },
-    probe,
-    input2.destination,
-    scans
-  );
-  if (!globalOnly.complete) throw new Error("Sync pending: global fallback closure is incomplete");
-  let omissions;
-  let singletons;
-  for (const row of globalOnly.rows)
-    if (row.before?.rendered !== row.after?.rendered && !rows.has(key(row))) {
-      const actual = census.rows.find((candidate) => key(candidate) === key(row));
-      if (!actual) continue;
-      omissions ??= counterfactuals?.(false);
-      const matching = (candidates) => candidates && [...candidates.values()].every((scan) => scan?.blockers.size === 0) ? new Set(
-        [...candidates].filter(
-          ([, scan]) => scan?.cells.get(key(row))?.result.rendered === row.after?.rendered
-        ).map(([id]) => id)
-      ) : void 0;
-      const unchangedWithout = matching(omissions);
-      let attributable = causes.filter(({ globalId }) => !unchangedWithout?.has(globalId));
-      if (!attributable.length) {
-        singletons ??= counterfactuals?.(true);
-        const unchangedWithOnly = matching(singletons);
-        attributable = causes.filter(({ globalId }) => unchangedWithOnly?.has(globalId));
-      }
-      rows.set(key(actual), {
-        ...actual,
-        reason: "variable-read",
-        causes: [
-          ...new Map(
-            (attributable.length ? attributable : causes).map((cause) => [
-              stableStringify(cause),
-              cause
-            ])
-          ).values()
-        ]
-      });
-    }
-  const dependencies = /* @__PURE__ */ new Map();
-  let progress = true;
-  while (progress) {
-    progress = false;
-    const add = (hash2, causes2) => {
-      hash2 = resolveAlias(hash2, after.aliases);
-      if (hash2 === 2 || hash2 === 3 || hash2 === 1 && input2.saved.aggregates.some((aggregate) => aggregate.document.hash === 1) || stableStringify(input2.live.tooltips[hash2] ?? null) === stableStringify(after.tooltips[hash2] ?? null))
-        return;
-      const existing2 = dependencies.get(hash2) ?? /* @__PURE__ */ new Map();
-      for (const cause of causes2)
-        if (!existing2.has(stableStringify(cause))) {
-          existing2.set(stableStringify(cause), cause);
-          progress = true;
-        }
-      dependencies.set(hash2, existing2);
-    };
-    for (const row of rows.values()) {
-      if (input2.live.tooltips[row.consumer.hash] || input2.live.aliases[row.consumer.hash])
-        add(row.consumer.hash, row.causes);
-      for (const read of [
-        ...row.before?.reads.imports ?? [],
-        ...row.after?.reads.imports ?? []
-      ])
-        add(read.hash, row.causes);
-    }
-    for (const row of census.rows) {
-      const causes2 = new Map(
-        (rows.get(key(row))?.causes ?? []).map((cause) => [stableStringify(cause), cause])
-      );
-      const reads = [
-        // An alias's shared source can release even when this particular render context
-        // never reads the changed global. Membership is canonical on both sides; review
-        // identity stays on the alias row, including across alias-map changes.
-        resolveAlias(row.consumer.hash, before.aliases),
-        resolveAlias(row.consumer.hash, after.aliases),
-        ...[...row.before?.reads.imports ?? [], ...row.after?.reads.imports ?? []].map(
-          (read) => read.hash
-        )
-      ];
-      for (const hash2 of reads)
-        for (const [id, cause] of dependencies.get(hash2) ?? [])
-          if (!causes2.has(id)) {
-            causes2.set(id, cause);
-            progress = true;
-          }
-      if (causes2.size)
-        rows.set(key(row), {
-          ...row,
-          reason: rows.get(key(row))?.reason ?? "aggregate-import",
-          causes: [...causes2.values()]
-        });
-    }
-  }
-  return { ...impact, rows: [...rows.values()] };
-}
-async function planGlobalRelease(input2) {
-  const changed = changedGlobalIds(input2.published, input2.saved);
-  if (!changed.length) return [];
-  const groups = changed.map((id) => /* @__PURE__ */ new Set([id]));
-  const join5 = (ids) => {
-    const touching = groups.filter((group) => ids.some((id) => group.has(id)));
-    if (touching.length < 2) return;
-    const target = touching[0];
-    for (const group of touching.slice(1)) {
-      for (const id of group) target.add(id);
-      groups.splice(groups.indexOf(group), 1);
-    }
-  };
-  const scans = new GlobalSnapshotScans();
-  const complete = impacts(input2, input2.saved, changed, scans);
-  for (const result2 of complete)
-    for (const row of result2.rows) join5(row.causes.map((cause) => cause.globalId));
-  const membership = /* @__PURE__ */ new Map();
-  for (const id of changed)
-    for (const impact of impacts(
-      input2,
-      composeGlobalRelease(input2.published, input2.saved, [id]),
-      [id],
-      scans
-    ))
-      for (const row of impact.rows) {
-        const key = `${row.consumer.hash}:${row.consumer.lang}`;
-        const ids = membership.get(key) ?? /* @__PURE__ */ new Set();
-        ids.add(id);
-        membership.set(key, ids);
-        join5([...ids]);
-      }
-  for (const store of [input2.saved, input2.published])
-    for (const entry of store.entries) {
-      const reads = Object.values(entry.definitions).flatMap(
-        (cell) => ["variables", "titles", "exports"].flatMap(
-          (kind) => globalReferenceSpans(cell.body, kind).map((span2) => ({ kind, name: span2.name }))
-        )
-      );
-      join5([
-        entry.id,
-        ...store.entries.filter(
-          (other) => reads.some((read) => read.kind === other.kind && read.name === other.name)
-        ).map((other) => other.id)
-      ]);
-    }
-  const result = [];
-  for (const group of groups) {
-    const ids = [...group].sort();
-    const store = composeGlobalRelease(input2.published, input2.saved, ids);
-    const withdrawals = /* @__PURE__ */ new Map();
-    for (const entry of store.entries) {
-      if (!group.has(entry.id)) continue;
-      const previous = input2.published.entries.find(({ id }) => id === entry.id);
-      const removed = Object.keys(previous?.definitions ?? {}).filter(
-        (lang) => !entry.definitions[lang]
-      );
-      if (entry.tombstone || removed.length)
-        withdrawals.set(entry.id, entry.tombstone ? null : removed);
-    }
-    const contexts = impacts(input2, store, ids, scans, withdrawals);
-    const rows = /* @__PURE__ */ new Map();
-    for (const impact of contexts)
-      for (const view of impact.rows) {
-        const { hash: hash2, lang } = view.consumer;
-        const saved = consumerDocument(input2.authored, hash2) ?? consumerDocument(input2.live, hash2);
-        if (!saved) throw new Error("Deleted consumer dependency");
-        const dependencies = new Set(
-          [...view.before?.reads.imports ?? [], ...view.after?.reads.imports ?? []].map(
-            (read) => resolveAlias(read.hash, input2.authored.aliases)
-          )
-        );
-        const dependencyDocuments = {};
-        for (const dependency of dependencies) {
-          const document = Object.hasOwn(projectGlobals(store), dependency) ? projectGlobals(store)[dependency] : input2.authored.tooltips[dependency] ?? input2.live.tooltips[dependency];
-          if (!document) throw new Error("Deleted imported dependency");
-          dependencyDocuments[dependency] = document;
-        }
-        const id = await globalIdentityDigest(view.consumer);
-        const old = rows.get(id);
-        const previous = consumerDocument(input2.live, hash2) ?? input2.priorAuthored?.map(({ snapshot }) => consumerDocument(snapshot, hash2)).find(Boolean) ?? consumerDocument(input2.authored, hash2);
-        const beforeSource = previous ? globalSourceText(
-          previous,
-          lang,
-          consumerDocument(input2.live, hash2) ? "live" : "authored"
-        ) ?? "" : "";
-        const afterSource = globalSourceText(saved, lang, "live") ?? "";
-        rows.set(id, {
-          id,
-          view: {
-            ...view,
-            before: view.before ?? old?.view.before ?? null,
-            causes: [
-              ...new Map(
-                [...old?.view.causes ?? [], ...view.causes].map((cause) => [
-                  stableStringify(cause),
-                  cause
-                ])
-              ).values()
-            ]
-          },
-          beforeSource,
-          afterSource,
-          contentDigest: await globalIdentityDigest(saved),
-          dependencyDigest: await globalIdentityDigest({
-            ids,
-            entries: store.entries.filter((entry) => ids.includes(entry.id)),
-            dependencyDocuments,
-            aliases: input2.authored.aliases,
-            types: input2.authored.types,
-            reads: [view.before?.reads, view.after?.reads]
-          }),
-          impactDigest: await globalIdentityDigest([
-            old?.impactDigest ?? null,
-            view,
-            beforeSource,
-            afterSource
-          ])
-        });
-      }
-    const hashes = /* @__PURE__ */ new Set();
-    for (const row of rows.values()) {
-      if (input2.live.tooltips[row.view.consumer.hash] || input2.live.aliases[row.view.consumer.hash])
-        hashes.add(resolveAlias(row.view.consumer.hash, input2.authored.aliases));
-      for (const read of [
-        ...row.view.before?.reads.imports ?? [],
-        ...row.view.after?.reads.imports ?? []
-      ])
-        hashes.add(resolveAlias(read.hash, input2.authored.aliases));
-    }
-    for (const aggregate of store.aggregates) hashes.add(aggregate.document.hash);
-    result.push({
-      ids,
-      rows: [...rows.values()],
-      hashes: [...hashes].sort((a, b) => a - b),
-      store
-    });
-  }
-  return result.sort((a, b) => stableStringify(a.ids).localeCompare(stableStringify(b.ids)));
-}
-
-// packages/core/src/globalsRelease/admission.ts
-var publicationSourcesPath = (destination) => `globals/proofs/publication-sources/${destination}.json`;
 
 // packages/core/src/globalsRelease/configTree.ts
 init_zod();
@@ -31108,46 +30478,6 @@ var removalSchema = external_exports.object({
     conservativeTitles: external_exports.literal(0)
   }).strict()
 }).strict();
-var rowSchema = external_exports.object({
-  ...proof,
-  id: token,
-  review: globalReviewSchema,
-  impactDigest: globalDigestSchema,
-  projected: external_exports.literal(false),
-  view: globalImpactRowSchema.extend({
-    variant: external_exports.number().int().nonnegative(),
-    name: external_exports.string().max(256),
-    category: external_exports.string().max(128),
-    line: external_exports.number().int().positive().nullable(),
-    path: external_exports.array(external_exports.string().max(128)).max(32).nullable(),
-    direct: external_exports.boolean().nullable(),
-    archived: external_exports.boolean(),
-    beforeSource: external_exports.string().max(8192),
-    afterSource: external_exports.string().max(8192)
-  }).strict()
-}).strict().refine(
-  (v) => v.review.causes.length <= limits.causes && JSON.stringify(v.review.consumer) === JSON.stringify(v.view.consumer) && JSON.stringify(v.review.causes) === JSON.stringify(v.view.causes),
-  "Review manifest mismatch"
-).refine((v) => {
-  if ((v.review.acknowledgement?.by.length ?? 0) > 128) return false;
-  const maximumAudit = {
-    by: "\0".repeat(128),
-    at: "9999-12-31T23:59:59.999Z",
-    contentDigest: v.review.contentDigest,
-    dependencyDigest: v.review.dependencyDigest,
-    impactDigest: v.impactDigest,
-    decision: "no-text-change"
-  };
-  return globalFileBytes({ ...v, review: { ...v.review, acknowledgement: maximumAudit } }) <= limits.entryBytes;
-}, "Review must reserve acknowledgement capacity");
-var publicationSchema = external_exports.object({
-  ...proof,
-  consumer: globalConsumerSchema,
-  causeIds: external_exports.array(token).max(limits.causes),
-  independent: external_exports.boolean(),
-  // Offline producer has checked all current ledger acknowledgements and resolver blockers.
-  approved: external_exports.literal(true)
-}).strict();
 var pageSchema = external_exports.object({
   version: external_exports.literal(1),
   ids: external_exports.array(globalIdSchema).max(limits.page),
@@ -31174,7 +30504,6 @@ var mutationSchema = external_exports.object({
 var paths = {
   sync: "globals/sync.json",
   entry: (id) => `globals/entries/${id}.json`,
-  row: (id) => `globals/reviews/${id}.json`,
   page: (cursor) => `globals/pages/${cursor}.json`,
   removal: (id, lang) => `globals/proofs/removal/${id}-${lang ?? "all"}.json`
 };
@@ -31390,13 +30719,9 @@ function editIndex(io, tree, batch, hashes, at) {
 `);
 }
 
-// scripts/publisher/publisher.ts
-import { setTimeout as setTimeout2 } from "node:timers/promises";
-
 // scripts/publisher/globals.ts
 init_zod();
 import { createHash as createHash3 } from "node:crypto";
-init_model();
 
 // packages/export/src/v2/vocabulary.ts
 var configurableFormatVersion = 2;
@@ -32140,11 +31465,12 @@ function globalsFence(pub, tree) {
     throw new Error("The shared text migration belongs to another LIVE branch.");
   return fence;
 }
-function requireGlobalsMode(pub, tree, globals = false) {
+function requireGlobalsMode(pub, tree) {
   const fence = globalsFence(pub, tree);
-  if (fence?.state === "hold")
+  if (!fence)
+    throw new Error("Publication requires an active config/globals-in-place.json migration.");
+  if (fence.state === "hold")
     throw new Error("Publication is paused for the shared text migration.");
-  if (!fence && globals) throw new Error("Review shared definitions with the current publisher.");
   return fence;
 }
 function assertInPlaceRoots(hashes) {
@@ -32295,7 +31621,13 @@ function provePublication(pub, tree, live, documents, aliases, moves, now, expor
           );
   }
   const raw = exportGlobalsProof(documents, now, pub.options.facts, aliases, moves, options);
-  const merge2 = (entries) => pub.mergePublicationPerks(tree, live.perks, entries, hashes);
+  const merge2 = (entries) => {
+    try {
+      return pub.mergePublicationPerks(tree, live.perks, entries, hashes);
+    } catch (error62) {
+      throw new ConsumerOutputRejected(String(error62));
+    }
+  };
   proveInPlaceInputs(
     live,
     { ...live, perks: merge2(raw) },
@@ -32635,7 +31967,9 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
     let priorOptions;
     const priorDocument = (hash2) => {
       const row = live.perks[hash2];
-      const doc = liveDocs.find((doc2) => doc2.hash === (row && "aliasOf" in row ? row.aliasOf : hash2));
+      const doc = liveDocs.find(
+        (doc2) => doc2.hash === (row && "aliasOf" in row ? row.aliasOf : hash2)
+      );
       if (doc) return rewriteTooltipGlobals(doc, priorRename);
     };
     for (const row of Object.values(live.perks)) {
@@ -33191,8 +32525,6 @@ function bundleGlobals(tree, read) {
   if (cursors.size !== catalog.lastPage + 1) throw new Error("Invalid global catalog tail");
   return { entries, sync: publicGlobalSync(syncSchema.parse(read(tree, paths.sync))) };
 }
-var GlobalReleaseRejected = class extends Error {
-};
 var MissingPublishedSnapshot = class extends Error {
 };
 function globalTreeEntries(tree, prefix, modes = {}) {
@@ -33400,90 +32732,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
       mode: "live"
     };
   }
-  publicationSnapshot(tree, revision2, captured, documents) {
-    const { aliases, types } = captured.authored;
-    const hashes = documents.map(({ hash: hash2 }) => hash2);
-    const exported = exportWithInactiveMoves(
-      documents,
-      0,
-      this.options.facts,
-      aliases,
-      selectedInactiveMoves(this.publisher.movesAt(tree), hashes, aliases)
-    );
-    const perks = livePerksSchema.parse(
-      this.publisher.mergePublicationPerks(tree, captured.livePerks, exported, hashes)
-    );
-    const snapshot = this.liveSnapshot(
-      revision2,
-      perks,
-      {
-        ...captured.live.tooltips,
-        ...Object.fromEntries(
-          documents.filter(({ hash: hash2 }) => exported[hash2]).map((document) => [document.hash, document])
-        )
-      },
-      types
-    );
-    return { snapshot, perks };
-  }
-  async checkSavedLayout(tree, revision2, captured, selected, beforeDocuments, afterDocuments) {
-    const { aliases } = captured.authored;
-    const moves = this.publisher.movesAt(tree);
-    for (const hash2 of selected) {
-      const requested = tooltipSchema.parse(this.read(tree, `tooltips/${hash2}.json`));
-      const projected = afterDocuments.find((document) => document.hash === hash2);
-      if (await inactivePublishableHash(requested, aliases, moves) !== await inactivePublishableHash(projected, aliases, moves))
-        throw new GlobalReleaseRejected(
-          `Tooltip ${hash2} would publish a different revision than requested. Review the changes again.`
-        );
-    }
-    if (stableStringify(beforeDocuments) === stableStringify(afterDocuments)) return;
-    if ("error" in this.publisher.checkAndExport(tree, afterDocuments, aliases))
-      throw new GlobalReleaseRejected("The saved global layout cannot be exported");
-    const before = this.publicationSnapshot(tree, revision2, captured, beforeDocuments);
-    const after = this.publicationSnapshot(tree, revision2, captured, afterDocuments);
-    const comparison = calculateGlobalImpact(
-      before.snapshot,
-      after.snapshot,
-      [
-        {
-          // Title preparation covers every consumer in the existing resolver.
-          kind: "titles",
-          beforeName: "Release",
-          cause: { globalId: "g_release000", beforeRevision: null, afterRevision: "layout" }
-        }
-      ],
-      this.options.liveBranch
-    );
-    if (!comparison.complete || comparison.rows.some((row) => stableStringify(row.before) !== stableStringify(row.after)))
-      throw new GlobalReleaseRejected(
-        "The saved global layout changes or cannot prove consumer output"
-      );
-    const baseline = projectGlobals(captured.published);
-    const perks = { ...before.perks };
-    for (const hash2 of selected) {
-      const previous = before.snapshot.tooltips[hash2];
-      if (captured.livePerks[hash2] && stableStringify(previous) !== stableStringify(after.snapshot.tooltips[hash2]) && stableStringify(previous) === stableStringify(baseline[hash2]))
-        perks[hash2] = captured.livePerks[hash2];
-    }
-    if (legacyPresets.some(
-      (preset) => !Buffer.from(buildLegacy({ perks }, preset)).equals(
-        buildLegacy({ perks: after.perks }, preset)
-      )
-    ))
-      throw new GlobalReleaseRejected("The saved global layout changes legacy consumer output");
-  }
-  async hasReleaseChanges(tree, captured, documents, aggregateHashes) {
-    const markers = pushedSchema.parse(this.read(tree, "live/pushed.json"));
-    const moves = this.publisher.movesAt(tree);
-    for (const document of documents) {
-      const previous = aggregateHashes.includes(document.hash) ? await inactivePublishableHash(document, captured.live.aliases) : markers[document.hash];
-      const next = await inactivePublishableHash(document, captured.authored.aliases, moves);
-      if (previous !== next) return true;
-    }
-    return false;
-  }
-  capture(tree, revision2, liveCommit, roots = []) {
+  capture(tree, revision2, liveCommit) {
     const published = globalPublishedSchema.parse(
       this.read(tree, globalsReleasePaths.published(this.options.liveBranch))
     );
@@ -33530,7 +32779,6 @@ var GlobalsPublisher = class _GlobalsPublisher {
         types,
         tooltips: {
           ...this.canonicalDocuments(tree, "tooltips", aliases),
-          ...Object.fromEntries(roots.map((document) => [document.hash, document])),
           ...projectGlobals(saved)
         },
         mode: "authored"
@@ -33539,9 +32787,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
       livePerks
     };
   }
-  causes(tree) {
-    const causes = [];
-    const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
+  assertPendingChanges(tree, sync) {
     for (const id of sync.causeIds) {
       const cause = pendingCauseSchema.parse(this.read(tree, `globals/causes/${id}.json`));
       if (cause.id !== id || cause.globalId !== sync.causeEntries[id])
@@ -33556,394 +32802,32 @@ var GlobalsPublisher = class _GlobalsPublisher {
       const after = entrySchema.parse(JSON.parse(this.git.blob(cause.after.blob)));
       if (after.id !== cause.globalId || after.revision !== cause.after.revision || cause.after.path !== globalsReleasePaths.entry(cause.globalId))
         throw new Error("Unproven after global identity");
-      const current = entrySchema.parse(this.read(tree, globalsReleasePaths.entry(cause.globalId)));
-      causes.push({
-        globalId: cause.globalId,
-        beforeRevision: cause.before?.revision ?? null,
-        afterRevision: cause.intentId && current.nameHistory.some((old) => old.revision === cause.before?.revision) ? cause.intentId : cause.after.revision
-      });
-    }
-    for (const path of Object.keys(tree).filter((path2) => path2.startsWith("globals/reviews/")))
-      causes.push(...rowSchema.parse(this.read(tree, path)).review.causes);
-    return [...new Map(causes.map((cause) => [stableStringify(cause), cause])).values()];
-  }
-  async plan(tree, revision2, live, roots = []) {
-    await this.validateCauses(tree, revision2);
-    const captured = this.capture(tree, revision2, live, roots);
-    const causes = this.causes(tree);
-    const prior = /* @__PURE__ */ new Map();
-    for (const path of Object.keys(tree).filter((path2) => path2.startsWith("globals/causes/")).sort()) {
-      const cause = pendingCauseSchema.parse(this.read(tree, path));
-      if (!causes.some(
-        (tuple2) => tuple2.globalId === cause.globalId && tuple2.beforeRevision === (cause.before?.revision ?? null) && (tuple2.afterRevision === cause.after.revision || tuple2.afterRevision === cause.intentId)
-      ))
-        continue;
-      const beforeTree = this.git.tree(cause.expectedHead), historical = this.historical(beforeTree, cause.beforeSources), before = historical.capture(beforeTree, cause.expectedHead, cause.beforeSources.live), beforeStore = before.saved;
-      prior.set(cause.expectedHead, {
-        snapshot: before.authored,
-        published: before.live,
-        names: Object.fromEntries(beforeStore.entries.map((entry) => [entry.id, entry.name]))
-      });
-    }
-    return planGlobalRelease({
-      ...captured,
-      causes,
-      priorAuthored: [...prior.values()],
-      destination: this.options.liveBranch
-    });
-  }
-  async validateCauses(tree, head) {
-    const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
-    for (const id of sync.causeIds) {
-      const cause = pendingCauseSchema.parse(this.read(tree, `globals/causes/${id}.json`));
-      if (!this.git.ancestor(cause.expectedHead, head) || !sameSources(
-        await this.historical(this.git.tree(cause.expectedHead), cause.beforeSources).sources(
-          this.git.tree(cause.expectedHead),
-          cause.beforeSources.live,
-          cause.expectedHead,
-          true
-        ),
-        cause.beforeSources
-      ))
-        throw new Error("Unproven global cause sources");
+      entrySchema.parse(this.read(tree, globalsReleasePaths.entry(cause.globalId)));
     }
   }
-  async release(tree, revision2, roots, live, batch) {
-    if (!hasGlobals(tree)) return void 0;
-    const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
-    const sources = await this.sources(tree, live, revision2);
-    const captured = this.capture(tree, revision2, live, batch?.documents), components = await this.plan(tree, revision2, live, batch?.documents);
-    const selected = roots.map((hash2) => resolveAlias(hash2, captured.authored.aliases));
-    const moves = this.publisher.movesAt(tree);
-    const activeSelection = selected.filter((hash2) => !isMovedInactive(hash2, moves));
-    const aggregateHashes = captured.saved.aggregates.map(({ document }) => document.hash);
-    const selectedAggregates = activeSelection.filter((hash2) => aggregateHashes.includes(hash2));
-    const aggregate = selectedAggregates.length > 0;
-    const selectedEntries = new Set(
-      captured.saved.entries.filter((entry) => activeSelection.includes(globalAggregateHash(entry.kind))).map((entry) => entry.id)
-    );
-    const relevant = components.filter(
-      (component) => component.ids.some((id) => selectedEntries.has(id)) || component.rows.some((row) => activeSelection.includes(row.view.consumer.hash)) || component.hashes.some(
-        (hash2) => !aggregateHashes.includes(hash2) && activeSelection.includes(hash2)
-      )
-    );
-    const ready = relevant.filter(
-      (component) => sync.status === "current" && component.rows.every((row) => {
-        const stored = rowSchema.safeParse(this.read(tree, `globals/reviews/${row.id}.json`));
-        return stored.success && sameSources(
-          batch ? { ...stored.data.sources, upcoming: sources.upcoming } : stored.data.sources,
-          sources
-        ) && this.approved(tree, row);
-      })
-    );
-    if (!aggregate && ready.length !== relevant.length || aggregate && relevant.length && !ready.length || relevant.some(
-      (component) => !ready.includes(component) && (component.rows.some((row) => activeSelection.includes(row.view.consumer.hash)) || component.hashes.some(
-        (hash2) => !aggregateHashes.includes(hash2) && activeSelection.includes(hash2)
-      ))
-    ))
-      throw new GlobalReleaseRejected("Sync pending: global dependency review required");
-    const ids = ready.flatMap((component) => component.ids);
-    let store = composeGlobalRelease(captured.published, captured.saved, ids);
-    let entryOnlyAggregates = ready.length !== relevant.length ? selectedAggregates : [];
-    const hashes = [
-      .../* @__PURE__ */ new Set([...selected, ...ready.flatMap((component) => component.hashes)])
-    ].sort((a, b) => a - b);
-    if (ids.length) {
-      const markers = pushedSchema.parse(this.read(tree, "live/pushed.json"));
-      for (const hash2 of hashes) {
-        const stored = this.read(tree, `live/tooltips/${hash2}.json`);
-        if (await hasUnpublishedInactiveMove(
-          hash2,
-          stored === void 0 ? null : tooltipSchema.parse(stored),
-          markers[hash2],
-          captured.authored.aliases,
-          moves
-        ))
-          throw new GlobalReleaseRejected(
-            "Publish inactive move decisions before releasing global dependencies"
-          );
-      }
-    }
-    const globals = projectGlobals(store);
-    if (batch) {
-      for (const hash2 of aggregateHashes) if (!hashes.includes(hash2)) hashes.push(hash2);
-    }
-    hashes.sort((a, b) => a - b);
-    let documents = hashes.map((hash2) => {
-      if (aggregateHashes.includes(hash2) && !globals[hash2])
-        throw new Error(`Missing published layout for aggregate ${hash2}`);
-      const document = globals[hash2] ?? captured.authored.tooltips[hash2] ?? captured.live.tooltips[hash2] ?? (!batch && selected.includes(hash2) && isMovedInactive(hash2, moves) ? { hash: hash2, text: {}, associated: [] } : void 0);
-      if (!document) throw new Error("Deleted release dependency");
-      return document;
-    });
-    if (aggregate && !entryOnlyAggregates.length) {
-      try {
-        if (sync.status !== "current")
-          throw new GlobalReleaseRejected("Sync pending: global dependency review required");
-        const exact = {
-          ...store,
-          aggregates: store.aggregates.map(
-            (layout) => selectedAggregates.includes(layout.document.hash) ? captured.saved.aggregates.find(
-              ({ document }) => document.hash === layout.document.hash
-            ) : layout
-          )
-        };
-        const projected = projectGlobals(exact);
-        const exactDocuments = documents.map((document) => projected[document.hash] ?? document);
-        await this.checkSavedLayout(
-          tree,
-          revision2,
-          captured,
-          selectedAggregates,
-          documents,
-          exactDocuments
-        );
-        store = exact;
-        documents = exactDocuments;
-      } catch (error62) {
-        if (!ids.length && !await this.hasReleaseChanges(tree, captured, documents, aggregateHashes))
-          throw error62 instanceof GlobalReleaseRejected ? error62 : new GlobalReleaseRejected(
-            "The saved global layout changes or cannot prove consumer output"
-          );
-        entryOnlyAggregates = selectedAggregates;
-      }
-    }
-    const published = globalPublishedSchema.parse({
-      version: 1,
-      destination: this.options.liveBranch,
-      store
-    });
-    if (batch) {
-      if (!this.git.ancestor(batch.source, revision2))
-        throw new Error("Scheduled global source is not in data branch history");
-      const sourceTree = this.git.tree(batch.source);
-      if (!hasGlobals(sourceTree))
-        throw new Error("Globals were added after scheduling; return to draft and schedule again");
-      const sourcePin = this.read(sourceTree, ".publisher/PIN");
-      if (sourcePin?.sourceSha !== this.options.publisherSha || sourcePin.sha256 !== this.options.publisherDigest)
-        throw new Error(
-          "The global resolver changed after scheduling; return to draft and schedule again"
-        );
-      const sourceConfig = external_exports.object({ generatorSha: external_exports.string().regex(/^[a-f0-9]{40}$/) }).safeParse(this.read(sourceTree, ".publisher/config.json"));
-      if (!sourceConfig.success)
-        throw new Error(
-          "Pinned global generator provenance is missing; return to draft and schedule again"
-        );
-      if (sourceConfig.data.generatorSha !== this.options.generatorSha)
-        throw new Error(
-          "The global generator changed after scheduling; return to draft and schedule again"
-        );
-      const sourceAliases = this.publisher.aliasesAt(sourceTree);
-      const { snapshot } = this.publicationSnapshot(tree, revision2, captured, documents);
-      const pinned = this.store(sourceTree);
-      const pinnedDocuments = this.canonicalDocuments(sourceTree, "live/tooltips", sourceAliases);
-      for (const document of documents)
-        if (selected.includes(document.hash)) pinnedDocuments[document.hash] = document;
-        else if (!aggregateHashes.includes(document.hash)) {
-          const original = this.read(sourceTree, `tooltips/${document.hash}.json`);
-          if (!original) throw new Error("Scheduled imported dependency was deleted");
-          pinnedDocuments[document.hash] = tooltipSchema.parse(original);
-        }
-      const originalSnapshot = {
-        ...snapshot,
-        revision: batch.source,
-        aliases: sourceAliases,
-        types: captured.authored.types,
-        tooltips: { ...pinnedDocuments, ...projectGlobals(pinned) }
-      };
-      const comparison = calculateGlobalImpact(
-        originalSnapshot,
-        snapshot,
-        [
-          {
-            kind: "titles",
-            beforeName: "Release",
-            cause: { globalId: "g_release000", beforeRevision: null, afterRevision: "pin" }
-          }
-        ],
-        this.options.liveBranch
-      );
-      if (!comparison.complete)
-        throw new Error("Scheduled global dependency closure is incomplete");
-      const selectedRows = comparison.rows.filter(
-        ({ consumer }) => selected.includes(resolveAlias(consumer.hash, originalSnapshot.aliases)) || selected.includes(resolveAlias(consumer.hash, snapshot.aliases))
-      );
-      if (selectedRows.some((row) => stableStringify(row.before) !== stableStringify(row.after)))
-        throw new Error(
-          "Global dependencies changed after scheduling; return to draft and schedule again"
-        );
-      const reads = selectedRows.map((row) => row.after.reads);
-      const used = store.entries.filter(
-        (entry) => entry.kind === "titles" || reads.some(
-          (read) => entry.kind === "variables" && read.variables.includes(entry.name) || read.imports.some(
-            (dependency) => dependency.hash === globalAggregateHash(entry.kind)
-          )
-        )
-      );
-      for (const entry of used) {
-        const original = pinned.entries.find((candidate) => candidate.id === entry.id);
-        const current = captured.saved.entries.find((candidate) => candidate.id === entry.id);
-        if (stableStringify(original) !== stableStringify(entry) || stableStringify(current) !== stableStringify(entry))
-          throw new Error(
-            `Global ${entry.name} changed after scheduling; return to draft and schedule again`
-          );
-      }
-      for (const entry of pinned.entries)
-        if ((entry.kind === "titles" || reads.some(
-          (read) => entry.kind === "variables" && read.variables.includes(entry.name) || read.imports.some(
-            (dependency) => dependency.hash === globalAggregateHash(entry.kind)
-          )
-        )) && !used.some((candidate) => candidate.id === entry.id))
-          throw new Error(
-            `Global ${entry.name} changed after scheduling; return to draft and schedule again`
-          );
-    }
-    const digest6 = await globalIdentityDigest({
-      sourceCommit: revision2,
-      sources,
-      ids,
-      documents,
-      published,
-      rows: ready.flatMap((component) => component.rows)
-    });
-    const receipt = {
-      version: 1,
-      roots,
-      sources,
-      digest: digest6,
-      published,
-      ...batch ? { batchSource: batch.source } : {}
-    };
-    return { documents, receipt, entryOnlyAggregates };
-  }
-  async validate(receipt, tree, head, live, cached2) {
-    if (!hasGlobals(tree) && !receipt) return void 0;
-    if (!receipt || receipt.version !== 1) throw new Error("Global release receipt required");
-    const checked = cached2 ?? await this.release(tree, head, receipt.roots, live);
-    if (!checked || checked.receipt.digest !== receipt.digest || stableStringify(checked.receipt.published) !== stableStringify(receipt.published))
-      throw new Error("Global release changed since review");
-    return checked;
-  }
-  /** Current permission check also applies to old acknowledgements at drain/recovery. */
-  approved(tree, row) {
-    const stored = rowSchema.safeParse(this.read(tree, `globals/reviews/${row.id}.json`));
-    if (!stored.success) return false;
-    const audit = stored.data.review.acknowledgement;
-    if (!audit || audit.contentDigest !== row.contentDigest || audit.dependencyDigest !== row.dependencyDigest || audit.impactDigest !== row.impactDigest)
-      return false;
-    const access = Object.values(
-      permissionsSchema.parse(this.read(tree, "config/permissions.json")).users
-    ).find((user) => user.login === audit.by);
-    return !!access && (["maintainer", "editor"].includes(access.role) || access.role === "translator" && row.view.consumer.lang !== "en" && !!access.languages?.includes(row.view.consumer.lang));
-  }
-  async materialize(tree, head, live) {
-    const store = this.store(tree);
-    const sources = await this.sources(tree, live, head);
-    const components = globalsFence(this.publisher, tree) ? [] : await this.plan(tree, head, live);
-    const oldRows = new Map(
-      Object.keys(tree).filter((path) => path.startsWith("globals/reviews/")).map((path) => [path, this.read(tree, path)])
-    );
-    for (const path of Object.keys(tree).filter(
-      (path2) => path2.startsWith("globals/reviews/") || path2.startsWith("globals/review-pages/")
-    ))
-      delete tree[path];
-    const rowsByEntry = /* @__PURE__ */ new Map();
-    const captured = this.capture(tree, head, live);
-    for (const component of components)
-      for (const row of component.rows) {
-        const path = `globals/reviews/${row.id}.json`;
-        const old = rowSchema.safeParse(oldRows.get(path));
-        const audit = old.success ? old.data.review.acknowledgement : void 0;
-        const keep2 = audit && old.success && old.data.sources.config === sources.config && old.data.sources.generator === sources.generator && old.data.sources.fallback === sources.fallback && old.data.sources.resolver === sources.resolver && audit.contentDigest === row.contentDigest && audit.dependencyDigest === row.dependencyDigest && audit.impactDigest === row.impactDigest;
-        const name2 = this.options.facts[row.view.consumer.hash]?.name ?? String(row.view.consumer.hash);
-        const value2 = rowSchema.parse({
-          version: 1,
-          complete: true,
-          sources,
-          id: row.id,
-          projected: false,
-          impactDigest: row.impactDigest,
-          review: {
-            version: 1,
-            consumer: row.view.consumer,
-            causes: row.view.causes,
-            contentDigest: row.contentDigest,
-            dependencyDigest: row.dependencyDigest,
-            ...keep2 ? { acknowledgement: audit } : {}
-          },
-          view: {
-            ...row.view,
-            variant: 0,
-            name: name2,
-            category: this.options.facts[row.view.consumer.hash]?.type ?? "",
-            line: null,
-            path: null,
-            direct: null,
-            archived: !!captured.authored.tooltips[row.view.consumer.hash]?.archive,
-            beforeSource: row.beforeSource,
-            afterSource: row.afterSource
-          }
-        });
-        this.write(tree, path, value2, limits.entryBytes);
-        for (const id of new Set(row.view.causes.map(({ globalId }) => globalId)))
-          rowsByEntry.set(id, [...rowsByEntry.get(id) ?? [], row.id]);
-      }
-    for (const entry of store.entries) {
-      const ids = [...new Set(rowsByEntry.get(entry.id) ?? [])].sort();
-      for (let page = 0; page === 0 || page * limits.page < ids.length; page++)
-        this.write(
-          tree,
-          `globals/review-pages/${entry.id}/p${page}.json`,
-          {
-            version: 1,
-            complete: true,
-            sources,
-            ids: ids.slice(page * limits.page, (page + 1) * limits.page),
-            nextCursor: (page + 1) * limits.page < ids.length ? `p${page + 1}` : null
-          },
-          limits.metadataBytes
-        );
-    }
-    await this.proofs(tree, head, sources, live, components);
-  }
-  async record(tree, receipt, head, live) {
-    const path = globalsReleasePaths.published(this.options.liveBranch);
-    const previous = globalPublishedSchema.parse(this.read(tree, path));
-    const released = changedGlobalIds(previous.store, receipt.published.store);
-    for (const rowPath of Object.keys(tree).filter((path2) => path2.startsWith("globals/reviews/"))) {
-      const row = rowSchema.parse(this.read(tree, rowPath));
-      if (row.review.causes.some((cause) => released.includes(cause.globalId)))
-        delete tree[rowPath];
-    }
-    tree[path] = this.git.writeBlob(json4(globalPublishedSchema.parse(receipt.published)));
-    if (syncSchema.parse(this.read(tree, globalsReleasePaths.sync)).status === "current") {
-      await this.materialize(tree, head, live);
-      for (const retry of Object.keys(tree).filter((path2) => path2.startsWith("globals/retries/")))
-        delete tree[retry];
-    }
-  }
-  async recordInPlaceProofs(tree, head, live) {
+  async recordProofs(tree, head, live) {
     if (syncSchema.parse(this.read(tree, globalsReleasePaths.sync)).status !== "current") return;
     const sources = await this.sources(tree, live, head);
     try {
-      await this.proofs(tree, head, sources, live, []);
+      await this.proofs(tree, head, sources, live);
     } catch (error62) {
       if (!(error62 instanceof MissingPublishedSnapshot)) throw error62;
     }
   }
-  async drain(expectedHead) {
+  /** Apply authored rename intents and refresh projections and guards in one DATA commit. */
+  async maintainAuthored(expectedHead) {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const head = this.publisher.head(this.options.dataBranch), original = this.git.tree(head);
+      const head = this.publisher.head(this.options.dataBranch);
       if (expectedHead !== void 0 && head !== expectedHead)
-        throw new RefRace("Global sync source moved");
-      if (!hasGlobals(original)) return head;
-      const fence = globalsFence(this.publisher, original);
-      if (fence?.state === "hold") return head;
+        throw new RefRace("Authored global source moved");
+      const original = this.git.tree(head);
+      requireGlobalsMode(this.publisher, original);
       const tree = { ...original };
+      const live = this.publisher.head(this.options.liveBranch);
       try {
         const sync = syncSchema.parse(this.read(tree, globalsReleasePaths.sync));
-        this.causes(tree);
-        await this.intents(tree, head);
+        this.assertPendingChanges(tree, sync);
+        await this.intents(tree, head, live);
         await this.releaseObsoleteClaims(tree);
         const store = this.store(tree);
         tree[globalsReleasePaths.layout] = this.git.writeBlob(
@@ -33951,17 +32835,13 @@ var GlobalsPublisher = class _GlobalsPublisher {
         );
         for (const [hash2, document] of Object.entries(projectGlobals(store)))
           tree[`tooltips/${hash2}.json`] = this.git.writeBlob(json4(document));
-        for (const path of Object.keys(tree).filter(
-          (path2) => path2.startsWith("globals/projections/")
-        ))
-          delete tree[path];
-        const live = this.publisher.head(this.options.liveBranch);
-        await this.materialize(tree, head, live);
-        if (fence)
-          for (const path of Object.keys(tree).filter((path2) => path2.startsWith("globals/causes/")))
+        for (const path of Object.keys(tree))
+          if (path.startsWith("globals/projections/")) delete tree[path];
+        const sources = await this.sources(tree, live, head);
+        await this.proofs(tree, head, sources, live);
+        for (const path of Object.keys(tree))
+          if (path.startsWith("globals/causes/") || path.startsWith("globals/retries/"))
             delete tree[path];
-        for (const path of Object.keys(tree).filter((path2) => path2.startsWith("globals/retries/")))
-          delete tree[path];
         this.write(
           tree,
           globalsReleasePaths.sync,
@@ -33971,61 +32851,20 @@ var GlobalsPublisher = class _GlobalsPublisher {
         if (this.publisher.head(this.options.liveBranch) !== live)
           throw new RefRace("Global live inputs raced");
         if (stableStringify(tree) === stableStringify(original)) return head;
-        const commit2 = this.git.commit(
-          head,
-          tree,
-          `Sync ${sync.causeIds.length} global causes`,
-          appCredits
-        );
+        const commit2 = this.git.commit(head, tree, "Update authored globals", appCredits);
         this.git.cas(`refs/heads/${this.options.dataBranch}`, head, commit2);
         return commit2;
       } catch (error62) {
         if (error62 instanceof RefRace) continue;
-        if (fence && error62 instanceof MissingPublishedSnapshot) return head;
-        const sync = syncSchema.safeParse(this.read(original, globalsReleasePaths.sync));
-        if (sync.success && sync.data.causeIds.length) {
-          let failed = { ...original };
-          this.write(
-            failed,
-            globalsReleasePaths.sync,
-            syncSchema.parse({
-              ...sync.data,
-              status: "sync-failed",
-              lastFailure: "Sync failed. Retry sync."
-            }),
-            limits.entryBytes
-          );
-          try {
-            const live = this.publisher.head(this.options.liveBranch);
-            const proofs = { ...failed };
-            await this.occupiedProofs(proofs, head, live);
-            if (this.publisher.head(this.options.liveBranch) !== live)
-              throw new RefRace("Global proof inputs raced");
-            failed = proofs;
-          } catch (proofError) {
-            if (proofError instanceof RefRace) continue;
-          }
-          try {
-            if (stableStringify(failed) === stableStringify(original)) throw error62;
-            this.git.cas(
-              `refs/heads/${this.options.dataBranch}`,
-              head,
-              this.git.commit(head, failed, "Record global sync failure", appCredits)
-            );
-          } catch (race) {
-            if (race instanceof RefRace) continue;
-            throw race;
-          }
-        }
+        if (error62 instanceof MissingPublishedSnapshot) return head;
         throw error62;
       }
     }
-    throw new Error("Sync pending: global inputs kept moving");
+    throw new RefRace("Authored global inputs kept moving");
   }
-  async intents(tree, head) {
+  async intents(tree, head, live) {
     const seen = /* @__PURE__ */ new Set();
-    const inPlace = globalsFence(this.publisher, tree)?.state === "active";
-    const current = await this.sources(tree, this.publisher.head(this.options.liveBranch), head);
+    const current = await this.sources(tree, live, head);
     for (const path of Object.keys(tree).filter((path2) => path2.startsWith("globals/intents/")).sort()) {
       const intent = intentSchema.parse(this.read(tree, path));
       const entryPath = globalsReleasePaths.entry(intent.globalId), entry = entrySchema.parse(this.read(tree, entryPath));
@@ -34067,7 +32906,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
             entry.kind,
             entry.name,
             intent.name,
-            inPlace
+            true
           );
           if (rewritten.edits.length) {
             definition2.body = rewritten.text;
@@ -34085,7 +32924,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
             entry.kind,
             entry.name,
             intent.name,
-            inPlace
+            true
           ).text;
       }
       const after = reconcileGlobalStore(before.aggregates, all, {
@@ -34153,42 +32992,8 @@ var GlobalsPublisher = class _GlobalsPublisher {
         }
     return localNames;
   }
-  async occupiedProofs(tree, head, live) {
-    const captured = this.capture(tree, head, live);
-    const sources = await this.sources(tree, live, head);
-    const localNames = this.localNames(tree, captured);
-    for (const entry of captured.saved.entries) {
-      if (entry.tombstone) continue;
-      const path = (await namePaths(entry.kind, entry.name)).proof;
-      const other = captured.published.entries.some(
-        (published) => !published.tombstone && published.id !== entry.id && published.kind === entry.kind && published.name === entry.name
-      );
-      if (other || localNames.has(
-        `${entry.kind === "variables" ? "variable" : entry.kind === "exports" ? "export" : "title"}:${entry.name}`
-      )) {
-        delete tree[path];
-        continue;
-      }
-      this.write(
-        tree,
-        path,
-        clashSchema.parse({
-          version: 1,
-          complete: true,
-          sources,
-          kind: entry.kind,
-          name: entry.name,
-          occupiedBy: entry.id,
-          localClash: false,
-          coverage: "authored-live-upcoming-fallback"
-        }),
-        limits.metadataBytes
-      );
-    }
-  }
-  async proofs(tree, head, sources, live, components) {
+  async proofs(tree, head, sources, live) {
     const captured = this.capture(tree, head, live), requested = /* @__PURE__ */ new Map();
-    const inPlace = Boolean(globalsFence(this.publisher, tree));
     for (const entry of captured.saved.entries)
       if (!entry.tombstone) requested.set(`${entry.kind}:${entry.name}`, entry);
     for (const path of Object.keys(tree).filter((path2) => path2.startsWith("globals/retries/"))) {
@@ -34197,86 +33002,7 @@ var GlobalsPublisher = class _GlobalsPublisher {
       const request = nameProofRequestSchema.parse(raw);
       requested.set(`${request.kind}:${request.name}`, request);
     }
-    const snapshots = [
-      captured.authored,
-      captured.live,
-      ...this.upcoming(tree).flatMap(
-        (documents) => ["authored", "live"].map((mode) => ({
-          ...captured.authored,
-          mode,
-          tooltips: { ...captured.authored.tooltips, ...documents }
-        }))
-      )
-    ];
-    const authoredSources = { ...captured.authored, tooltips: this.documents(tree, "tooltips") };
     const localNames = this.localNames(tree, captured);
-    const scans = new GlobalSnapshotScans();
-    for (const snapshot of inPlace ? [] : snapshots) {
-      const validation = calculateGlobalImpact(
-        snapshot,
-        snapshot,
-        [],
-        this.options.liveBranch,
-        scans
-      );
-      if (!validation.complete) throw new Error("Sync pending: proof coverage is incomplete");
-    }
-    for (const path of Object.keys(tree).filter(
-      (path2) => path2.startsWith("globals/proofs/publication/")
-    ))
-      delete tree[path];
-    const moves = this.publisher.movesAt(tree);
-    const entryAggregates = new Map(
-      captured.saved.entries.map(({ id, kind }) => [id, globalAggregateHash(kind)])
-    );
-    const hashes = new Set(Object.keys(captured.authored.tooltips).map(Number));
-    for (const key of Object.keys(moves)) {
-      const hash2 = Number(key);
-      if (isMovedInactive(hash2, moves) && resolveAlias(hash2, captured.authored.aliases) === hash2)
-        hashes.add(hash2);
-    }
-    for (const hash2 of inPlace ? [] : hashes)
-      for (const lang of [
-        .../* @__PURE__ */ new Set([
-          ...Object.keys(captured.authored.tooltips[hash2]?.text ?? {}),
-          ...isMovedInactive(hash2, moves) ? ["en"] : []
-        ])
-      ]) {
-        const aggregate = captured.saved.aggregates.some(({ document }) => document.hash === hash2);
-        const relevant = isMovedInactive(hash2, moves) ? [] : components.filter(
-          (component) => aggregate && component.ids.some((id) => entryAggregates.get(id) === hash2) || component.rows.some(
-            (row) => row.view.consumer.hash === hash2 && row.view.consumer.lang === lang
-          )
-        );
-        const ready = relevant.filter(
-          (component) => component.rows.every((row) => this.approved(tree, row))
-        );
-        if (aggregate ? relevant.length > 0 && ready.length === 0 : ready.length !== relevant.length)
-          continue;
-        const consumer = { hash: hash2, lang, destination: this.options.liveBranch };
-        this.write(
-          tree,
-          `globals/proofs/publication/${this.options.liveBranch}/${hash2}-${lang}.json`,
-          publicationSchema.parse({
-            version: 1,
-            complete: true,
-            sources,
-            consumer,
-            causeIds: [],
-            independent: relevant.length === 0,
-            approved: true
-          }),
-          limits.metadataBytes
-        );
-      }
-    if (!inPlace)
-      this.write(
-        tree,
-        publicationSourcesPath(this.options.liveBranch),
-        sources,
-        limits.metadataBytes
-      );
-    else delete tree[publicationSourcesPath(this.options.liveBranch)];
     for (const request of requested.values()) {
       const owners = [...captured.saved.entries, ...captured.published.entries].filter(
         (entry) => !entry.tombstone && entry.kind === request.kind && entry.name === request.name
@@ -34306,90 +33032,57 @@ var GlobalsPublisher = class _GlobalsPublisher {
         limits.metadataBytes
       );
     }
-    const removalDocs = inPlace ? [
-      ...new Set(
-        [...snapshots, authoredSources].flatMap((snapshot) => Object.values(snapshot.tooltips))
-      )
-    ].filter(({ hash: hash2 }) => hash2 > 3) : [];
-    const liveInput = inPlace && liveGlobalsInput(this.publisher, live);
-    const publishedById = inPlace && new Map(captured.published.entries.map((entry) => [entry.id, entry]));
-    for (const entry of captured.saved.entries)
+    const removalDocs = [
+      ...Object.values(this.documents(tree, "tooltips")),
+      ...Object.values(captured.live.tooltips),
+      ...this.upcoming(tree).flatMap(Object.values)
+    ].filter(({ hash: hash2 }) => hash2 > 3);
+    const liveInput = liveGlobalsInput(this.publisher, live);
+    const publishedById = new Map(captured.published.entries.map((entry) => [entry.id, entry]));
+    for (const entry of captured.saved.entries) {
+      const previous = publishedById.get(entry.id) ?? entry;
+      const issue2 = withdrawalIssue(
+        entry,
+        previous,
+        captured.saved,
+        captured.published,
+        removalDocs
+      );
+      let clear = !issue2;
+      if (clear) {
+        try {
+          assertHistoricalSecondaries(this.publisher, tree, liveInput, [entry]);
+        } catch {
+          clear = false;
+        }
+      }
       for (const lang of [void 0, ...Object.keys(entry.definitions)]) {
-        const names = [
-          ...new Set(
-            [
-              entry.name,
-              captured.published.entries.find((published) => published.id === entry.id)?.name
-            ].filter((name2) => name2 !== void 0)
-          )
-        ];
         const path = `globals/proofs/removal/${entry.id}-${lang ?? "all"}.json`;
         delete tree[path];
-        if (inPlace && lang && lang !== "en") continue;
-        if (liveInput && publishedById) {
-          const issue2 = withdrawalIssue(
-            entry,
-            publishedById.get(entry.id) ?? entry,
-            captured.saved,
-            captured.published,
-            removalDocs
-          );
-          if (issue2) continue;
-          try {
-            assertHistoricalSecondaries(this.publisher, tree, liveInput, [entry]);
-          } catch {
-            continue;
-          }
-        }
-        const referenced = !inPlace && snapshots.some((snapshot) => {
-          const change = {
-            cause: {
-              globalId: entry.id,
-              beforeRevision: entry.revision,
-              afterRevision: entry.revision
-            },
-            kind: entry.kind,
-            beforeName: names[0],
-            afterName: entry.name,
-            ...lang ? { languages: [lang] } : {}
-          };
-          const impact = calculateGlobalImpact(
-            snapshot,
-            snapshot,
-            names.map((name2) => ({ ...change, beforeName: name2 })),
-            this.options.liveBranch,
-            scans
-          );
-          return !impact.complete || impact.rows.length || languages2.some(
-            (language) => (!lang || language === lang || lang === "en") && names.some((name2) => scans.references(snapshot, entry.kind, language).has(name2))
-          );
-        });
-        const authoredReference = !inPlace && languages2.some(
-          (language) => names.some((name2) => scans.references(authoredSources, entry.kind, language).has(name2))
+        if (!clear || lang && lang !== "en") continue;
+        this.write(
+          tree,
+          path,
+          removalSchema.parse({
+            version: 1,
+            complete: true,
+            sources,
+            id: entry.id,
+            revision: entry.revision,
+            lang: lang ?? null,
+            references: {
+              authored: 0,
+              effective: 0,
+              live: 0,
+              upcoming: 0,
+              unresolved: 0,
+              conservativeTitles: 0
+            }
+          }),
+          limits.metadataBytes
         );
-        if (!referenced && !authoredReference)
-          this.write(
-            tree,
-            path,
-            removalSchema.parse({
-              version: 1,
-              complete: true,
-              sources,
-              id: entry.id,
-              revision: entry.revision,
-              lang: lang ?? null,
-              references: {
-                authored: 0,
-                effective: 0,
-                live: 0,
-                upcoming: 0,
-                unresolved: 0,
-                conservativeTitles: 0
-              }
-            }),
-            limits.metadataBytes
-          );
       }
+    }
   }
 };
 
@@ -34948,7 +33641,7 @@ function verifiedRequest(pub, tree, path) {
     );
     if (input2.finish !== true || manifest.id !== intent.requestId || manifest.ownerId !== intent.requester.id || manifest.parts !== intent.scheduledParts || manifest.parts > source2.members.length || manifest.revision !== intent.expectedRevision || manifest.ready)
       throw new InvalidScheduleIntent("Signed staged-save manifest mismatch");
-    const changes2 = [];
+    const changes = [];
     let message;
     for (let part = 0; part < manifest.parts; part++) {
       const oid5 = source2.tree[scheduleIntentPaths.stagedPart(intent.batchId, manifest.id, part)];
@@ -34960,12 +33653,12 @@ function verifiedRequest(pub, tree, path) {
       if (chunk.requestId !== intent.requestId || chunk.revision !== intent.expectedRevision || chunk.part !== part || !Array.isArray(chunk.changes) || typeof chunk.message !== "string" || message !== void 0 && message !== chunk.message)
         throw new InvalidScheduleIntent("Invalid staged save part");
       message = chunk.message;
-      changes2.push(...chunk.changes);
+      changes.push(...chunk.changes);
     }
     return {
       ...source2,
       request,
-      input: { requestId: input2.requestId, revision: input2.revision, changes: changes2, message }
+      input: { requestId: input2.requestId, revision: input2.revision, changes, message }
     };
   }
   return { ...source2, request, input: input2 };
@@ -35019,7 +33712,7 @@ var ProposalRejected = class extends PreparationRejected {
 var saveInput = external_exports.object({
   requestId: external_exports.string(),
   revision: external_exports.number().int().nonnegative(),
-  changes: external_exports.array(batchSaveChangeSchema).min(1).refine((changes2) => new Set(changes2.map((c) => c.hash)).size === changes2.length),
+  changes: external_exports.array(batchSaveChangeSchema).min(1).refine((changes) => new Set(changes.map((c) => c.hash)).size === changes.length),
   message: external_exports.string().trim().min(1).max(500),
   draftStaging: draftStagingInputSchema.optional()
 }).strict();
@@ -35200,7 +33893,7 @@ var SchedulePreparer = class {
       ]),
       pushed
     );
-    const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree), head);
+    const plan = await this.pub.batchPlan(tree, payload, this.pub.aliasesAt(tree));
     if ("failure" in plan) {
       const Rejection = plan.failure.proposalRejected ? ProposalRejected : plan.failure.retryable ? ConsumerOutputRejected : PreparationRejected;
       throw new Rejection(plan.failure.error ?? plan.failure.status, plan.failure.outcomes);
@@ -35647,7 +34340,7 @@ var changeSchema = external_exports.object({
 });
 var savedChangesSchema = external_exports.object({
   changes: external_exports.array(changeSchema).min(1).refine(
-    (changes2) => new Set(changes2.map(({ hash: hash2 }) => hash2)).size === changes2.length,
+    (changes) => new Set(changes.map(({ hash: hash2 }) => hash2)).size === changes.length,
     "Duplicate tooltip hash"
   ),
   message: external_exports.string().trim().min(1).max(500),
@@ -35998,7 +34691,6 @@ async function drainCurrentSaves(pub) {
 }
 
 // scripts/publisher/publisher.ts
-var publishBackoff = () => setTimeout2(3e4);
 var json5 = (v) => JSON.stringify(v, null, 2) + "\n";
 var dataRef = (branch) => `refs/heads/${branch}`;
 var paths2 = (id) => {
@@ -36051,7 +34743,6 @@ var NamedPartRefusal = class extends ConsumerOutputRejected {
   }
   outcomes;
 };
-var derivedGlobalPath = (path) => /^globals\/(?:proofs|review-pages)\//.test(path);
 var Publisher = class _Publisher {
   constructor(git, options) {
     this.git = git;
@@ -36061,7 +34752,6 @@ var Publisher = class _Publisher {
   options;
   checkedOutput;
   candidateOutput;
-  reviewedRelease;
   head(branch) {
     const h = this.git.head(dataRef(branch));
     if (!h) throw new Error(`Missing branch ${branch}`);
@@ -36271,7 +34961,7 @@ var Publisher = class _Publisher {
     if (!["maintainer", "editor"].includes(permissions.users[String(p.requester.id)]?.role))
       throw new Error("Requester revoked");
     requesterCredits(p.requester);
-    requireGlobalsMode(this, tree, p.kind === "push" && !!p.globals);
+    requireGlobalsMode(this, tree);
     return p;
   }
   /** Recovery credits come from the signed envelope, never from an unverified log or receipt. */
@@ -36445,9 +35135,9 @@ var Publisher = class _Publisher {
         path
       ))
         return true;
-      if (/^tooltips\/(?:0|[1-9]\d*)\.json$/.test(path) || /^globals\/(?:layout\.json$|sync\.json$|catalog\.json$|(?:entries|causes|intents|names|reviews|projections|pages)\/)/.test(
+      if (/^tooltips\/(?:0|[1-9]\d*)\.json$/.test(path) || /^globals\/(?:layout\.json$|sync\.json$|catalog\.json$|(?:entries|causes|intents|names|projections|pages)\/)/.test(
         path
-      ) || reviewed[globalsInPlacePath] && path === globalsReleasePaths.published(this.options.liveBranch) || derivedGlobalPath(path) || path.startsWith("schedule/") || [snippetsPath, inactiveMovesPath, aliasGroupsPath, sandboxPointersPath].includes(path)) {
+      ) || reviewed[globalsInPlacePath] && path === globalsReleasePaths.published(this.options.liveBranch) || /^globals\/proofs\/(?:clashes|removal)\//.test(path) || path.startsWith("schedule/") || [snippetsPath, inactiveMovesPath, aliasGroupsPath, sandboxPointersPath].includes(path)) {
         rebuild = true;
         return true;
       }
@@ -36478,10 +35168,6 @@ var Publisher = class _Publisher {
     }
     return rebuild ? "rebuild" : "bookkeeping";
   }
-  releaseKey(requestBlob, data, live) {
-    const { publisherSha, publisherDigest, generatorSha } = this.options;
-    return JSON.stringify([requestBlob, data, live, publisherSha, publisherDigest, generatorSha]);
-  }
   assertRequestedDigests(entries, hashes, expected2, aliases) {
     const markers = new Map(entries.map(({ hash: hash2, digest: digest6 }) => [hash2, digest6]));
     if (markers.size !== entries.length)
@@ -36494,8 +35180,14 @@ var Publisher = class _Publisher {
         );
     }
   }
-  async verifyReceiptDigests(receipt, atomic = false) {
+  async verifyReceiptDigests(receipt) {
+    if (!receipt.inPlace || receipt.globals)
+      throw new ConsumerOutputRejected(
+        "Use the pre-migration publisher to recover a legacy receipt."
+      );
     const frozen = this.git.tree(receipt.sourceCommit);
+    if (this.read(frozen, ".publisher/PIN")?.sourceSha !== receipt.publisherSha)
+      throw new ConsumerOutputRejected("Receipt does not match its frozen publisher PIN");
     const signed = await this.verifyRequest(receipt.requestBlob, receipt.opId, frozen);
     const options = receipt.generatorSha === this.options.generatorSha ? this.options : this.read(frozen, ".publisher/config.json");
     if (options?.generatorSha !== receipt.generatorSha)
@@ -36505,20 +35197,17 @@ var Publisher = class _Publisher {
     const aliases = this.aliasesAt(frozen, options);
     const moves = this.movesAt(frozen);
     const pushed = pushedSchema.parse(this.read(frozen, "live/pushed.json"));
-    if (Boolean(frozen[globalsInPlacePath]) !== Boolean(receipt.inPlace) || receipt.inPlace && receipt.globals)
-      throw new ConsumerOutputRejected("Receipt does not match the reviewed shared text.");
     if (signed.intentDigest !== receipt.intentDigest || stableStringify(signed.requester) !== stableStringify(receipt.requester))
       throw new ConsumerOutputRejected("Receipt does not match the signed publication intent");
-    if (!receipt.globals && receipt.entries.length !== new Set(signed.hashes.map((hash2) => resolveAlias(hash2, aliases))).size)
+    if (receipt.entries.length !== new Set(signed.hashes.map((hash2) => resolveAlias(hash2, aliases))).size)
       throw new ConsumerOutputRejected("Receipt does not match the requested rows");
     if (signed.kind === "push") {
-      if (!atomic || receipt.inPlace)
-        this.assertRequestedDigests(
-          receipt.entries,
-          signed.hashes,
-          (hash2) => signed.expected[hash2],
-          aliases
-        );
+      this.assertRequestedDigests(
+        receipt.entries,
+        signed.hashes,
+        (hash2) => signed.expected[hash2],
+        aliases
+      );
     } else {
       const members3 = batchMembers(this, frozen, signed.batchId);
       if (signed.batchId !== receipt.batchId || signed.contentRevision !== receipt.contentRevision || stableStringify(members3.map(({ hash: hash2 }) => hash2)) !== stableStringify(signed.hashes) || await approvedDigest(members3) !== signed.approvedDigest)
@@ -36550,47 +35239,65 @@ var Publisher = class _Publisher {
         aliases
       );
     }
-    if (atomic && !receipt.inPlace) return;
     try {
       const documents = [];
       for (const entry of receipt.entries) {
         const document = tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob)));
         if (document.hash !== entry.hash || await inactivePublishableHash(document, aliases, moves) !== entry.digest)
           throw new Error(`Tooltip ${entry.hash} does not match its receipt marker`);
-        if (signed.kind === "push" && !receipt.globals) {
+        if (signed.kind === "push") {
           const source2 = this.read(frozen, `tooltips/${entry.hash}.json`) ?? (isMovedInactive(entry.hash, moves) ? { hash: entry.hash, text: {}, associated: [] } : void 0);
           if (stableStringify(document) !== stableStringify(tooltipSchema.parse(source2)))
             throw new Error(`Tooltip ${entry.hash} does not match the frozen source snapshot`);
         }
         documents.push(document);
       }
-      const inPlace = this.inPlaceOptions(frozen, signed, receipt.liveParent);
-      const neutral = inPlace && neutralRenameHashes(this, frozen, receipt.entries, inPlace.rewritten);
+      const verifier = options === this.options ? this : new _Publisher(this.git, {
+        ...this.options,
+        generatorSha: options.generatorSha,
+        aliases: options.aliases,
+        facts: options.facts,
+        aliasFacts: options.aliasFacts,
+        sandboxConflicts: options.sandboxConflicts
+      });
+      const inPlace = verifier.inPlaceOptions(frozen, signed, receipt.liveParent, false);
+      const neutral = neutralRenameHashes(this, frozen, receipt.entries, inPlace.rewritten);
       const publishable = neutral?.size ? documents.filter(({ hash: hash2 }) => !neutral.has(hash2)) : documents;
-      const selected = selectedInactiveMoves(moves, publishable.map(({ hash: hash2 }) => hash2), aliases);
-      const active = inPlace ? publishable.filter(({ hash: hash2 }) => !isMovedInactive(hash2, selected)) : publishable;
-      const globalsInPlace = inPlace && authoredInPlaceOptions(
-        this,
+      const selected = selectedInactiveMoves(
+        moves,
+        publishable.map(({ hash: hash2 }) => hash2),
+        aliases
+      );
+      const active = publishable.filter(({ hash: hash2 }) => !isMovedInactive(hash2, selected));
+      const globalsInPlace = authoredInPlaceOptions(
+        verifier,
         frozen,
         inPlace.live,
         inPlace,
         active,
         activeAliases(aliases, selected)
       );
-      if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
-      if (inPlace && signed.kind === "batch") assertScheduledGlobalNames(active, inPlace);
+      assertInPlaceDocuments(active, globalsInPlace);
+      if (signed.kind === "batch") assertScheduledGlobalNames(active, inPlace);
       const exported = exportWithInactiveMoves(
         publishable,
         receipt.now,
         options.facts,
         aliases,
         selected,
-        globalsInPlace && { globalsInPlace }
+        { globalsInPlace }
       );
-      if (inPlace && globalsInPlace && publishable.length) {
-        refillImportedTooltips(this, frozen, inPlace, active, activeAliases(aliases, selected), exported);
+      if (publishable.length) {
+        refillImportedTooltips(
+          verifier,
+          frozen,
+          inPlace,
+          active,
+          activeAliases(aliases, selected),
+          exported
+        );
         provePublication(
-          this,
+          verifier,
           frozen,
           inPlace.live,
           publishable,
@@ -36602,7 +35309,7 @@ var Publisher = class _Publisher {
         );
       }
       const output2 = this.publicationOutput(inPlace, exported);
-      if (stableStringify(output2.exported) !== stableStringify(receipt.exported) || stableStringify(output2.inPlace ?? null) !== stableStringify(receipt.inPlace ?? null) || stableStringify(
+      if (stableStringify(output2.exported) !== stableStringify(receipt.exported) || stableStringify(output2.inPlace) !== stableStringify(receipt.inPlace) || stableStringify(
         receipt.entries.filter(({ hash: hash2, digest: digest6 }) => !neutral?.has(hash2) && pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2)
       ) !== stableStringify(receipt.changed))
         throw new Error("Publication receipt export or upload markers differ from its snapshots");
@@ -36613,11 +35320,13 @@ var Publisher = class _Publisher {
   }
   async record(opId, receipt, candidate, result, requestBlob, landing, atomicLive, failureHead) {
     const p = paths2(opId);
-    const inPlace = receipt && await this.verifyReceiptDigests(receipt, atomicLive !== void 0);
+    let inPlace;
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch), tree = this.git.tree(h);
+      requireGlobalsMode(this, tree);
       if (tree[p.log]) return;
-      if (receipt && (Boolean(tree[globalsInPlacePath]) !== Boolean(receipt.inPlace) || receipt.inPlace && tree[globalsInPlacePath] !== this.git.tree(receipt.sourceCommit)[globalsInPlacePath]))
+      if (receipt) inPlace ??= await this.verifyReceiptDigests(receipt);
+      if (receipt && tree[globalsInPlacePath] !== this.git.tree(receipt.sourceCommit)[globalsInPlacePath])
         throw new ConsumerOutputRejected("Publication is fenced by a different shared text mode.");
       if (failureHead && failureHead !== h) throw new RefRace("Batch refusal source moved");
       if (!receipt && new SchedulePreparer(this).batches(tree).some(
@@ -36647,11 +35356,11 @@ var Publisher = class _Publisher {
             );
           throw error62;
         });
-        if (receipt.inPlace && tree[p.request] !== receipt.requestBlob)
+        if (tree[p.request] !== receipt.requestBlob)
           throw new ConsumerOutputRejected(
             "Publication changed before landing; review the tooltip again."
           );
-        const liveMoved = signed.kind === "batch" && i > 0 && this.head(this.options.liveBranch) !== atomicLive.parent;
+        const liveMoved = i > 0 && this.head(this.options.liveBranch) !== atomicLive.parent;
         if (source2 !== h || liveMoved) {
           const advance = this.sourceAdvance(source2, h, tree, opId, signed.kind === "batch");
           if (advance === "blocked" && signed.kind === "batch")
@@ -36667,73 +35376,6 @@ var Publisher = class _Publisher {
               signed.hashes,
               signed.kind === "batch"
             );
-        }
-        if (!receipt.inPlace) {
-          let documents;
-          let entryOnlyAggregates = [];
-          if (signed.kind === "batch") {
-            const plan = await this.batchPlan(
-              tree,
-              signed,
-              this.aliasesAt(tree),
-              source2,
-              atomicLive.parent
-            );
-            if ("failure" in plan || stableStringify(plan.globals ?? null) !== stableStringify(receipt.globals ?? null))
-              throw new ConsumerOutputRejected("Scheduled global receipt identity mismatch");
-            documents = plan.entries.map(
-              (entry) => tooltipSchema.parse(JSON.parse(this.git.blob(entry.tooltipBlob)))
-            );
-          } else {
-            const reviewed = this.reviewedRelease;
-            const release = await new GlobalsPublisher(this).validate(
-              receipt.globals,
-              tree,
-              source2,
-              atomicLive.parent,
-              source2 === h && reviewed?.key === this.releaseKey(receipt.requestBlob, h, atomicLive.parent) ? reviewed.release : void 0
-            );
-            documents = release?.documents;
-            entryOnlyAggregates = release?.entryOnlyAggregates ?? [];
-          }
-          if (!documents || (signed.kind === "push" || receipt.globals) && stableStringify(signed.hashes) !== stableStringify(receipt.globals?.roots) || stableStringify(signed.requester) !== stableStringify(receipt.requester) || receipt.publisherSha !== this.options.publisherSha || receipt.generatorSha !== this.options.generatorSha)
-            throw new ConsumerOutputRejected("Global receipt identity mismatch");
-          const aliases = this.aliasesAt(tree);
-          if (signed.kind === "push")
-            this.assertRequestedDigests(
-              receipt.entries,
-              signed.hashes.filter(
-                (hash2) => !entryOnlyAggregates.includes(resolveAlias(hash2, aliases))
-              ),
-              (hash2) => signed.expected[hash2],
-              aliases
-            );
-          const moves = selectedInactiveMoves(
-            this.movesAt(tree),
-            documents.map((document) => document.hash),
-            aliases
-          );
-          const exported = exportWithInactiveMoves(
-            documents,
-            receipt.now,
-            this.options.facts,
-            aliases,
-            moves
-          );
-          if (stableStringify(exported) !== stableStringify(receipt.exported) || documents.length !== receipt.entries.length)
-            throw new ConsumerOutputRejected(
-              receipt.globals ? "Global receipt export mismatch" : "Publication receipt export mismatch"
-            );
-          for (const document of documents) {
-            const entry = receipt.entries.find((entry2) => entry2.hash === document.hash);
-            if (!entry || entry.digest !== await inactivePublishableHash(document, aliases, moves) || stableStringify(document) !== stableStringify(JSON.parse(this.git.blob(entry.tooltipBlob))))
-              throw new ConsumerOutputRejected("Global receipt dependency mismatch");
-          }
-          const markers = pushedSchema.parse(this.read(tree, "live/pushed.json"));
-          if (stableStringify(
-            receipt.entries.filter((entry) => markers[entry.hash] !== entry.digest).map((entry) => entry.hash)
-          ) !== stableStringify(receipt.changed))
-            throw new ConsumerOutputRejected("Global receipt upload marker mismatch");
         }
       }
       const blob = receipt?.requestBlob ?? requestBlob ?? tree[p.request];
@@ -36769,9 +35411,6 @@ var Publisher = class _Publisher {
           tree[`live/tooltips/${e.hash}.json`] = e.tooltipBlob;
         }
         tree["live/pushed.json"] = this.git.writeBlob(json5(pushed));
-        if (receipt.globals) {
-          await new GlobalsPublisher(this).record(tree, receipt.globals, h, candidate);
-        }
       }
       if (tree[p.request] && tree[p.request] !== blob) {
         let strayIntent;
@@ -36809,8 +35448,7 @@ var Publisher = class _Publisher {
         batchTimes.landedAt = landedAt;
         batchTimes.landedAtSource = "cas";
       }
-      if (receipt && inPlace)
-        await new GlobalsPublisher(this).recordInPlaceProofs(tree, h, candidate);
+      if (receipt && inPlace) await new GlobalsPublisher(this).recordProofs(tree, h, candidate);
       tree[p.log] = this.git.writeBlob(
         json5({
           request,
@@ -36856,6 +35494,7 @@ var Publisher = class _Publisher {
     const p = paths2(opId);
     for (let i = 0; i < 5; i++) {
       const h = this.head(this.options.dataBranch), t = this.git.tree(h);
+      requireGlobalsMode(this, t);
       if (!t[p.request]) return;
       const original = this.read(t, p.log);
       let intent;
@@ -36896,26 +35535,17 @@ var Publisher = class _Publisher {
     for (let attempt = 0; ; attempt++) {
       let s = this.head(this.options.dataBranch);
       let tree = this.git.tree(s);
+      requireGlobalsMode(this, tree);
       try {
         if (rebuilding && !tree[p.log]) {
           if (rebuilding.batch && !tree[p.request]) return;
           if (tree[p.request] !== rebuilding.requestBlob || s !== rebuilding.head && this.sourceAdvance(rebuilding.head, s, tree, opId, rebuilding.batch) === "blocked")
             throw new RefRace("Manual publish source no longer matches the retry fence");
-          const checked = await new GlobalsPublisher(this).drain(s);
-          const materialized = this.git.tree(checked);
-          const previous = this.git.tree(rebuilding.source);
-          const paths3 = /* @__PURE__ */ new Set([...Object.keys(previous), ...Object.keys(tree)]);
-          const sources = publicationSourcesPath(this.options.liveBranch);
-          if (tree[sources] && tree[sources] === materialized[sources] && [...paths3].some(
-            (path) => derivedGlobalPath(path) && previous[path] !== tree[path] && tree[path] !== materialized[path]
-          ))
-            throw new NamedPartRefusal(
-              `Could not verify the global proofs for ${this.partNames(previous, rebuilding.hashes)}. Nothing in this part went live. Review before publishing again.`
-            );
+          const checked = await new GlobalsPublisher(this).maintainAuthored(s);
           s = this.head(this.options.dataBranch);
           tree = this.git.tree(s);
           if (s !== checked && !tree[p.log] && this.sourceAdvance(checked, s, tree, opId, rebuilding.batch) !== "bookkeeping")
-            throw new RefRace("Manual publish source moved after sync");
+            throw new RefRace("Manual publish source moved during authored globals upkeep");
         }
         return await this.publishOperation(opId, s, tree, runtime, rebuilding);
       } catch (error62) {
@@ -36990,9 +35620,9 @@ var Publisher = class _Publisher {
     }
     const live = this.head(this.options.liveBranch), landed = this.receipt(live, opId);
     if (landed) {
-      const c = this.git.additions(live, p.receipt)[0]?.commit;
-      if (!c) throw new Error("Receipt addition commit missing");
-      await this.record(opId, landed, c, void 0, void 0, {
+      const c2 = this.git.additions(live, p.receipt)[0]?.commit;
+      if (!c2) throw new Error("Receipt addition commit missing");
+      await this.record(opId, landed, c2, void 0, void 0, {
         at: this.options.now(),
         source: "observed"
       });
@@ -37003,14 +35633,14 @@ var Publisher = class _Publisher {
     if (rebuilding && !candidate) throw new RefRace("Publish candidate moved");
     if (candidate?.r.batchId) {
       this.assertBatchRuntime(tree, runtime);
-      const { c, r } = candidate;
-      if (c !== rebuilding?.candidate && (r.publisherSha !== this.options.publisherSha || r.generatorSha !== this.options.generatorSha || r.verifierSha256 !== this.options.verifierDigest))
+      const { c: c2, r: r2 } = candidate;
+      if (c2 !== rebuilding?.candidate && (r2.publisherSha !== this.options.publisherSha || r2.generatorSha !== this.options.generatorSha || r2.verifierSha256 !== this.options.verifierDigest))
         throw new SourceAdvanced(
-          c,
+          c2,
           blob,
-          r.sourceCommit,
+          r2.sourceCommit,
           s,
-          r.globals?.roots ?? r.entries.map(({ hash: hash2 }) => hash2),
+          r2.entries.map(({ hash: hash2 }) => hash2),
           true
         );
     }
@@ -37046,8 +35676,8 @@ var Publisher = class _Publisher {
       }
       if (payload.kind === "batch") {
         this.assertBatchRuntime(tree, runtime);
-        const r = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
-        if (!r) {
+        const r2 = await this.claimBatch(opId, blob, s, tree, live, payload, aliases);
+        if (!r2) {
           if (candidate && this.git.tree(this.head(this.options.dataBranch))[p.log]) {
             try {
               this.git.cas(p.candidate, candidate.c, void 0);
@@ -37056,7 +35686,7 @@ var Publisher = class _Publisher {
           }
           return;
         }
-        candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
+        candidate = this.createCandidate(opId, blob, live, r2, rebuilding?.candidate);
       } else {
         const moves = this.movesAt(tree);
         const entries = [], tooltips = [], outcomes = [];
@@ -37111,46 +35741,14 @@ var Publisher = class _Publisher {
           await this.record(opId, void 0, void 0, { status: "stale", outcomes }, blob);
           return;
         }
-        let globals;
-        let entryOnlyAggregates = [];
-        if (hasGlobals(tree) && !tree[globalsInPlacePath]) {
-          try {
-            const release = await new GlobalsPublisher(this).release(tree, s, payload.hashes, live);
-            if (!release) throw new Error("Missing global release");
-            this.reviewedRelease = {
-              key: this.releaseKey(blob, s, live),
-              release: structuredClone(release)
-            };
-            globals = release.receipt;
-            entryOnlyAggregates = release.entryOnlyAggregates;
-            tooltips.splice(0, tooltips.length, ...release.documents);
-            entries.splice(
-              0,
-              entries.length,
-              ...await Promise.all(
-                release.documents.map(async (tooltip) => ({
-                  hash: tooltip.hash,
-                  digest: await inactivePublishableHash(tooltip, aliases, moves),
-                  tooltipBlob: this.git.writeBlob(json5(tooltip))
-                }))
-              )
-            );
-          } catch (error62) {
-            throw new ConsumerOutputRejected(
-              error62 instanceof GlobalReleaseRejected ? error62.message : "Sync pending: global dependency review required"
-            );
-          }
-        }
         this.assertRequestedDigests(
           entries,
-          payload.hashes.filter(
-            (hash2) => !entryOnlyAggregates.includes(resolveAlias(hash2, aliases))
-          ),
+          payload.hashes,
           (hash2) => payload.expected[hash2],
           aliases
         );
         const inPlace = this.inPlaceOptions(tree, payload, live);
-        const neutral = inPlace && neutralRenameHashes(this, tree, entries, inPlace.rewritten);
+        const neutral = neutralRenameHashes(this, tree, entries, inPlace.rewritten);
         const publishable = neutral?.size ? tooltips.filter(({ hash: hash2 }) => !neutral.has(hash2)) : tooltips;
         const checked = this.checkAndExport(tree, publishable, aliases, inPlace);
         if ("error" in checked) {
@@ -37164,7 +35762,7 @@ var Publisher = class _Publisher {
           return;
         }
         const pushed = pushedSchema.parse(this.read(tree, "live/pushed.json"));
-        const r = {
+        const r2 = {
           opId,
           requestBlob: blob,
           sourceCommit: s,
@@ -37179,119 +35777,61 @@ var Publisher = class _Publisher {
           changed: entries.filter(({ hash: hash2, digest: digest6 }) => !neutral?.has(hash2) && pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2),
           requester: payload.requester,
           intentDigest: payload.intentDigest,
-          ...globals ? { globals } : {},
-          ...checked.inPlace ? { inPlace: checked.inPlace } : {}
+          inPlace: checked.inPlace
         };
-        candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
+        candidate = this.createCandidate(opId, blob, live, r2, rebuilding?.candidate);
       }
     }
-    let rebases = 0;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      candidate = this.candidate(opId, blob);
-      if (!candidate) {
-        const landed2 = this.receipt(this.head(this.options.liveBranch), opId);
-        if (landed2?.opId === opId && landed2.requestBlob === blob && this.git.tree(this.head(this.options.dataBranch))[p.log])
-          return;
-        throw new Error("Candidate disappeared");
-      }
-      const { c, r } = candidate, l = this.head(this.options.liveBranch);
-      const found = this.receipt(l, opId);
-      if (found || this.git.ancestor(c, l)) {
-        await this.record(opId, found ?? r, c, void 0, void 0, {
-          at: this.options.now(),
-          source: "observed"
-        });
-        try {
-          this.git.cas(p.candidate, c, void 0);
-        } catch {
-        }
+    candidate = this.candidate(opId, blob);
+    if (!candidate) {
+      const landed2 = this.receipt(this.head(this.options.liveBranch), opId);
+      if (landed2?.requestBlob === blob && this.git.tree(this.head(this.options.dataBranch))[p.log])
         return;
-      }
-      try {
-        const mode = requireGlobalsMode(this, this.git.tree(this.head(this.options.dataBranch)));
-        if (Boolean(mode) !== Boolean(r.inPlace)) throw new Error("Publication mode changed.");
-      } catch (error62) {
-        throw new ConsumerOutputRejected(String(error62));
-      }
-      if (l === r.liveParent) {
-        const checked = this.merge(l, r);
-        const candidateBytes = this.git.blob(this.git.tree(c)["liveDescriptions.json"]);
-        if (candidateBytes !== checked.bytes)
-          throw new ConsumerOutputRejected(
-            "stored candidate differs from its checked receipt; nothing published"
-          );
-        if (r.batchId || r.globals || r.inPlace || hasGlobals(this.git.tree(this.head(this.options.dataBranch)))) {
-          try {
-            await this.record(
-              opId,
-              r,
-              c,
-              void 0,
-              void 0,
-              { at: this.options.now(), source: "cas" },
-              { parent: l, candidate: c, ...r.batchId ? { runtime } : {} }
-            );
-          } catch (error62) {
-            if (r.batchId || error62 instanceof RefRace || error62 instanceof SourceAdvanced || error62 instanceof ConsumerOutputRejected)
-              throw error62;
-            throw new ConsumerOutputRejected(
-              "Global publication changed or requires recovery; nothing partially published"
-            );
-          }
-          try {
-            this.git.cas(p.candidate, c, void 0);
-          } catch {
-          }
-          return;
-        }
-        await this.verifyReceiptDigests(r);
-        let pushed = false;
-        try {
-          this.git.cas(dataRef(this.options.liveBranch), l, c);
-          pushed = true;
-        } catch {
-        }
-        if (pushed) {
-          await this.record(opId, r, c, void 0, void 0, {
-            at: this.options.now(),
-            source: "cas"
-          });
-          try {
-            this.git.cas(p.candidate, c, void 0);
-          } catch {
-          }
-          return;
-        }
-      } else {
-        if (r.inPlace) {
-          const head = this.head(this.options.dataBranch);
-          throw new SourceAdvanced(
-            c,
-            blob,
-            r.sourceCommit,
-            head,
-            r.entries.map(({ hash: hash2 }) => hash2),
-            !!r.batchId
-          );
-        }
-        if (r.batchId && r.globals) {
-          const head = this.head(this.options.dataBranch);
-          if (this.sourceAdvance(r.sourceCommit, head, this.git.tree(head), opId, true) !== "blocked")
-            throw new SourceAdvanced(c, blob, r.sourceCommit, head, r.globals.roots, true);
-        }
-        if (r.globals || hasGlobals(this.git.tree(this.head(this.options.dataBranch))))
-          throw new ConsumerOutputRejected("Global live inputs changed; review publication again");
-        if (++rebases > 3) throw new Error("Rebase limit");
-        const next = this.buildCandidate(l, r);
-        try {
-          this.git.cas(p.candidate, c, next);
-        } catch {
-        }
-        continue;
-      }
-      if (attempt < 5) await (this.options.backoff ?? publishBackoff)(attempt);
+      throw new Error("Candidate disappeared");
     }
-    throw new Error("Publish unresolved; no later operation may run");
+    const { c, r } = candidate;
+    const l = this.head(this.options.liveBranch);
+    const found = this.receipt(l, opId);
+    if (found || this.git.ancestor(c, l)) {
+      await this.record(opId, found ?? r, c, void 0, void 0, {
+        at: this.options.now(),
+        source: "observed"
+      });
+    } else {
+      requireGlobalsMode(this, this.git.tree(this.head(this.options.dataBranch)));
+      if (!r.inPlace || r.globals)
+        throw new ConsumerOutputRejected(
+          "Use the pre-migration publisher to recover a legacy candidate."
+        );
+      if (l !== r.liveParent)
+        throw new SourceAdvanced(
+          c,
+          blob,
+          r.sourceCommit,
+          this.head(this.options.dataBranch),
+          r.entries.map(({ hash: hash2 }) => hash2),
+          !!r.batchId
+        );
+      const checked = this.merge(l, r);
+      const candidateBytes = this.git.blob(this.git.tree(c)["liveDescriptions.json"]);
+      if (candidateBytes !== checked.bytes)
+        throw new ConsumerOutputRejected(
+          "stored candidate differs from its checked receipt; nothing published"
+        );
+      await this.record(
+        opId,
+        r,
+        c,
+        void 0,
+        void 0,
+        { at: this.options.now(), source: "cas" },
+        { parent: l, candidate: c, ...r.batchId ? { runtime } : {} }
+      );
+    }
+    try {
+      this.git.cas(p.candidate, c, void 0);
+    } catch {
+    }
   }
   /**
    * The manual-publish content checks and the export, shared by `push` and `batch` (same order,
@@ -37322,7 +35862,7 @@ var Publisher = class _Publisher {
     const now = this.options.now();
     let exported;
     try {
-      const globalsInPlace = inPlace && authoredInPlaceOptions(
+      const globalsInPlace = authoredInPlaceOptions(
         this,
         tree,
         inPlace.live,
@@ -37330,17 +35870,19 @@ var Publisher = class _Publisher {
         active,
         activeAliases(aliases, moves)
       );
-      if (globalsInPlace) assertInPlaceDocuments(active, globalsInPlace);
-      exported = exportWithInactiveMoves(
-        tooltips,
-        now,
-        this.options.facts,
-        aliases,
-        moves,
-        globalsInPlace && { globalsInPlace }
-      );
-      if (inPlace && globalsInPlace && tooltips.length) {
-        refillImportedTooltips(this, tree, inPlace, active, activeAliases(aliases, moves), exported);
+      assertInPlaceDocuments(active, globalsInPlace);
+      exported = exportWithInactiveMoves(tooltips, now, this.options.facts, aliases, moves, {
+        globalsInPlace
+      });
+      if (tooltips.length) {
+        refillImportedTooltips(
+          this,
+          tree,
+          inPlace,
+          active,
+          activeAliases(aliases, moves),
+          exported
+        );
         provePublication(
           this,
           tree,
@@ -37354,12 +35896,12 @@ var Publisher = class _Publisher {
         );
       }
     } catch (error62) {
-      if (inPlace)
-        return {
-          error: inPlacePublishError(error62, this, tree, inPlace.baseline, inPlace),
-          proposalRejected: true
-        };
-      throw new ConsumerOutputRejected(String(error62));
+      if (error62 instanceof ConsumerOutputRejected && !(error62 instanceof ProposalOutputRejected))
+        return { error: error62.message, retryable: true };
+      return {
+        error: inPlacePublishError(error62, this, tree, inPlace.baseline, inPlace),
+        proposalRejected: true
+      };
     }
     const unlowered = unloweredEntry(exported);
     if (unlowered !== void 0)
@@ -37369,12 +35911,11 @@ var Publisher = class _Publisher {
       };
     return { now, ...this.publicationOutput(inPlace, exported) };
   }
-  inPlaceOptions(tree, payload, live) {
+  inPlaceOptions(tree, payload, live, checkInstalledPin = true) {
     try {
       const selection2 = payload.kind === "push" ? payload.globals ?? [] : [];
-      const fence = requireGlobalsMode(this, tree, selection2.length > 0);
-      if (!fence) return;
-      this.assertBatchRuntime(tree);
+      const fence = requireGlobalsMode(this, tree);
+      if (checkInstalledPin) this.assertBatchRuntime(tree);
       const pin = this.read(tree, ".publisher/PIN");
       if (!pin?.capabilities.includes(globalsInPlaceCapability))
         throw new Error("Update the installed publisher before publishing shared text.");
@@ -37402,7 +35943,6 @@ var Publisher = class _Publisher {
     }
   }
   publicationOutput(plan, exported) {
-    if (!plan) return { exported };
     return {
       exported: { ...plan.refills, ...exported },
       inPlace: {
@@ -37432,7 +35972,7 @@ var Publisher = class _Publisher {
    * What a batch publishes from snapshot `tree` (spec "Publication path" 4, "Composition"): every
    * guard on effective publication, inside the publisher (I1). Read-only; a failure is terminal.
    */
-  async batchPlan(tree, payload, aliases, revision2 = this.head(this.options.dataBranch), live = this.head(this.options.liveBranch)) {
+  async batchPlan(tree, payload, aliases, live = this.head(this.options.liveBranch)) {
     let members3;
     try {
       members3 = batchMembers(this, tree, payload.batchId);
@@ -37516,92 +36056,32 @@ var Publisher = class _Publisher {
     }
     if (outcomes.some((o) => o.status !== "accepted"))
       return { failure: { status: "stale", outcomes } };
-    let documents = tooltips;
-    let globals;
-    const prepared = this.read(tree, paths2(payload.opId).request);
-    if (!hasGlobals(tree) && prepared?.sourceIntent) {
-      const source2 = verifiedSource(this, prepared.sourceIntent);
-      if (hasGlobals(source2.tree))
-        return {
-          failure: {
-            status: "rejected",
-            error: "Global metadata was removed after scheduling; return to draft and schedule again",
-            globals: true
-          }
-        };
-    }
-    if (hasGlobals(tree) && !tree[globalsInPlacePath]) {
-      try {
-        new SchedulePreparer(this).pin(tree);
-        const pin = this.read(tree, ".publisher/PIN");
-        if (!pin?.capabilities.includes("scheduledGlobalsV1"))
-          throw new Error("The installed publisher does not support scheduled globals yet");
-        if (members3.some((member) => member.hash === 1 || member.hash === 2 || member.hash === 3))
-          throw new Error("Use global entry mutations instead of scheduled aggregate edits");
-        const envelope2 = prepared;
-        if (!envelope2?.sourceIntent)
-          throw new Error("Scheduled globals require a signed preparation source; schedule again");
-        const source2 = verifiedSource(this, envelope2.sourceIntent);
-        const release = await new GlobalsPublisher(this).release(
-          tree,
-          revision2,
-          payload.hashes,
-          live,
-          {
-            source: source2.intent.sourceCommit,
-            documents: tooltips
-          }
-        );
-        documents = release.documents;
-        globals = release.receipt;
-      } catch (error62) {
-        return {
-          failure: {
-            status: "rejected",
-            error: error62 instanceof Error ? error62.message : String(error62),
-            globals: true
-          }
-        };
-      }
-    }
     let inPlace;
     try {
       inPlace = this.inPlaceOptions(tree, payload, live);
-      if (inPlace) assertScheduledGlobalNames(documents, inPlace);
+    } catch (error62) {
+      return { failure: { status: "rejected", error: String(error62), retryable: true } };
+    }
+    try {
+      assertScheduledGlobalNames(tooltips, inPlace);
     } catch (error62) {
       return { failure: { status: "rejected", error: String(error62) } };
     }
-    const checked = this.checkAndExport(tree, documents, aliases, inPlace);
+    const checked = this.checkAndExport(tree, tooltips, aliases, inPlace);
     if ("error" in checked) return { failure: { status: "rejected", ...checked } };
     const entries = [];
-    for (const tooltip of documents)
+    for (const tooltip of tooltips)
       entries.push({
         hash: tooltip.hash,
         digest: await inactivePublishableHash(tooltip, aliases, moves),
         tooltipBlob: this.git.writeBlob(json5(tooltip))
       });
-    if (globals) {
-      const expected2 = new Map(
-        await Promise.all(
-          tooltips.map(
-            async (tooltip) => [tooltip.hash, await inactivePublishableHash(tooltip, aliases, moves)]
-          )
-        )
-      );
-      try {
-        this.assertRequestedDigests(entries, payload.hashes, (hash2) => expected2.get(hash2), aliases);
-      } catch (error62) {
-        if (!(error62 instanceof ConsumerOutputRejected)) throw error62;
-        return { failure: { status: "rejected", error: error62.message } };
-      }
-    }
     return {
       entries,
       now: checked.now,
       exported: checked.exported,
       changed: entries.filter(({ hash: hash2, digest: digest6 }) => pushed[hash2] !== digest6).map(({ hash: hash2 }) => hash2),
-      ...checked.inPlace ? { inPlace: checked.inPlace } : {},
-      ...globals ? { globals } : {}
+      inPlace: checked.inPlace
     };
   }
   /**
@@ -37719,15 +36199,8 @@ var Publisher = class _Publisher {
       ) || Object.keys(tree).some((name2) => name2.startsWith(prefix) && !frozen[name2]))
         return fail({ status: "rejected", error: "The batch changed after publishing started." });
     }
-    const plan = await this.batchPlan(tree, payload, aliases, s, live);
+    const plan = await this.batchPlan(tree, payload, aliases, live);
     if ("failure" in plan) {
-      if (plan.failure.globals && !claimed && batch.preparedRequestId) {
-        await new SchedulePreparer(this).drain(true);
-        const latest = batchSchema.parse(
-          this.read(this.git.tree(this.head(this.options.dataBranch)), path)
-        );
-        if (latest.opId === opId && latest.status === "needs_attention") return;
-      }
       const { failure: failure2 } = plan;
       if (claimed && failure2.status === "stale" && failure2.outcomes?.length) {
         const affected = failure2.outcomes.filter(({ status }) => status !== "accepted");
@@ -37760,8 +36233,7 @@ var Publisher = class _Publisher {
       intentDigest: payload.intentDigest,
       batchId: payload.batchId,
       contentRevision: payload.contentRevision,
-      ...plan.globals ? { globals: plan.globals } : {},
-      ...plan.inPlace ? { inPlace: plan.inPlace } : {}
+      inPlace: plan.inPlace
     };
     this.merge(live, receipt);
     let sourceCommit = s;
@@ -37793,18 +36265,6 @@ var Publisher = class _Publisher {
       } catch {
         return void 0;
       }
-    }
-    if (receipt.globals && sourceCommit !== s) {
-      const frozen = await this.batchPlan(
-        this.git.tree(sourceCommit),
-        payload,
-        aliases,
-        sourceCommit,
-        live
-      );
-      if ("failure" in frozen)
-        throw new ConsumerOutputRejected(frozen.failure.error ?? "Scheduled global claim changed");
-      receipt.globals = frozen.globals;
     }
     return { ...receipt, sourceCommit };
   }
@@ -37859,8 +36319,6 @@ var Publisher = class _Publisher {
     if (receipt.batchId !== payload.batchId) throw new Error("Receipt batch mismatch");
     const frozen = this.git.tree(receipt.sourceCommit);
     const members3 = batchMembers(this, frozen, payload.batchId);
-    if (receipt.globals && stableStringify(receipt.globals.roots) !== stableStringify(payload.hashes))
-      throw new Error("Global batch receipt roots differ from its signed members");
     const batch = batchSchema.parse(this.read(tree, path));
     if (batch.status !== "publishing" || batch.opId !== opId || batch.claim?.opId !== opId)
       throw new Error(`Batch ${batch.id} is not claimed by ${opId}; operator required`);
@@ -37939,8 +36397,9 @@ var Publisher = class _Publisher {
   }
   bundleAt(ref, old) {
     const h = this.head(this.options.dataBranch), t = this.git.tree(h), oldTree = old ? this.git.tree(old) : {};
-    const fence = globalsFence(this, t);
-    if (fence?.state === "hold") return;
+    const mode = globalsFence(this, t);
+    if (mode?.state === "hold") return;
+    const fence = mode ?? requireGlobalsMode(this, t);
     const prior = old ? this.read(oldTree, "bundle.json") : void 0;
     if (prior?.sourceCommit === h) return;
     if (prior && !this.git.ancestor(prior.sourceCommit, h))
@@ -37990,13 +36449,13 @@ var Publisher = class _Publisher {
       if (t[inactiveMovesPath]) inactiveMoves = this.movesAt(t);
     } catch {
     }
-    const inPlace = fence && bundleInPlaceReview(this, t, fence, tooltips);
+    const inPlace = bundleInPlaceReview(this, t, fence, tooltips);
     const bundle = {
       sourceCommit: h,
       generatedAt: new Date(this.options.now()).toISOString(),
       tooltips,
       permissions: permissionsSchema.parse(this.read(t, "config/permissions.json")),
-      pushed: inPlace?.pushed ?? pushedSchema.parse(this.read(t, "live/pushed.json")),
+      pushed: inPlace.pushed,
       // Preserve malformed config too: omitting it would resurrect archived members in readers.
       // Raw invalid JSON becomes null, which the web schema rejects, without wedging the queue.
       ...t[aliasGroupsPath] ? {
@@ -38012,11 +36471,9 @@ var Publisher = class _Publisher {
       ...sandboxPointers && Object.keys(sandboxPointers.pointers).length ? { sandboxPointers } : {},
       publishQueue,
       ...scheduledQueue.length ? { scheduledQueue } : {},
-      ...inPlace ? {
-        globalsPending: inPlace.globalsPending,
-        globalsReviewImports: inPlace.reviewImports,
-        ...Object.keys(inPlace.reviewDefinitions).length ? { globalsReviewDefinitions: inPlace.reviewDefinitions } : {}
-      } : {},
+      globalsPending: inPlace.globalsPending,
+      globalsReviewImports: inPlace.reviewImports,
+      ...Object.keys(inPlace.reviewDefinitions).length ? { globalsReviewDefinitions: inPlace.reviewDefinitions } : {},
       // The globals catalogue at this same head; null (never a partial list) when malformed,
       // so the editor says it is unavailable without stopping the bundle or the queue.
       ...hasGlobals(t) ? {
@@ -38037,15 +36494,19 @@ var Publisher = class _Publisher {
     );
     this.git.cas(ref, old, c);
   }
-  async run(syncGlobals = true) {
+  async prepareBundle() {
+    await new GlobalsPublisher(this).maintainAuthored();
+  }
+  async run(prepare = true) {
     const start = this.options.now();
     const runtime = this.git.tree(this.head(this.options.dataBranch));
     if (globalsFence(this, runtime)?.state === "hold") return;
+    requireGlobalsMode(this, runtime);
     try {
-      if (syncGlobals) {
+      if (prepare) {
         await drainCurrentSaves(this);
         await new SchedulePreparer(this).drain();
-        await new GlobalsPublisher(this).drain();
+        await this.prepareBundle();
       }
       await new SchedulePreparer(this).drain(true);
       if (this.queue(this.head(this.options.dataBranch)).length) this.bundle();
@@ -38271,6 +36732,7 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
   mkdirSync(out, { recursive: true });
   const temp = mkdtempSync2(join3(tmpdir2(), "publisher-pipeline-"));
   let failure2;
+  let active = false;
   const reports = [];
   const publications = [];
   let handoff2;
@@ -38312,8 +36774,9 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
       liveBranch: config2.liveBranch
     }) : new LocalRepository(repo);
   }
-  function publishBundle(repo, options2) {
+  async function publishBundle(repo, options2, prepare = false) {
     const pub = new Publisher(repo, options2);
+    if (prepare) await pub.prepareBundle();
     let next;
     for (let attempt = 0; ; attempt++) {
       const old = repo.head(bundleRef);
@@ -38351,12 +36814,18 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
   const options = { ...config2, publicKey: "", now: Date.now };
   try {
     const initial = snapshot("initial");
+    const initialPublisher = new Publisher(initial, options);
+    const initialTree = initial.tree(initialPublisher.head(options.dataBranch));
+    if (globalsFence(initialPublisher, initialTree)?.state !== "hold") {
+      requireGlobalsMode(initialPublisher, initialTree);
+      active = true;
+    }
     if (config2.liveBranch === "converter") {
       const tree = initial.tree(initial.head("refs/heads/converter"));
       if (!tree[".exports/PIN"] || !/^[a-f0-9]{40}$/.test(initial.blob(tree[".exports/PIN"]).trim()) || !tree[".exports/engine.mjs"])
         throw new Error("Production target requires a pinned installed engine");
     }
-    if (!enabled) publishBundle(initial, options);
+    if (active && !enabled) await publishBundle(initial, options);
     const bases = gitAt(initial.path, ["for-each-ref", "--format=%(objectname)", "refs/heads/"]).trim().split("\n");
     try {
       const endpoint = new URL(config2.keyEndpoint);
@@ -38372,11 +36841,11 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
         throw new Error("Worker key fingerprint mismatch");
       options.publicKey = key.publicKey;
       const publisher = new Publisher(initial, options);
-      if (globalsFence(publisher, initial.tree(publisher.head(options.dataBranch)))?.state !== "hold") {
+      if (active) {
         await drainCurrentSaves(publisher);
         await new SchedulePreparer(publisher).drain();
-        await new GlobalsPublisher(publisher).drain();
-        if (enabled) publishBundle(initial, options);
+        if (enabled) await publishBundle(initial, options, true);
+        else await publisher.prepareBundle();
         await publisher.run(false);
       }
     } catch (e) {
@@ -38387,14 +36856,16 @@ async function runPipeline(checkout, config2, output2, remoteMode = false) {
     failure2 = e;
   } finally {
     try {
-      const latest = snapshot("catch-up");
-      publishBundle(latest, options);
-      if (enabled && !failure2) {
-        const identity = publicationIdentity(latest, config2.liveBranch);
-        if (identity) {
-          publications.push(identity);
-          if (config2.liveBranch === "converter" && needsOutputs(latest, identity))
-            handoff2 = identity;
+      if (active) {
+        const latest = snapshot("catch-up");
+        await publishBundle(latest, options);
+        if (enabled && !failure2) {
+          const identity = publicationIdentity(latest, config2.liveBranch);
+          if (identity) {
+            publications.push(identity);
+            if (config2.liveBranch === "converter" && needsOutputs(latest, identity))
+              handoff2 = identity;
+          }
         }
       }
     } catch (e) {
