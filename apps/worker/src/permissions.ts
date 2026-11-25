@@ -7,6 +7,7 @@ import {
   isTextlessDescription,
   permissionsSchema,
   stableStringify,
+  withoutEnglish,
   type Lang,
   type Permissions,
   type Tooltip,
@@ -56,6 +57,8 @@ export function checkEdit(access: Access, base: Tooltip | null, next: Tooltip): 
     if (base === null && !next.compendium)
       throw new HttpError(422, 'A text-less tooltip requires a Compendium link');
   }
+  if (access.role === 'trial' && base && !withoutEnglish(base) && withoutEnglish(next))
+    throw new HttpError(403, 'Only editors and maintainers can clear the English text');
   if (access.role === 'translator' && base === null)
     throw new HttpError(403, 'Translators may not create tooltips');
   // A link-only record is not an English source for translations. Check both the

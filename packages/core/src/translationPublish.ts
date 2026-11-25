@@ -99,6 +99,14 @@ export function translationEnglishGate(input: TranslationEnglishGateInput): Tran
     saved = input.saved.definitions.en;
     live = input.live.entry.definitions.en;
   }
+  // A clear waits whatever its revision says ("No translation impact" keeps the stamps).
+  if (
+    live &&
+    'text' in live &&
+    live.text.trim() &&
+    !(saved && 'text' in saved && saved.text.trim())
+  )
+    return { status: 'waiting', reason: 'english-pending' };
   if (
     saved?.updatedAt !== live?.updatedAt ||
     saved?.updatedBy !== live?.updatedBy ||

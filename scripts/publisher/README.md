@@ -139,6 +139,14 @@ reads removed text. Edit/publish that importer first, or select its edit/removal
 target. Selections containing a removal stay in one dependency group within the existing Worker
 caps, so a previously saved importer edit and its target removal cannot split across chunks.
 
+Clearing the English text of a published tooltip (PIN capability `clearedRemovals`) publishes the
+same way: the saved text is the decision, nothing is added to `config/inactive.json`, and the
+published marker is the same removal marker. Only a row whose last published version
+(`live/tooltips`) has English counts, so an entry published empty stays as it is. Its saved
+translations stay saved and unpublished. The bundle names the tooltips whose saved text gained or
+lost its English since their publish (`englishChanged`, absent while there are none). Batches never
+carry a clear, and a removed tooltip publishes again once it has English.
+
 Request creation is head-bound CAS. A caller must consult `classifyPublishIntent` at each fresh head;
 creation timestamps are checked only for a new operation. No coalescing is implemented; scheduled
 batches (`kind: 'batch'`) are described in "Scheduled batches (P4)" below.

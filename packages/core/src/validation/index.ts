@@ -54,6 +54,10 @@ export interface TooltipValidationIssue extends ValidationIssue {
 }
 
 export const emptyEnglishMessage = 'English text must not be empty.';
+export const clearedEnglishMessage =
+  'Saving this clears the tooltip. Publishing it removes it from the published files.';
+/** `clears`: emptying this English is allowed, with a warning. */
+export type RequireEnglish = boolean | 'clears';
 
 export interface ValidationReads {
   lang: Lang;
@@ -98,7 +102,7 @@ export function validateText(
   text: string,
   lang: Lang,
   globals: MarkupGlobals = { variables: '', titles: '' },
-  requireEnglish = true,
+  requireEnglish: RequireEnglish = true,
   /** The tooltip being validated: the global documents themselves define the globals. */
   selfHash?: number,
 ): ValidationIssue[] {
@@ -113,7 +117,8 @@ export function validateText(
     }
   }
   if (requireEnglish && lang === 'en' && !text.trim()) {
-    add('error', emptyEnglishMessage);
+    if (requireEnglish === 'clears') add('warning', clearedEnglishMessage);
+    else add('error', emptyEnglishMessage);
   }
   let names: Record<string, string> | undefined;
   /** Names a reference can resolve to here: this text's own and the global variables. */

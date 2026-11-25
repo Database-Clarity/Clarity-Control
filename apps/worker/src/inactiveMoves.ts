@@ -1,12 +1,19 @@
 import { z } from 'zod';
 import {
+  clearedRemovalsCapability,
+  clearedState,
   hashSchema,
+  inactiveRemovalHash,
   isMovedInactive,
   inactiveMovesCapability,
   inactiveMovesPath,
   inactiveMovesSchema,
   permissionsSchema,
+  pushedSchema,
+  tooltipSchema,
+  withoutEnglish,
   type InactiveMoves,
+  type Tooltip,
 } from '@clarity/core';
 import { blobContent, blobSha, RefRace, type GitHub, type RepoFile } from './github.js';
 import { body, HttpError, json } from './http.js';
@@ -36,6 +43,45 @@ export function storedInactiveMoves(file: RepoFile | null | undefined): Inactive
 export function pinAppliesInactiveMoves(pin: unknown): boolean {
   const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
   return Array.isArray(capabilities) && capabilities.includes(inactiveMovesCapability);
+}
+
+/** Whether the installed publisher removes a published tooltip whose English was cleared. */
+export function pinRemovesCleared(pin: unknown): boolean {
+  const capabilities = (pin as { capabilities?: unknown } | null)?.capabilities;
+  return Array.isArray(capabilities) && capabilities.includes(clearedRemovalsCapability);
+}
+
+/**
+ * Each document's cleared state at `head` (core clearedState), for the ones that have one. One
+ * read of the published markers and versions, and only when a document has no English.
+ */
+export async function clearedStates(
+  github: GitHub,
+  head: string,
+  documents: readonly Tooltip[],
+  moves: InactiveMoves,
+) {
+  const states = new Map<number, 'removal' | 'removed'>();
+  const candidates = documents.filter(
+    (document) => withoutEnglish(document) && !isMovedInactive(document.hash, moves),
+  );
+  if (!candidates.length) return states;
+  const [markers, ...versions] = await github.files(
+    ['live/pushed.json', ...candidates.map(({ hash }) => `live/tooltips/${hash}.json`)],
+    head,
+  );
+  const pushed = pushedSchema.parse(markers?.value);
+  for (const [index, document] of candidates.entries()) {
+    const published = versions[index];
+    const state = clearedState(
+      document,
+      pushed[document.hash],
+      await inactiveRemovalHash(document.hash),
+      !!published && !withoutEnglish(tooltipSchema.parse(published.value)),
+    );
+    if (state) states.set(document.hash, state);
+  }
+  return states;
 }
 
 /** One-item mutation, whole-file CAS, and permissions rechecked on every ref-race retry. */

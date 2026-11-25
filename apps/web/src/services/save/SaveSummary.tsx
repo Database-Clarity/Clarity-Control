@@ -1,7 +1,12 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
 import { memo, useEffect, useState } from 'react';
 import { languageLabel } from '../../languageLabels';
-import { languages, stableStringify, type TooltipValidationIssue } from '@clarity/core';
+import {
+  clearedEnglishMessage,
+  languages,
+  stableStringify,
+  type TooltipValidationIssue,
+} from '@clarity/core';
 import { Link } from 'react-router-dom';
 import type { Change } from '../api';
 import type { EditorData } from '../../stores/data';
@@ -28,8 +33,11 @@ export function SaveSummary({
     });
     return () => cancelAnimationFrame(frame);
   }, [changes, visible]);
-  const errors = issues.filter((issue) => issue.severity === 'error');
-  const warnings = issues.filter((issue) => issue.severity !== 'error');
+  // Errors block saving, and a cleared text removes a tooltip: both must be seen.
+  const isOpen = ({ severity, message }: TooltipValidationIssue) =>
+    severity === 'error' || message === clearedEnglishMessage;
+  const open = issues.filter(isOpen);
+  const warnings = issues.filter((issue) => !isOpen(issue));
   return (
     <>
       <p>
@@ -40,8 +48,8 @@ export function SaveSummary({
       {issues.length > 0 && (
         <section aria-label="Save validation issues">
           <h3>Validation</h3>
-          {/* Errors block saving and stay open; warnings fold away (they can run to hundreds). */}
-          <IssueList issues={errors} />
+          {/* Other warnings fold away (they can run to hundreds). */}
+          <IssueList issues={open} />
           {warnings.length > 0 && (
             <details>
               <summary>

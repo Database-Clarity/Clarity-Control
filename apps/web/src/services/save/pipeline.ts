@@ -5,6 +5,7 @@ import {
   isTextlessDescription,
   languages,
   stableStringify,
+  withoutEnglish,
 } from '@clarity/core';
 import { canEditLanguage, canEditTooltipFields } from '../../features/auth/permissions';
 import type { EditorData } from '../../stores/data';
@@ -21,6 +22,11 @@ export function permissionError(changes: Change[], user: Me | null): string | nu
     changes.some(({ base, next }) => isTextlessDescription(next) && (!base || hasTooltipText(base)))
   )
     return 'Only editors and maintainers can create link-only tooltips.';
+  if (
+    user.role === 'trial' &&
+    changes.some(({ base, next }) => base && !withoutEnglish(base) && withoutEnglish(next))
+  )
+    return 'Only editors and maintainers can clear the English text.';
   if (canEditTooltipFields(user)) return null;
   for (const change of changes) {
     if (!change.base) return 'Translators cannot create tooltips.';
@@ -53,7 +59,7 @@ export async function prepareChanges(
   user: Me,
   data: EditorData,
   compendium?: CompendiumData,
-  options: { noTranslationImpact?: boolean } = {},
+  options: { noTranslationImpact?: boolean; clearing?: boolean } = {},
 ): Promise<Change[]> {
   const denied = permissionError(changes, user);
   if (denied) throw new Error(denied);
@@ -67,6 +73,7 @@ export async function prepareChanges(
     changes,
     data,
     liveFallback(changes, now, noTranslationImpact, data.bundle.tooltips),
+    options.clearing === true && (user.role === 'maintainer' || user.role === 'editor'),
   );
   if (issues.some((issue) => issue.severity === 'error')) {
     const dependents = [

@@ -80,6 +80,12 @@ it.each([
   ['author changed', withEnglish({ ...en, updatedBy: 'someone-else' }), active, 'english-pending'],
   ['English added', withEnglish(en), { status: 'active', entry: withEnglish() }, 'english-pending'],
   ['English removed', withEnglish(), active, 'english-pending'],
+  [
+    'English cleared with no translation impact',
+    withEnglish({ ...en, text: ' ' }),
+    active,
+    'english-pending',
+  ],
   ['link-only', withEnglish(), { status: 'active', entry: withEnglish() }, 'missing-live-english'],
 ] as const)('waits with %s', (_label, saved, published, reason) => {
   expect(tooltipGate(saved, published)).toEqual({ status: 'waiting', reason });

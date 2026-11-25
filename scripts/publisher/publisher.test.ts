@@ -855,6 +855,253 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     });
   });
 
+  const C = A.slice(0, -1) + '3';
+  const E = A.slice(0, -1) + '4';
+  const at = (minute: number) => `2026-11-14T00:0${minute}:00Z`;
+  const clear = (tooltip: Tooltip): Tooltip => ({
+    ...tooltip,
+    text: { ...tooltip.text, en: { ...tooltip.text.en!, text: '', updatedAt: at(1) } },
+  });
+  type Setup = Awaited<ReturnType<typeof setup>>;
+  const perks = (f: Setup) =>
+    f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!.perks;
+  const data = <T>(f: Setup, path: string) => f.pub.read<T>(f.git.tree(f.git.head(D)!), path);
+  const result = (f: Setup, id: string) => data<{ result: object }>(f, paths(id).log)!.result;
+  const englishChanged = (f: Setup) => {
+    f.pub.bundle();
+    const head = f.git.head('refs/heads/editor-data-bundle')!;
+    return f.pub.read<{ englishChanged?: number[] }>(f.git.tree(head), 'bundle.json')!
+      .englishChanged;
+  };
+  /** 123 published with English and German, with a frame stub, next to an unrelated 124. */
+  async function clearedSetup() {
+    const f = await setup();
+    f.options.aliases[789] = { to: 123, kind: 'frame' };
+    f.options.facts[789] = { name: 'Frame copy', type: 'perk' };
+    f.options.facts[124] = { name: 'Retained', type: 'perk' };
+    const en = f.tooltip.text.en!;
+    const first: Tooltip = {
+      ...f.tooltip,
+      text: { en, de: { ...en, text: 'Deutsch', sourceUpdatedAt: en.updatedAt } },
+    };
+    const other: Tooltip = { ...f.tooltip, hash: 124, text: { en: { ...en, text: 'Retained' } } };
+    f.change(D, { 'tooltips/123.json': first, 'tooltips/124.json': other });
+    await f.request(A, [123, 124], {
+      123: await publishableHash(first, f.options.aliases),
+      124: await publishableHash(other, f.options.aliases),
+    });
+    await f.pub.run();
+    f.assertDone(A);
+    return { f, first, other };
+  }
+
+  it('cleared: publishes the removal of only the cleared row, and its English brings it back', async () => {
+    const { f, first } = await clearedSetup();
+    const readLive = () =>
+      f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    const before = readLive();
+    expect(before.perks[789]).toBeDefined();
+    expect(englishChanged(f)).toBeUndefined();
+    const cleared = clear(first);
+    f.change(D, { 'tooltips/123.json': cleared });
+    expect(englishChanged(f)).toEqual([123]);
+    const marker = await inactiveRemovalHash(123);
+    await f.request(B, [123], { 123: marker });
+    await f.pub.run();
+    f.assertDone(B);
+    const after = readLive();
+    expect(after).toEqual({
+      ...before,
+      perks: Object.fromEntries(
+        Object.entries(before.perks).filter(([hash]) => hash !== '123' && hash !== '789'),
+      ),
+    });
+    for (const preset of legacyPresets) {
+      const original = JSON.parse(new TextDecoder().decode(buildLegacy(before, preset)));
+      delete original[123];
+      delete original[789];
+      expect(JSON.parse(new TextDecoder().decode(buildLegacy(after, preset))), preset).toEqual(
+        original,
+      );
+    }
+    expect(data(f, 'tooltips/123.json')).toEqual(cleared);
+    expect(data(f, 'live/tooltips/123.json')).toEqual(cleared);
+    expect(data(f, 'live/pushed.json')).toMatchObject({ 123: marker });
+    expect(data(f, 'config/inactive.json')).toBeUndefined();
+    expect(englishChanged(f)).toBeUndefined();
+
+    // A later translation has nothing to publish, whichever way it is asked for.
+    const german = {
+      ...cleared,
+      text: { ...cleared.text, de: { ...cleared.text.de!, text: 'Neu' } },
+    };
+    f.change(D, { 'tooltips/123.json': german });
+    await f.request(C, [123], { 123: await publishableHash(german, f.options.aliases) });
+    await f.pub.run();
+    expect(result(f, C)).toMatchObject({
+      status: 'rejected',
+      error: expect.stringContaining('no text'),
+    });
+    expect(readLive()).toEqual(after);
+
+    const back = {
+      ...german,
+      text: { ...german.text, en: { ...first.text.en!, text: 'Back', updatedAt: at(2) } },
+    };
+    f.change(D, { 'tooltips/123.json': back });
+    expect(englishChanged(f)).toBeUndefined();
+    await f.request(E, [123], { 123: await publishableHash(back, f.options.aliases) });
+    await f.pub.run();
+    f.assertDone(E);
+    expect(readLive().perks[123]).toMatchObject({ editor: { en: { main: 'Back' } } });
+    expect(readLive().perks[789]).toEqual(before.perks[789]);
+    expect(readLive().perks[124]).toEqual(before.perks[124]);
+  });
+
+  it.each(['import main from 123', 'association'] as const)(
+    'cleared: refuses a retained live reader (%s), then publishes its edit and the removal together',
+    async (kind) => {
+      const { f, first, other } = await clearedSetup();
+      const reader: Tooltip =
+        kind === 'association'
+          ? { ...other, associated: [123] }
+          : { ...other, text: { en: { ...other.text.en!, text: kind } } };
+      const live = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+      f.change(L, {
+        'liveDescriptions.json': {
+          ...live,
+          perks: { ...live.perks, ...exportLegacy([reader], pushTime, f.options.facts) },
+        },
+      });
+      f.change(D, { 'tooltips/123.json': clear(first), 'live/tooltips/124.json': reader });
+      const before = f.git.head(L);
+      const marker = await inactiveRemovalHash(123);
+      await f.request(B, [123], { 123: marker });
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(before);
+      expect(result(f, B)).toMatchObject({
+        status: 'rejected',
+        error: expect.stringMatching(/(imports|associates) cleared tooltip 123/),
+      });
+      // The saved reader still reads it: refused together too.
+      f.change(D, { 'tooltips/124.json': reader });
+      await f.request(C, [123, 124], { 123: marker, 124: await publishableHash(reader) });
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(before);
+      expect(result(f, C)).toMatchObject({ status: 'rejected' });
+      f.change(D, { 'tooltips/124.json': other });
+      await f.request(E, [123, 124], { 123: marker, 124: await publishableHash(other) });
+      await f.pub.run();
+      f.assertDone(E);
+      expect(perks(f)[123]).toBeUndefined();
+      expect(perks(f)[124]).toBeDefined();
+    },
+  );
+
+  it('cleared: a save or a publish that moved on refuses the queued request', async () => {
+    const { f, first } = await clearedSetup();
+    const marker = await inactiveRemovalHash(123);
+    const edited = {
+      ...first,
+      text: { ...first.text, en: { ...first.text.en!, text: 'Edited', updatedAt: at(1) } },
+    };
+    // Cleared while a publish of its text waits.
+    f.change(D, { 'tooltips/123.json': edited });
+    await f.request(B, [123], { 123: await publishableHash(edited, f.options.aliases) });
+    f.change(D, { 'tooltips/123.json': clear(first) });
+    const live = f.git.head(L);
+    await f.pub.run();
+    expect(result(f, B)).toMatchObject({ status: 'stale' });
+    // Typed back while its removal waits.
+    await f.request(C, [123], { 123: marker });
+    f.change(D, { 'tooltips/123.json': first });
+    await f.pub.run();
+    expect(result(f, C)).toMatchObject({ status: 'stale' });
+    expect(f.git.head(L)).toBe(live);
+    // Two people publish the same removal.
+    f.change(D, { 'tooltips/123.json': clear(first) });
+    await f.request(E, [123], { 123: marker });
+    const F = A.slice(0, -1) + '5';
+    await f.request(F, [123], { 123: marker });
+    await f.pub.run();
+    f.assertDone(E);
+    expect(result(f, F)).toMatchObject({ status: 'stale' });
+    expect(perks(f)[123]).toBeUndefined();
+  });
+
+  it('cleared: a frozen candidate is refused when the text comes back before landing', async () => {
+    const { f, first } = await clearedSetup();
+    f.change(D, { 'tooltips/123.json': clear(first) });
+    await f.request(B, [123], { 123: await inactiveRemovalHash(123) });
+    const cas = f.git.cas.bind(f.git);
+    let changed = false;
+    const spy = vi.spyOn(f.git, 'cas').mockImplementation((ref, old, next) => {
+      cas(ref, old, next);
+      if (ref === paths(B).candidate && !changed) {
+        changed = true;
+        f.change(D, { 'tooltips/123.json': first });
+      }
+    });
+    try {
+      await f.pub.run();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(changed).toBe(true);
+    expect(result(f, B)).toMatchObject({ status: 'rejected', code: 'selected-rows-changed' });
+    expect(perks(f)[123]).toBeDefined();
+  });
+
+  it('cleared: an entry published without English, or never published, is never a removal', async () => {
+    const { f, first } = await clearedSetup();
+    const empty: Tooltip = { ...clear(first), text: { en: clear(first).text.en! } };
+    const marker = await inactiveRemovalHash(123);
+    f.change(D, {
+      'tooltips/123.json': { ...empty, associated: [124] },
+      'live/tooltips/123.json': empty,
+      'live/pushed.json': { 123: await publishableHash(empty) },
+    });
+    const live = f.git.head(L);
+    expect(englishChanged(f)).toBeUndefined();
+    await f.request(B, [123], { 123: marker });
+    await f.pub.run();
+    expect(result(f, B)).toMatchObject({ status: 'stale' });
+    f.change(D, { 'tooltips/123.json': empty, 'live/pushed.json': {} });
+    await f.request(C, [123], { 123: marker });
+    await f.pub.run();
+    expect(result(f, C)).toMatchObject({ status: 'stale' });
+    expect(f.git.head(L)).toBe(live);
+    // Its first English lists as gained, so a later clear in the same tab is not a removal.
+    f.change(D, {
+      'tooltips/123.json': first,
+      'live/pushed.json': { 123: await publishableHash(empty) },
+    });
+    expect(englishChanged(f)).toEqual([123]);
+  });
+
+  it('cleared: an Inactive move of the same tooltip decides first', async () => {
+    const { f, first } = await clearedSetup();
+    f.change(D, {
+      'tooltips/123.json': clear(first),
+      'config/inactive.json': { 123: { by: 1, at: at(1) } },
+    });
+    await f.request(B, [123], { 123: await inactiveRemovalHash(123) });
+    await f.pub.run();
+    f.assertDone(B);
+    expect(perks(f)[123]).toBeUndefined();
+    // Moved back out without English: nothing to publish.
+    const moves = { 123: { by: 1, at: at(2), inactive: false as const } };
+    f.change(D, { 'config/inactive.json': moves });
+    await f.request(C, [123], {
+      123: await inactivePublishableHash(clear(first), f.options.aliases, moves),
+    });
+    await f.pub.run();
+    expect(result(f, C)).toMatchObject({
+      status: 'rejected',
+      error: expect.stringContaining('no text'),
+    });
+  });
+
   async function aliasSetup() {
     const f = await setup();
     const items = Object.fromEntries(

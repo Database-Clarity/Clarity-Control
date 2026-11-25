@@ -8,6 +8,7 @@ import {
   globalIdSchema,
   globalRecordSchema,
   globalsPendingSchema,
+  hashSchema,
   languages,
 } from '@clarity/core';
 import { z } from 'zod';
@@ -28,6 +29,8 @@ export const bundleSchema = z.object({
   aliasGroups: aliasGroupsSchema.optional(),
   /** Maintainer moves fail closed: a malformed file must not silently restore exports. */
   inactiveMoves: inactiveMovesSchema.optional(),
+  /** Published tooltips whose saved text gained or lost its English; absent while there are none. */
+  englishChanged: z.array(hashSchema).optional().catch(undefined),
   /** Maintainer picks for shared sandbox perks (config/sandbox-pointers.json); absent while none. */
   sandboxPointers: sandboxPointersSchema
     .optional()

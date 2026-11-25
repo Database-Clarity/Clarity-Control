@@ -47,9 +47,9 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   mocks.save.mockReset();
   mocks.validate.mockReset();
-  mocks.validate.mockImplementation(async (changes, data) => {
+  mocks.validate.mockImplementation(async (changes, data, fallback, clearing) => {
     const { validateChanges } = await import('./validation');
-    return validateChanges(changes, data);
+    return validateChanges(changes, data, fallback, clearing);
   });
   useAuthStore.setState({ user: alice, token: 'token-a', loading: false });
   useDataStore.setState({ data: editorData() });
@@ -80,6 +80,19 @@ describe('save review validates only the text the change edits', () => {
     expect(saveButton().disabled).toBe(false);
     expect(host.textContent).not.toContain('must not be empty');
   });
+
+  it.each([true, false])(
+    'lets an editor clear published English (published: %s)',
+    async (published) => {
+      const base: Tooltip = { ...unwritten, text: { en: english } };
+      const data = editorData();
+      if (published) data.bundle.pushed = { 123: 'a'.repeat(64) };
+      useDataStore.setState({ data });
+      await render();
+      await open(base, { ...base, text: { en: { ...english, text: '' } } });
+      expect(saveButton().disabled).toBe(!published);
+    },
+  );
 
   it('blocks editing English to an error', async () => {
     const base: Tooltip = { ...unwritten, text: { en: english } };

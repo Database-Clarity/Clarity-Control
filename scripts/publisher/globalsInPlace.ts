@@ -268,9 +268,17 @@ export function provePublication(
           );
   }
   const raw = exportGlobalsProof(documents, now, pub.options.facts, aliases, moves, options);
+  // `moves` adds the selected cleared removals to the stored ones.
+  const allMoves = { ...pub.movesAt(tree), ...moves };
   const merge = (entries: Receipt['exported']) => {
     try {
-      return pub.mergePublicationPerks(tree, live.perks, entries, hashes) as LegacyInput['perks'];
+      return pub.mergePublicationPerks(
+        tree,
+        live.perks,
+        entries,
+        hashes,
+        allMoves,
+      ) as LegacyInput['perks'];
     } catch (error) {
       throw new ConsumerOutputRejected(String(error));
     }

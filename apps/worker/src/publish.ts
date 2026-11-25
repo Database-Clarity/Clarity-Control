@@ -8,7 +8,11 @@ import {
   refuseUnsupportedAliasGroups,
   withSandboxPointers,
 } from './sandboxPointers.js';
-import { pinAppliesInactiveMoves, storedInactiveMoves } from './inactiveMoves.js';
+import {
+  pinAppliesInactiveMoves,
+  pinRemovesCleared,
+  storedInactiveMoves,
+} from './inactiveMoves.js';
 import { z } from 'zod';
 import {
   classifyPublishIntent,
@@ -308,10 +312,19 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       const active = value.hashes.filter(
         (hash) => !isMovedInactive(resolveAlias(hash, aliases), moves),
       );
+      const removals = new Set<number>();
       const checked = active.length
-        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases, [], scope)
+        ? await refuseBaseEnhanced(github, snapshot.head, active, aliases, [], scope, {
+            moves,
+            removals,
+          })
         : new Map<number, Tooltip>();
       aliases = scope?.aliases ?? aliases;
+      if (removals.size && !pinRemovesCleared(pin))
+        throw new HttpError(
+          409,
+          'The installed publisher lacks the "clearedRemovals" capability; update it before publishing these rows',
+        );
       // A tagged span, `#{name}`, or `<enhanced/>` in a published tooltip or a document it reads
       // (imports, globals 2 and 3) needs a publisher build that lowers it; an older build would
       // export it unlowered.
@@ -322,12 +335,13 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
       );
       if (switches.scheduled()) refuseActivationConflicts(snapshot.trees[0], value.hashes, aliases);
       for (const hash of value.hashes) {
-        if (isMovedInactive(resolveAlias(hash, aliases), moves)) {
-          if ((await inactiveRemovalHash(resolveAlias(hash, aliases))) !== value.expected[hash])
+        const canonical = resolveAlias(hash, aliases);
+        if (isMovedInactive(canonical, moves) || removals.has(canonical)) {
+          if ((await inactiveRemovalHash(canonical)) !== value.expected[hash])
             throw new HttpError(409, `Tooltip ${hash} changed since review; refresh saved changes`);
           continue;
         }
-        const tooltip = checked.get(resolveAlias(hash, aliases));
+        const tooltip = checked.get(canonical);
         if (tooltip && isTextlessDescription(tooltip))
           throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
         if (

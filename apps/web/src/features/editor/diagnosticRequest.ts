@@ -7,6 +7,7 @@ import {
   type Lang,
   type MarkupGlobals,
   type NumberMap,
+  type RequireEnglish,
   type RetiredOccurrence,
   type ValidationIssue,
 } from '@clarity/core';
@@ -22,7 +23,7 @@ export interface DiagnosticInput {
   text: string;
   lang: Lang;
   globals: MarkupGlobals;
-  requireEnglish: boolean;
+  requireEnglish: RequireEnglish;
   selfHash?: number;
   /** The saved English while translating: parity is checked against it. Undefined for English. */
   sourceText?: string;

@@ -523,6 +523,7 @@ function TooltipWorkspace({
         : (drafts[variant]?.base ?? tooltipFor(variant, data))
       )?.text.en?.text ?? '',
       textOf(variant),
+      !batchEditing && canPushLive(user) && data.bundle.pushed[variant] !== undefined,
     );
   // What the preview renders: the same text with conflict blocks resolved to "mine".
   const previewTextOf = (variant: number, source = shown) =>

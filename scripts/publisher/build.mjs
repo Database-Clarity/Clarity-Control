@@ -37,6 +37,9 @@ if (!/elementTagNames = \[[^\]]*"prismatic"/.test(runtime))
 for (const marker of ['applyInactiveLive(', 'inactiveRemovalHash(', 'config/inactive.json'])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks inactive moves (${marker})`);
+for (const marker of ['movesWithCleared(', 'englishChanged'])
+  if (!runtime.includes(marker))
+    throw new Error(`Publisher runtime lacks cleared removals (${marker}); refusing its PIN`);
 if (!runtime.includes('replaceAll("<arrow/>"'))
   throw new Error('Publisher runtime lacks arrow symbol support; refusing its PIN');
 if (!runtime.includes('lowerExoticMarkup('))
@@ -128,6 +131,8 @@ writeFileSync(
       // Prismatic joined do not; the Worker refuses Prismatic tags while the PIN lacks it).
       // arrowSymbol = retain <arrow/> in the intermediate; the separately installed converter engine lowers legacy files.
       // numberTokens = validate English maps and resolve translation tokens before export.
+      // clearedRemovals = a published tooltip whose English was cleared publishes as a removal
+      // (the Worker refuses such a row while the PIN lacks it).
       // aliasGroupRemovals = config/alias-groups.json may carry a `removed` map (members a
       // maintainer took out of a group; the Worker refuses removeMember while the PIN lacks it).
       capabilities: [
@@ -152,6 +157,7 @@ writeFileSync(
         'aliasGroupRemovals',
         'globalsInPlaceV1',
         'translationPublishV1',
+        'clearedRemovals',
       ],
     },
     null,

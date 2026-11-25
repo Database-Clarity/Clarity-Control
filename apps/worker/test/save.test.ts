@@ -437,6 +437,23 @@ it.each([1, 2, 3, 4])(
   },
 );
 
+it.each([1, 2, 3])('lets only editors and maintainers clear English (user %s)', async (user) => {
+  const german = { ...tooltip().text.en!, text: 'Deutsch' };
+  const base = { ...tooltip(), text: { ...tooltip().text, de: german } };
+  fixture.moveData({ 'tooltips/123.json': base });
+  for (const en of [undefined, { ...tooltip('').text.en!, text: ' ' }]) {
+    const next = { ...base, text: { de: german, ...(en ? { en } : {}) } };
+    const response = await fixture.request(
+      '/save',
+      'POST',
+      { changes: [{ hash: 123, base, next }], message: 'Clear' },
+      user,
+    );
+    expect(response.status).toBe(user === 3 ? 403 : 200);
+    fixture.moveData({ 'tooltips/123.json': base });
+  }
+});
+
 it('a saved link-only record becomes publishable when text is added', async () => {
   const base: Tooltip = {
     hash: 123,

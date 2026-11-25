@@ -10,6 +10,7 @@ import { translationRequestRow } from '../../services/translationPublish';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { publishLanguages } from '../auth/permissions';
+import { publishMoves } from './cleared';
 import { neededGlobals } from './globalsPending';
 import { publishedOf } from './globalRows';
 import type { LaneEntry } from './lanes';
@@ -101,7 +102,7 @@ export function planReviewedPublish(
     aliases,
     new Set(pendingByHash.keys()),
     entries.map((entry) => entry.tooltip),
-    { moves: bundle.inactiveMoves, published },
+    { moves: publishMoves(data, entries), published },
   );
   const missing = new Set([...dependencies.values()].flat());
   for (const { tooltip } of entries) missing.delete(tooltip.hash);
@@ -213,10 +214,11 @@ export async function queuePublish(
   if (!canPush(user) || !(inputs.length || globals.length) || session.pushing) return false;
   useReviewSession.setState({ pushing: true, notice: undefined, error: undefined });
   try {
+    const moves = publishMoves(data, chosen);
     const reviewed: PublishInput[] = await Promise.all(
       inputs.map(async ({ tooltip, ...input }) => ({
         ...input,
-        digest: await inactivePublishableHash(tooltip, data.aliases, data.bundle.inactiveMoves),
+        digest: await inactivePublishableHash(tooltip, data.aliases, moves),
       })),
     );
     // Hashing is asynchronous: never submit after leaving the page, changing account/role, or

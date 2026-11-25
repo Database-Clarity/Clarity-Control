@@ -241,9 +241,11 @@ function SaveSession({
   const [acknowledged, setAcknowledged] = useState<string | null>(null);
   const needsAcknowledgement =
     changedSource.length > 0 && acknowledged !== sourceKey(changedSource);
+  // Clearing a published tooltip's English: editors and maintainers, direct saves only.
+  const clearing = batchSaver && !batchTarget;
   const validationKey = useMemo(
-    () => `${JSON.stringify(changes)}\n${JSON.stringify(fallback)}`,
-    [changes, fallback],
+    () => `${JSON.stringify(changes)}\n${JSON.stringify(fallback)}\n${clearing}`,
+    [changes, fallback, clearing],
   );
   const [validated, setValidated] = useState<{
     data: typeof data;
@@ -256,7 +258,7 @@ function SaveSession({
   useEffect(() => {
     let current = true;
     if (data) {
-      void requestSaveValidation(changes, data, fallback).then(
+      void requestSaveValidation(changes, data, fallback, clearing).then(
         (issues) => {
           if (current) setValidated({ data, key: validationKey, issues, error: null });
         },
@@ -269,7 +271,7 @@ function SaveSession({
     return () => {
       current = false;
     };
-  }, [changes, data, fallback, validationKey]);
+  }, [changes, clearing, data, fallback, validationKey]);
   const denied = permissionError(changes, user);
   // Marker blocks are also caught by validation; this covers a conflict's non-text rows.
   const unresolved = openConflicts.some((conflict) =>
@@ -332,6 +334,7 @@ function SaveSession({
         throw new Error('The save snapshot changed. Review the current validation before saving.');
       const prepared = await prepareChanges(changes, user, data, source, {
         noTranslationImpact,
+        clearing,
       });
       if (useDataStore.getState().data !== data || useSaveState.getState().review !== review)
         throw new Error('The save snapshot changed. Review the current validation before saving.');

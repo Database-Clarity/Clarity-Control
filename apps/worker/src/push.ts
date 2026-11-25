@@ -8,6 +8,7 @@ import {
   inactiveMovesPath,
   isMovedInactive,
   selectedInactiveMoves,
+  withClearedMoves,
   exportWithInactiveMoves,
   applyInactiveLive,
   type InactiveMoves,
@@ -35,7 +36,7 @@ import {
   storedAliasGroups,
   storedSandboxPointers,
 } from './sandboxPointers.js';
-import { storedInactiveMoves } from './inactiveMoves.js';
+import { clearedStates, storedInactiveMoves } from './inactiveMoves.js';
 import type { Identity } from './types.js';
 
 /**
@@ -128,7 +129,7 @@ async function loadAtHead(
     : await pushSandboxPicks(github, legacy!.aliases, pointers);
   let aliases = scope?.aliases ?? picks.aliases;
   const facts = scope?.facts ?? legacy!.facts;
-  const moves = storedInactiveMoves(movesFile);
+  const stored = storedInactiveMoves(movesFile);
   const canonicalHashes = [...new Set(hashes.map((hash) => resolveAlias(hash, aliases)))];
   const files = await github.files(
     canonicalHashes.map((hash) => `tooltips/${hash}.json`),
@@ -139,13 +140,21 @@ async function loadAtHead(
   const exportedHashes: Record<string, string> = {};
   for (const [index, hash] of canonicalHashes.entries()) {
     const file = files[index];
-    if (!file && !isMovedInactive(hash, moves))
+    if (!file && !isMovedInactive(hash, stored))
       throw new HttpError(404, `Tooltip ${hash} does not exist`);
     const tooltip = tooltipSchema.parse(file?.value ?? { hash, text: {}, associated: [] });
     if (tooltip.hash !== hash) throw new HttpError(502, 'Stored tooltip hash mismatch');
-    if (!isMovedInactive(hash, moves) && isTextlessDescription(tooltip))
-      throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
     tooltips.push(tooltip);
+  }
+  const states = await clearedStates(github, head, tooltips, stored);
+  const moves = withClearedMoves(
+    stored,
+    [...states].flatMap(([hash, state]) => (state === 'removal' ? [hash] : [])),
+  );
+  for (const tooltip of tooltips) {
+    const { hash } = tooltip;
+    if (!isMovedInactive(hash, moves) && (states.has(hash) || isTextlessDescription(tooltip)))
+      throw new HttpError(422, `Tooltip ${hash} has no text to publish`);
     snapshots[`live/tooltips/${hash}.json`] = tooltip;
     exportedHashes[hash] = await inactivePublishableHash(tooltip, aliases, moves);
   }
@@ -169,6 +178,7 @@ async function loadAtHead(
       aliases,
       active,
       scope,
+      { moves },
     );
   aliases = scope?.aliases ?? aliases;
   // A malformed marker is reported by the marker step below; here it just means "all changed".

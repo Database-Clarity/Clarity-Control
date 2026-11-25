@@ -28,6 +28,9 @@ Before installing an `arrowSymbol` PIN, satisfy the [Arrow symbol rollout precon
 For a `numberTokens` PIN, also satisfy the [Number tokens rollout precondition](README.md#number-tokens-rollout-precondition).
 Install an `exoticTags`-capable publisher before saving Exotic text or starting the gated Yellow-to-Exotic data rewrite; older PINs refuse it.
 While `config/inactive.json` is non-empty, never roll back to a PIN without `inactiveMoves`.
+For `clearedRemovals`, install the publisher first, then deploy the Worker, then the web build. Roll
+back in the reverse order. An older publisher records a removal still in the queue as stale and
+publishes nothing for it; its row lists again once the newer publisher is back.
 For `schedulePreparationV1`, install the verified runtime and serialized workflow first,
 reconcile legacy in-flight operations, and retain every installed capability floor. Only then
 deploy compatible Worker and web builds and enable asynchronous admission with owner approval.

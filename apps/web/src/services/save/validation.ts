@@ -1,4 +1,5 @@
 import {
+  clearedEnglishMessage,
   countConflicts,
   emptyEnglishMessage,
   hasTooltipText,
@@ -84,6 +85,8 @@ export function validateChanges(
   changes: Change[],
   data: EditorData,
   fallback: LiveFallback = {},
+  /** Whether this save may clear the English text of a published tooltip. */
+  clearing = false,
 ): TooltipValidationIssue[] {
   const tooltips = { ...data.bundle.tooltips };
   for (const change of changes) {
@@ -139,7 +142,13 @@ export function validateChanges(
         .map((issue) =>
           !base && issue.lang === 'en' && issue.message === emptyEnglishMessage
             ? { ...issue, message: noTooltipYet }
-            : issue,
+            : clearing &&
+                issue.lang === 'en' &&
+                issue.message === emptyEnglishMessage &&
+                data.bundle.pushed[next.hash] !== undefined &&
+                base?.text.en?.text.trim()
+              ? { ...issue, severity: 'warning' as const, message: clearedEnglishMessage }
+              : issue,
         )
         .filter(
           (issue) =>
