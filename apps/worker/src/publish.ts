@@ -386,11 +386,7 @@ async function publishTranslations(
       creating ? [{ path: schedulePaths.conflictsDir, depth: 1 }] : [],
     );
     const [permissions, queued, logFile, reservation, ...sources] = snapshot.files;
-    const access = requireAccess(permissionsSchema.parse(permissions?.value), user, [
-      'maintainer',
-      'editor',
-      'translator',
-    ]);
+    const access = requireAccess(permissionsSchema.parse(permissions?.value), user, ['translator']);
     requireTranslationLanguages(access, rows);
     const log = logged(logFile);
     const decision = classifyPublishIntent(
