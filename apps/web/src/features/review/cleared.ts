@@ -25,25 +25,26 @@ export async function clearedTooltips(
   pushed: Readonly<Record<string, string>>,
 ): Promise<ReadonlyMap<number, 'removal' | 'removed'>> {
   const moves = data.bundle.inactiveMoves;
-  const states = new Map<number, 'removal' | 'removed'>();
-  await Promise.all(
-    Object.values(data.bundle.tooltips).map(async (tooltip) => {
-      const { hash } = tooltip;
-      const marker = pushed[hash];
-      if (
-        marker === undefined ||
-        !withoutEnglish(tooltip) ||
-        isMovedInactive(hash, moves) ||
-        resolveAlias(hash, data.aliases) !== hash
-      )
-        return;
-      const english = publishedEnglish(data, hash, marker);
+  const candidates = Object.values(data.bundle.tooltips).filter((tooltip) => {
+    const { hash } = tooltip;
+    const marker = pushed[hash];
+    return (
+      marker !== undefined &&
+      withoutEnglish(tooltip) &&
+      !isMovedInactive(hash, moves) &&
+      resolveAlias(hash, data.aliases) === hash &&
       // Without any text, published without English: never listed, so nothing to work out.
-      if (!english && isTextlessDescription(tooltip)) return;
-      const state = clearedState(tooltip, marker, await inactiveRemovalHash(hash), english);
-      if (state) states.set(hash, state);
-    }),
-  );
+      (!isTextlessDescription(tooltip) || publishedEnglish(data, hash, marker))
+    );
+  });
+  const states = new Map<number, 'removal' | 'removed'>();
+  for (const tooltip of candidates) {
+    const { hash } = tooltip;
+    const marker = pushed[hash]!;
+    const english = publishedEnglish(data, hash, marker);
+    const state = clearedState(tooltip, marker, await inactiveRemovalHash(hash), english);
+    if (state) states.set(hash, state);
+  }
   return states;
 }
 
