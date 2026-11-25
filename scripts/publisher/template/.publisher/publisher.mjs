@@ -24462,6 +24462,11 @@ commit
       return false;
     }
   }
+  commitParents(commit2) {
+    return [
+      ...this.git(["cat-file", "commit", commit2]).split("\n\n", 1)[0].matchAll(/^parent ([a-f0-9]{40})$/gm)
+    ].map(([, parent]) => parent);
+  }
   history(ref) {
     return this.git(["rev-list", "--first-parent", "--reverse", ref]).trim().split("\n").filter(Boolean);
   }
@@ -35358,7 +35363,7 @@ async function planTranslations(pub, tree, live, payload) {
       if (ready.english !== signed.english || ready.expected !== signed.expected || !plan.unchanged && (ready.before !== signed.before || ready.effects !== signed.effects || ready.kind === "global" && signed.kind === "global" && ready.affected !== signed.affected))
         throw new RowRefusal("review-changed");
       if (!plan.unchanged) {
-        effects.push({ id, facts: plan.facts });
+        effects.push({ id, facts: plan.facts, changed: plan.changed });
         for (const hash2 of plan.changed) {
           const key = `${hash2}/${lang}`;
           if (selected.has(key))
@@ -35433,9 +35438,12 @@ async function planTranslations(pub, tree, live, payload) {
       });
     }
     if (refused.length) throw new TranslationPartRefusal(refused);
+    const beforeLookup = expandAliases(ctx.input.perks);
+    const readers = publicationReaders(ctx.input, input2);
     for (const lang of new Set(effects.map(({ id }) => id.lang))) {
-      const selected2 = effects.filter(({ id }) => id.lang === lang).map(({ id }) => id);
-      if (selected2.length < 2 || !selected2.some(({ kind: kind2 }) => kind2 === "global")) continue;
+      const lane3 = effects.filter(({ id }) => id.lang === lang);
+      if (lane3.length < 2) continue;
+      const selected2 = lane3.map(({ id }) => id);
       try {
         ctx.checkCombined(
           catalog.store,
@@ -35443,13 +35451,22 @@ async function planTranslations(pub, tree, live, payload) {
           selected2.flatMap((id) => id.kind === "tooltip" ? [entries.get(id.hash).tooltip] : []),
           input2
         );
+        const reviewed = new Set(lane3.flatMap(({ facts }) => facts.map(([hash2]) => hash2)));
+        for (const key of readers(lane3.flatMap(({ changed }) => changed))) {
+          const hash2 = Number(key);
+          if (reviewed.has(hash2) || !lookup[hash2] && !beforeLookup[hash2]) continue;
+          const before = beforeLookup[hash2] && effectFacts(ctx.input, hash2, lang, ctx.aliases, pub.options.facts, beforeLookup);
+          const after = lookup[hash2] && effectFacts(input2, hash2, lang, ctx.aliases, pub.options.facts, lookup);
+          if (!same(before, after))
+            throw new Error(`Combined translation changes affect tooltip ${hash2}.`);
+        }
       } catch {
         throw new TranslationPartRefusal(
           selected2.map((id) => ({
             ...id,
             status: "rejected",
             reason: "review-changed",
-            message: "Publish the related shared text first, then review this change again."
+            message: "Publish the related translation first, then review this change again."
           }))
         );
       }
@@ -36323,6 +36340,11 @@ var Publisher = class _Publisher {
     };
   }
   async verifyTranslationReceipt(receipt, candidate) {
+    const parents = this.git.commitParents(candidate);
+    if (parents.length !== 1 || parents[0] !== receipt.liveParent)
+      throw new ConsumerOutputRejected(
+        "Translation receipt does not match its candidate LIVE parent."
+      );
     const frozen = this.git.tree(receipt.sourceCommit);
     if (frozen[paths2(receipt.opId).request] !== receipt.requestBlob)
       throw new ConsumerOutputRejected(
