@@ -16104,8 +16104,8 @@ function finalize(ctx, schema) {
         compactTypeUnion(entry[1].def ?? entry[1].schema);
       }
     }
-    for (const rewrite2 of ctx.deferred)
-      rewrite2();
+    for (const rewrite of ctx.deferred)
+      rewrite();
     if (ctx.intersections.length) {
       const carriers = /* @__PURE__ */ new Map();
       for (const seen of ctx.seen.values()) {
@@ -27202,6 +27202,30 @@ function rewriteGlobalReferences(text, kind, beforeName, afterName, ignoreLocalV
   }
   return { text: next, edits };
 }
+function rewriteGlobalRenames(source2, renames) {
+  const edits = renames.flatMap(
+    ({ kind, from, to }) => rewriteGlobalReferences(source2, kind, from, to, true).edits.map((edit) => ({
+      ...edit,
+      value: kind === "variables" ? edit.braced ? `#{${to}}` : `#${to}` : to
+    }))
+  );
+  for (const { from, to, value: value2 } of edits.sort((a, b) => b.from - a.from))
+    source2 = source2.slice(0, from) + value2 + source2.slice(to);
+  return source2;
+}
+function rewriteTooltipGlobals(document, renames) {
+  if (!renames.length) return document;
+  const text = { ...document.text };
+  let changed = false;
+  for (const lang of Object.keys(text)) {
+    const cell = text[lang];
+    const rewritten = rewriteGlobalRenames(cell.text, renames);
+    if (rewritten === cell.text) continue;
+    text[lang] = { ...cell, text: rewritten };
+    changed = true;
+  }
+  return changed ? { ...document, text } : document;
+}
 
 // packages/core/src/globals/inPlace.ts
 var MissingGlobalTranslation = class extends Error {
@@ -32431,25 +32455,6 @@ function renamesOf(published, selected) {
     return previous && !previous.tombstone && previous.name !== entry.name && !entry.tombstone ? [{ kind: entry.kind, from: previous.name, to: entry.name }] : [];
   });
 }
-function rewrite(source2, renames) {
-  const edits = renames.flatMap(
-    ({ kind, from, to }) => rewriteGlobalReferences(source2, kind, from, to, true).edits.map((edit) => ({
-      ...edit,
-      kind,
-      toName: to
-    }))
-  );
-  for (const edit of edits.sort((a, b) => b.from - a.from)) {
-    const value2 = edit.kind === "variables" ? edit.braced ? `#{${edit.toName}}` : `#${edit.toName}` : edit.toName;
-    source2 = source2.slice(0, edit.from) + value2 + source2.slice(edit.to);
-  }
-  return source2;
-}
-function rewriteTooltip(document, renames) {
-  const copy = structuredClone(document);
-  for (const cell of Object.values(copy.text)) cell.text = rewrite(cell.text, renames);
-  return stableStringify(copy.text) === stableStringify(document.text) ? document : copy;
-}
 function rewriteEntries(entries, renames) {
   return entries.map((entry) => {
     if (entry.tombstone) return entry;
@@ -32457,7 +32462,7 @@ function rewriteEntries(entries, renames) {
     const renamed = renames.find(({ kind, from }) => kind === copy.kind && from === copy.name);
     if (renamed) copy.name = renamed.to;
     for (const definition2 of Object.values(copy.definitions))
-      definition2.body = rewrite(definition2.body, renames);
+      definition2.body = rewriteGlobalRenames(definition2.body, renames);
     return copy;
   });
 }
@@ -32631,7 +32636,7 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
     const priorDocument = (hash2) => {
       const row = live.perks[hash2];
       const doc = liveDocs.find((doc2) => doc2.hash === (row && "aliasOf" in row ? row.aliasOf : hash2));
-      if (doc) return rewriteTooltip(doc, priorRename);
+      if (doc) return rewriteTooltipGlobals(doc, priorRename);
     };
     for (const row of Object.values(live.perks)) {
       if (!("editor" in row)) continue;
@@ -32696,7 +32701,7 @@ function selectedRelease(pub, tree, live, selection2, maintainer) {
   }
   const rewritten = /* @__PURE__ */ new Map();
   const updatedDocs = liveDocs.map((prior) => {
-    const doc = renames.length ? rewriteTooltip(prior, renames) : prior;
+    const doc = renames.length ? rewriteTooltipGlobals(prior, renames) : prior;
     if (doc !== prior) rewritten.set(doc.hash, doc);
     return doc;
   });
@@ -33014,14 +33019,27 @@ function bundleInPlaceReview(pub, tree, fence, current = new GlobalsPublisher(pu
   const pushed = pushedSchema.parse(pub.read(tree, "live/pushed.json"));
   const renames = renamesOf(published.store, pending);
   const rewritten = /* @__PURE__ */ new Map();
+  const reviewDefinitions = {};
   if (renames.length) {
     for (const document of publishedDocuments(pub, tree, input2, false)) {
-      const updated = rewriteTooltip(document, renames);
+      const updated = rewriteTooltipGlobals(document, renames);
       if (updated !== document) rewritten.set(document.hash, updated);
     }
     rewritePushed(pub, tree, pushed, rewritten);
+    const pendingIds = new Set(pending.map(({ id }) => id));
+    for (const entry of published.store.entries) {
+      if (entry.tombstone || pendingIds.has(entry.id)) continue;
+      const before = Object.fromEntries(
+        languages2.flatMap((lang) => {
+          const definition2 = globalsInPlaceDefinition(entry.definitions, lang);
+          return definition2 ? [[lang, definition2.body]] : [];
+        })
+      );
+      if (Object.values(before).some((body2) => rewriteGlobalRenames(body2, renames) !== body2))
+        reviewDefinitions[entry.id] = before;
+    }
   }
-  return { globalsPending, pushed, reviewImports };
+  return { globalsPending, pushed, reviewImports, reviewDefinitions };
 }
 
 // scripts/publisher/globals.ts
@@ -37994,7 +38012,11 @@ var Publisher = class _Publisher {
       ...sandboxPointers && Object.keys(sandboxPointers.pointers).length ? { sandboxPointers } : {},
       publishQueue,
       ...scheduledQueue.length ? { scheduledQueue } : {},
-      ...inPlace ? { globalsPending: inPlace.globalsPending, globalsReviewImports: inPlace.reviewImports } : {},
+      ...inPlace ? {
+        globalsPending: inPlace.globalsPending,
+        globalsReviewImports: inPlace.reviewImports,
+        ...Object.keys(inPlace.reviewDefinitions).length ? { globalsReviewDefinitions: inPlace.reviewDefinitions } : {}
+      } : {},
       // The globals catalogue at this same head; null (never a partial list) when malformed,
       // so the editor says it is unavailable without stopping the bundle or the queue.
       ...hasGlobals(t) ? {
