@@ -159,7 +159,7 @@ const GroupHeader = memo(function GroupHeader({
   );
 });
 
-let rememberedHash: string | null = null;
+let rememberedView: string | undefined;
 
 /**
  * The left-column queue: category groups with counts, a checkbox per row (the publish
@@ -233,15 +233,17 @@ export function ReviewQueue({
   const closeSheet = useContext(FinderSheetCloseContext);
   const [focusIndex, setFocusIndex] = useState<number>();
   const pendingReveal = useRef<number>();
+  const viewKey = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return JSON.stringify([currentHash, params.get('query'), params.get('kind')]);
+  }, [currentHash, location.search]);
+  const restoring = useRef(rememberedView === viewKey ? viewKey : undefined);
   // Start from the CSS viewport's default 37px header + filter row allowance, avoiding an
   // oversized provisional window at the ordinary scale. Native observation corrects other font
   // sizes and viewport bounds before paint, without reads. Returning to the same selection
   // restores the list's last scroll position.
   const [viewport, setViewport] = useState(() => ({
-    top:
-      rememberedHash !== null && rememberedHash === selectedHash
-        ? useReviewQueue.getState().scrollTop
-        : 0,
+    top: restoring.current ? useReviewQueue.getState().scrollTop : 0,
     height: Math.max(defaultRowHeight, window.innerHeight - 37 - 7 * (defaultRowHeight / 2)),
   }));
   const observedViewport = useRef(viewport);
@@ -250,11 +252,11 @@ export function ReviewQueue({
   useLayoutEffect(() => {
     if (restoredTop.current) host.current!.scrollTop = restoredTop.current;
   }, []);
-  useEffect(() => {
-    rememberedHash = currentHash;
-  }, [currentHash]);
-  useEffect(
+  const lastView = useRef(viewKey);
+  lastView.current = viewKey;
+  useLayoutEffect(
     () => () => {
+      rememberedView = lastView.current;
       useReviewQueue.setState({ scrollTop: observedViewport.current.top });
     },
     [],
@@ -353,6 +355,10 @@ export function ReviewQueue({
   );
   useLayoutEffect(() => {
     cancelWheel();
+    // Returning to the same list restores its scroll even if the user had scrolled away from
+    // the open change. A subsequent navigation within the list reveals the new selection.
+    if (restoring.current === viewKey) return;
+    restoring.current = undefined;
     if (selectedIndex < 0) return;
     const top = offsets[selectedIndex]!;
     const bottom = offsets[selectedIndex + 1]!;
@@ -371,7 +377,7 @@ export function ReviewQueue({
       pendingReveal.current = destination;
       setViewport((previous) => ({ ...previous, top: destination }));
     }
-  }, [cancelWheel, items, offsets, selectedIndex, total, viewport.height]);
+  }, [cancelWheel, items, offsets, selectedIndex, total, viewKey, viewport.height]);
   // A shorter list or a taller viewport can leave the window past the native scroll limit.
   // A reveal of the selected row in this same commit already chose an in-range destination.
   useLayoutEffect(() => {

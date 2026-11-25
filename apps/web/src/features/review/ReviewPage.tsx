@@ -21,14 +21,7 @@ import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useAdvanceSetting } from '../compendium/advanceSetting';
 import { useRawDiff } from '../history/diffPreference';
 import { useLeftQueue } from '../queue/useQueue';
-import {
-  editorLabel,
-  editorPath,
-  publishedOf,
-  routedRow,
-  rowKey,
-  type RowKey,
-} from './globalRows';
+import { editorLabel, editorPath, publishedOf, routedRow, rowKey, type RowKey } from './globalRows';
 import { neededGlobals, rowIdentity } from './globalsPending';
 import { classifyRows, classifyTooltip, kindOf, localKind, useKinds, useRowKinds } from './kinds';
 import {
@@ -66,6 +59,7 @@ import styles from './Review.module.scss';
 
 const count = new Intl.NumberFormat('en');
 const noEntries: PendingTooltip[] = [];
+const noSelection: ReadonlySet<number> = new Set();
 
 /** The phone bar's "…" menu; it closes on Escape (focus back on "…"), a press outside, or use. */
 function More({ children }: { children: ReactNode }) {
@@ -103,14 +97,6 @@ function More({ children }: { children: ReactNode }) {
       <div className={styles.moreMenu}>{children}</div>
     </details>
   );
-}
-
-interface Decision {
-  hash: number;
-  /** The row it was made on. */
-  key: RowKey;
-  /** The tick before the decision. */
-  was: boolean;
 }
 
 export function ReviewPage() {
@@ -153,16 +139,23 @@ export function ReviewPage() {
         : undefined,
     [data, acknowledgments, publishedGlobals],
   );
-  const [entries, setEntries] = useState<PendingTooltip[] | undefined>(prepared);
-  const selected = useReviewQueue((state) => state.selected);
-  const setIncluded = useReviewQueue((state) => state.setIncluded);
-  const clearSelection = useReviewQueue((state) => state.clearSelection);
+  const [comparison, setComparison] = useState(() =>
+    prepared && data ? { entries: prepared, data } : undefined,
+  );
+  const entries = comparison?.entries;
+  const selected = useReviewQueue((state) =>
+    state.entries === entries ? state.selected : noSelection,
+  );
+  const account = useReviewQueue((state) => state.account);
+  const decisions = useReviewQueue((state) => state.decisions);
+  const message = useReviewQueue((state) => state.message);
   const collapsed = useReviewQueue((state) => state.collapsed);
   const leftovers = useReviewQueue((state) => state.leftovers);
   // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
   const [confirming, setConfirming] = useState<{
     entries: PendingTooltip[];
     data: EditorData;
+    account: string;
     inputs?: ReturnType<typeof planReviewedPublish>;
     needed?: ReadonlyMap<PendingTooltip, string>;
   }>();
@@ -185,43 +178,31 @@ export function ReviewPage() {
     };
   }, []);
   const [error, setError] = useState<string>();
-  // The bar's status line, for the change it is about; gone once the ticks are reset.
-  const [message, setMessage] = useState<{ text: string; hash: number; included?: boolean }>();
-  const [decisions, setDecisions] = useState<Decision[]>([]);
   useEffect(() => {
     let active = true;
     if (!data) return;
+    const install = (entries: PendingTooltip[]) => {
+      setComparison((previous) =>
+        previous?.entries === entries && previous.data === data ? previous : { entries, data },
+      );
+      setComparing(false);
+    };
     // The initial snapshot was already checked against these exact saved markers.
     if (prepared) {
-      setEntries(prepared);
-      setComparing(false);
-      clearSelection();
-      setDecisions([]);
-      setMessage(undefined);
+      install(prepared);
       return;
     }
     const markers = acknowledgedMarkers(data);
     const settled = acknowledgedGlobals(data);
     const ready = preparedPending(data, markers, settled);
     if (ready) {
-      setEntries(ready);
-      setComparing(false);
-      clearSelection();
-      setDecisions([]);
-      setMessage(undefined);
+      install(ready);
       return;
     }
     setComparing(true);
     void pendingTooltips(data, markers, settled).then(
       (result) => {
-        if (!active) return;
-        setEntries(result);
-        // The list kept showing the previous snapshot while this one was compared: nothing picked
-        // there may carry over to saved text nobody has looked at.
-        clearSelection();
-        setDecisions([]);
-        setMessage(undefined);
-        setComparing(false);
+        if (active) install(result);
       },
       (reason: unknown) => {
         if (active) {
@@ -233,7 +214,7 @@ export function ReviewPage() {
     return () => {
       active = false;
     };
-  }, [data, acknowledgments, publishedGlobals, prepared, clearSelection]);
+  }, [data, acknowledgments, publishedGlobals, prepared]);
   const list = entries ?? noEntries;
   // What the list shows; what is ticked and published is always an entry of `list`.
   const rows = list;
@@ -314,11 +295,6 @@ export function ReviewPage() {
     params.set('hash', String(rowKey(current)));
     setSearchParams(params, { replace: true });
   }, [current, entries, searchParams, setSearchParams, subview, waitingRow]);
-  useEffect(() => {
-    clearSelection();
-    setDecisions([]);
-    setMessage(undefined);
-  }, [user, clearSelection]);
   // Review's own readiness mark (the shared perf harness): the first frame after the page painted.
   useEffect(() => {
     if (!entries || !window.requestAnimationFrame) return;
@@ -397,14 +373,7 @@ export function ReviewPage() {
   };
   const decide = () => {
     if (!current || locked || pause) return;
-    const hash = current.tooltip.hash;
-    setDecisions((stack) => [...stack.slice(-49), { hash, key: rowKey(current), was: included }]);
-    setIncluded(hash, !included);
-    setMessage({
-      text: `${current.name}: ${included ? 'removed from' : 'included in'} the publish.`,
-      hash,
-      included: !included,
-    });
+    useReviewQueue.getState().decide(current);
     advance(included ? 'Removed' : 'Included');
   };
   const skip = () => {
@@ -413,17 +382,11 @@ export function ReviewPage() {
     if (next) selectRow(rowKey(next));
   };
   const undo = () => {
-    const last = decisions.at(-1);
-    if (!last || pushing) return;
+    if (pushing) return;
+    const key = useReviewQueue.getState().undo(inFlight);
+    if (key === undefined) return;
     stopPause();
-    setDecisions((stack) => stack.slice(0, -1));
-    setIncluded(last.hash, last.was);
-    const entry = rows.find(({ tooltip }) => tooltip.hash === last.hash);
-    setMessage({
-      text: entry ? `${entry.name}: undone.` : 'Last decision undone.',
-      hash: last.hash,
-    });
-    if (ordered.some((row) => rowKey(row) === last.key)) selectRow(last.key);
+    if (ordered.some((row) => rowKey(row) === key)) selectRow(key);
   };
   // Another open change (a row click, the URL, Back) or new filters end a pause without moving
   // again. The pause's own move clears it before it navigates, so it never cancels itself.
@@ -436,25 +399,35 @@ export function ReviewPage() {
 
   function askToPublish() {
     // Only a role that can publish, and never while a reload may replace the reviewed snapshot.
-    if (!canPush(user) || !data || !entries || comparing || reloading || pushing) return;
+    if (
+      account === null ||
+      !canPush(user) ||
+      !data ||
+      !entries ||
+      comparison.data !== data ||
+      comparing ||
+      reloading ||
+      pushing
+    )
+      return;
     if (!chosen.length) return;
     setError(undefined);
     try {
       const { picked, needed } = withNeededGlobals(chosen, entries, inFlight, data);
       const inputs = publisher ? planReviewedPublish(picked, entries, data) : undefined;
-      setConfirming({ entries: picked, data, inputs, needed });
+      setConfirming({ entries: picked, data, account, inputs, needed });
     } catch (reason) {
       setError(errorMessage(reason));
     }
   }
-  // A confirmation belongs to the snapshot it listed: new saved data retires it, out loud.
+  // A confirmation belongs to the saved snapshot and account that opened it.
   useEffect(() => {
-    if (!confirming || confirming.data === data) return;
+    if (!confirming || (confirming.data === data && confirming.account === account)) return;
     setConfirming(undefined);
     setError(
       'The list changed while the publish was being confirmed. Review it and publish again.',
     );
-  }, [confirming, data]);
+  }, [confirming, data, account]);
 
   const confirmedComparison = useMemo(() => {
     if (!confirming?.entries.some(({ part }) => part?.pending)) return undefined;
@@ -586,19 +559,25 @@ export function ReviewPage() {
   async function publish({
     entries: picked,
     data: reviewed,
+    account: reviewingAccount,
     inputs,
+    needed,
   }: NonNullable<typeof confirming>) {
     setConfirming(undefined);
+    const { account, versions } = useReviewQueue.getState();
+    if (
+      reviewingAccount !== account ||
+      picked.some(
+        (entry) => !needed?.has(entry) && versions.get(rowKey(entry)) !== entry.savedVersion,
+      )
+    )
+      return;
     setError(undefined);
     const isMounted = () => mounted.current;
     const succeeded = inputs
       ? await queuePublish(inputs, picked, reviewed, isMounted)
       : await publishReviewed(picked, reviewed, isMounted);
-    if (succeeded && mounted.current) {
-      clearSelection();
-      setDecisions([]);
-      setMessage(undefined);
-    }
+    if (succeeded) useReviewQueue.getState().removePublished(picked);
   }
 
   const leftoverView = !!current?.markerOnly;
@@ -649,7 +628,7 @@ export function ReviewPage() {
       entry={current}
       name={current.name}
       published={publishedFor(published, current.tooltip.hash, current.pushed)}
-      onDone={(text) => setMessage({ text, hash: current.tooltip.hash })}
+      onDone={(text) => useReviewQueue.getState().showMessage(current, text)}
     />
   );
   return (
@@ -677,7 +656,7 @@ export function ReviewPage() {
               type="button"
               className={styles.primary}
               data-review-publish
-              disabled={pushing || refreshing || !chosen.length}
+              disabled={pushing || refreshing || comparison?.data !== data || !chosen.length}
               onClick={askToPublish}
             >
               {pushing
@@ -870,7 +849,7 @@ export function ReviewPage() {
                     {pause.verb}. Next: <strong>{pause.next?.name}</strong> · Esc to stay
                   </span>
                 ) : (
-                  message?.hash === current.tooltip.hash &&
+                  message?.key === rowKey(current) &&
                   (message.included === undefined || message.included === included) && (
                     <span className={styles.next}>{message.text}</span>
                   )

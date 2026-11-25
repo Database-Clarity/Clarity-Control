@@ -21,6 +21,7 @@ const entry = (
   categoryOrder: 0,
   markerOnly,
   isNew: !markerOnly,
+  savedVersion: `saved-${hash}`,
   ...(unpublishable ? { unpublishable } : {}),
 });
 
@@ -68,6 +69,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  useReviewQueue.getState().clearSelection();
   useReviewQueue.setState({ entries: null, selected: new Set(), collapsed: new Set() });
   closeSheet.mockReset();
 });

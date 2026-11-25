@@ -79,6 +79,7 @@ export function globalEntries(
       categoryOrder: order,
       markerOnly: false,
       isNew: pending.change === 'new',
+      ...(ahead.has(pending.id) ? {} : { savedVersion: pending.digest }),
       ...(unpublishable === undefined ? {} : { unpublishable }),
     };
     entry.part = {

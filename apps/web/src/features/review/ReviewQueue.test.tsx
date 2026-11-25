@@ -8,6 +8,7 @@ import type { PendingTooltip } from './model';
 import type { QueueView } from './queueModel';
 import { queueView } from './queueModel';
 import { useReviewQueue } from './queueStore';
+import { useAuthStore } from '../../stores/auth';
 
 const views = new WeakMap<object, QueueView>();
 const noKinds = new Map();
@@ -63,9 +64,42 @@ it('reveals the new selection instead of clamping to the bottom after a grouped 
   }
 });
 
+it('restores scroll on return even when the open change was scrolled offscreen', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  useReviewQueue.setState({ scrollTop: 0 });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const view = listView(
+    Array.from({ length: 100 }, (_, hash) => ({ hash, name: `Tooltip ${hash}`, category: 'Perk' })),
+  );
+  const render = () => (
+    <MemoryRouter initialEntries={['/review?hash=0&query=Perk']}>
+      <ReviewQueue kinds={noKinds} view={view} selectedHash="0" />
+    </MemoryRouter>
+  );
+  const scroller = () =>
+    host.querySelector<HTMLElement>('[aria-label="Scroll pending saved changes"]')!;
+  try {
+    await act(async () => root.render(render()));
+    await act(async () => {
+      scroller().scrollTop = 900;
+      scroller().dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    await act(async () => root.render(null));
+    await act(async () => root.render(render()));
+    expect(scroller().scrollTop).toBe(900);
+    expect(host.querySelector('[data-review-hash="0"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    useReviewQueue.setState({ scrollTop: 0 });
+  }
+});
+
 it('checks a group when every available row is selected and another row is in flight', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  useReviewQueue.setState({ selected: new Set(), scrollTop: 0 });
+  const previousAuth = useAuthStore.getState();
+  useAuthStore.setState({ user: { id: 1, login: 'fixture', role: 'editor' }, loading: false });
+  useReviewQueue.setState({ scrollTop: 0 });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -77,7 +111,9 @@ it('checks a group when every available row is selected and another row is in fl
     categoryOrder: 0,
     markerOnly: false,
     isNew: false,
+    savedVersion: `saved-${hash}`,
   }));
+  useReviewQueue.getState().setEntries(entries);
   try {
     await act(async () =>
       root.render(
@@ -99,7 +135,9 @@ it('checks a group when every available row is selected and another row is in fl
   } finally {
     await act(async () => root.unmount());
     host.remove();
-    useReviewQueue.setState({ selected: new Set(), scrollTop: 0 });
+    useReviewQueue.getState().clearSelection();
+    useReviewQueue.setState({ entries: null, scrollTop: 0 });
+    useAuthStore.setState(previousAuth);
   }
 });
 /** A flat list of rows (no group headers), so indices match hashes as in the original queue. */

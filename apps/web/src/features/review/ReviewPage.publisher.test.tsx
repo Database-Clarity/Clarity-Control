@@ -162,6 +162,7 @@ beforeEach(async () => {
     notice: undefined,
     error: undefined,
   });
+  useReviewQueue.getState().clearSelection();
   bundle = {
     sourceCommit: 'baseline',
     generatedAt: '2026-01-01T00:00:00Z',
