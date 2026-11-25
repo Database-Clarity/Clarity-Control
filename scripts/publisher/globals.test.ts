@@ -422,13 +422,15 @@ describe('in-place shared text publication', () => {
       const bytes = stableStringify(payload);
       f.change({ [paths(opId).request]: { payload: bytes, sig: f.sign(bytes) } });
       if (revokedAtFence)
-        f.git.beforeAtomic = () => f.change({
-          'config/permissions.json': { users: { 1: { login: 'alice', role: 'maintainer' } } },
-        });
+        f.git.beforeAtomic = () =>
+          f.change({
+            'config/permissions.json': { users: { 1: { login: 'alice', role: 'maintainer' } } },
+          });
       await f.pub.operation(opId);
       if (revokedAtFence)
         expect(f.read(paths(opId).log).result).toMatchObject({
-          status: 'rejected', error: expect.stringContaining('revoked'),
+          status: 'rejected',
+          error: expect.stringContaining('revoked'),
         });
       else
         expect(f.read(paths(opId).log).result).toMatchObject({
@@ -452,8 +454,9 @@ describe('in-place shared text publication', () => {
       ...f.git.tree(landed),
       'unreviewed.json': f.git.writeBlob(encode({ surprise: true })),
     });
-    await expect(f.pub.verifyTranslationReceipt(receipt, tainted))
-      .rejects.toThrow('unexpected bytes at unreviewed.json');
+    await expect(f.pub.verifyTranslationReceipt(receipt, tainted)).rejects.toThrow(
+      'unexpected bytes at unreviewed.json',
+    );
     const permissions = f.read('config/permissions.json');
     f.git.refs.set(D, frozen);
     f.change({

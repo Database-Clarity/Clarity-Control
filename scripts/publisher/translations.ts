@@ -150,14 +150,22 @@ export function translationRoots(
   const active = activeSource(pub, tree, input, aliases, pushed);
   let canReuse: (hash: number, oid: string) => boolean = () => false;
   if (previous) {
-    const index = pub.read<{ destination: string; liveCommit: string; roots: Record<string, string> }>(
-      previous.data, translationRootsPath,
-    );
-    if (index?.liveCommit === previous.liveCommit && index.destination === pub.options.liveBranch && index.roots) {
+    const index = pub.read<{
+      destination: string;
+      liveCommit: string;
+      roots: Record<string, string>;
+    }>(previous.data, translationRootsPath);
+    if (
+      index?.liveCommit === previous.liveCommit &&
+      index.destination === pub.options.liveBranch &&
+      index.roots
+    ) {
       const before = liveTranslationAliases(liveGlobalsInput(pub, previous.liveCommit));
       const markers = pushedSchema.parse(pub.read(previous.data, 'live/pushed.json'));
       canReuse = (hash, oid) =>
-        index.roots[hash] === oid && !!pushed[hash] && markers[hash] === pushed[hash] &&
+        index.roots[hash] === oid &&
+        !!pushed[hash] &&
+        markers[hash] === pushed[hash] &&
         same(incomingAliases(hash, before), incomingAliases(hash, aliases));
     }
   }
