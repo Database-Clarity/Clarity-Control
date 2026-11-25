@@ -38,7 +38,7 @@ import { GlobalsPublisher, globalTreeOid } from './globals.js';
 import { migrateInPlace } from './globalsInPlace.js';
 import { dryRunGlobalsMigration, restoreGlobalsMigration } from './globalsMigration.js';
 import { Publisher, paths, type Options } from './publisher.js';
-import { bundleTranslations } from './translations.js';
+import { bundleTranslations, translationRootsPath } from './translations.js';
 import { createRequest } from './request.js';
 import { LocalRepository, RefRace, type Repository, type Tree } from './git.js';
 import { RemoteRepository, TransportUnresolved } from './remote.js';
@@ -381,6 +381,13 @@ describe('in-place shared text publication', () => {
       .store.entries.find((entry: { id: string }) => entry.id === id);
     const pin = f.read('.publisher/PIN');
     pin.capabilities.push(translationPublishCapability);
+    f.change({ '.publisher/PIN': pin });
+    const initialData = f.git.head(D);
+    await f.pub.publishBundle(false);
+    expect(f.git.head(D)).toBe(initialData);
+    expect(f.current()[translationRootsPath]).toBeUndefined();
+    await f.pub.publishBundle();
+    expect(f.current()[translationRootsPath]).toBeDefined();
     const publish = async (opId: string, entry: typeof f.entry, revokedAtFence = false) => {
       f.change({ [f.entryPath]: entry, '.publisher/PIN': pin });
       const preview = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, {});
@@ -439,7 +446,14 @@ describe('in-place shared text publication', () => {
     };
     await publish(A, selected);
     const landed = f.git.head(L)!;
-    const frozen = f.pub.receipt(landed, A)!.sourceCommit;
+    const receipt = f.pub.receipt(landed, A)!;
+    const frozen = receipt.sourceCommit;
+    const tainted = f.git.commit(receipt.liveParent, {
+      ...f.git.tree(landed),
+      'unreviewed.json': f.git.writeBlob(encode({ surprise: true })),
+    });
+    await expect(f.pub.verifyTranslationReceipt(receipt, tainted))
+      .rejects.toThrow('unexpected bytes at unreviewed.json');
     const permissions = f.read('config/permissions.json');
     f.git.refs.set(D, frozen);
     f.change({

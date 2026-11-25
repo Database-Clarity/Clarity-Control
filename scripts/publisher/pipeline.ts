@@ -196,7 +196,7 @@ export async function runPipeline(
     let next: string;
     for (let attempt = 0; ; attempt++) {
       const old = repo.head(bundleRef);
-      await pub.publishBundle();
+      await pub.publishBundle(enabled && prepare);
       next = repo.head(bundleRef)!;
       if (next === old || repo instanceof RemoteRepository) break;
       gitAt(cwd, ['fetch', '--no-tags', repo.path, `+${bundleRef}:refs/publisher/bundle`]);

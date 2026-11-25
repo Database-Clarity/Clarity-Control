@@ -562,10 +562,7 @@ export class Publisher {
     const raw = JSON.parse(envelope.payload);
     const p =
       live && raw?.scope === 'translations'
-        ? await parseScopedPublishRequestPayload(
-            raw,
-            liveTranslationAliases(liveGlobalsInput(this, live)),
-          )
+        ? translationPublishPayloadSchema.parse(raw)
         : await parsePublishRequestPayload(raw);
     if (
       stableStringify(p) !== envelope.payload ||
@@ -588,6 +585,22 @@ export class Publisher {
         p.rows.some(({ lang }) => !access.languages?.includes(lang))
       )
         throw new Error('Translation publication is unavailable or the requester was revoked');
+      const aliases = liveTranslationAliases(liveGlobalsInput(this, live!));
+      const refused = p.rows.flatMap((row) =>
+        row.kind === 'tooltip' && Object.hasOwn(aliases, row.hash)
+          ? [
+              {
+                kind: row.kind,
+                hash: row.hash,
+                lang: row.lang,
+                status: 'rejected' as const,
+                reason: 'alias-root' as const,
+              },
+            ]
+          : [],
+      );
+      if (refused.length) throw new TranslationPartRefusal(refused);
+      await parseScopedPublishRequestPayload(p, aliases);
     } else if (!['maintainer', 'editor'].includes(access?.role))
       throw new Error('Requester revoked');
     requesterCredits(p.requester);
@@ -637,6 +650,16 @@ export class Publisher {
     )
       throw new Error('Credit request target mismatch');
     return requesterCredits(payload.requester);
+  }
+  private async duplicateIntent(blob: string, opId: string) {
+    const raw = JSON.parse(JSON.parse(this.git.blob(blob)).payload);
+    if (raw.scope === 'translations') {
+      this.credits(blob, opId);
+      const payload = translationPublishPayloadSchema.parse(raw);
+      if ((await scopedPublishRequestIntentDigest(payload)) !== payload.intentDigest)
+        throw new Error('Altered translation intent');
+    }
+    return raw.intentDigest;
   }
   receipt(commit: string, opId: string): Receipt | undefined {
     return this.read(this.git.tree(commit), paths(opId).receipt);
@@ -1283,6 +1306,7 @@ export class Publisher {
           tree,
           atomicLive.parent,
         ).catch((error) => {
+          if (error instanceof TranslationPartRefusal) throw error;
           throw new ConsumerOutputRejected(error instanceof Error ? error.message : String(error));
         });
         if (tree[p.request] !== receipt.requestBlob)
@@ -1347,15 +1371,19 @@ export class Publisher {
           const source = receipt!.sourceCommit;
           const frozen = this.git.tree(source);
           const catalog = globalsReleasePaths.published(this.options.liveBranch);
-          const publication = (snapshot: Tree) => Object.fromEntries(
-            Object.entries(snapshot).filter(([path]) => path === catalog ||
-              (path.startsWith('live/') && path !== translationRootsPath)),
-          );
+          const publication = (snapshot: Tree) =>
+            Object.fromEntries(
+              Object.entries(snapshot).filter(
+                ([path]) =>
+                  path === catalog || (path.startsWith('live/') && path !== translationRootsPath),
+              ),
+            );
           if (
             this.head(this.options.liveBranch) !== candidate ||
             !this.git.ancestor(source, h) ||
             stableStringify(publication(frozen)) !== stableStringify(publication(tree))
-          ) throw new RefRace('Cannot recover a translation RECORD over a changed publication.');
+          )
+            throw new RefRace('Cannot recover a translation RECORD over a changed publication.');
         }
         Object.assign(tree, scoped.data);
       } else if (receipt) {
@@ -1381,7 +1409,7 @@ export class Publisher {
       if (tree[p.request] && tree[p.request] !== blob) {
         let strayIntent: string | undefined;
         try {
-          strayIntent = JSON.parse(JSON.parse(this.git.blob(tree[p.request])).payload).intentDigest;
+          strayIntent = await this.duplicateIntent(tree[p.request], opId);
         } catch {
           /* malformed stray is a conflict */
         }
@@ -1429,7 +1457,7 @@ export class Publisher {
         for (const path of new Set([...Object.keys(tree), ...Object.keys(proofTree)])) {
           if (tree[path] === proofTree[path]) continue;
           if (
-            !/^globals\/proofs\/(?:clashes\/(?:exports|variables|titles)\/[a-f0-9]{64}|removal\/[a-f0-9-]+-[a-z-]+)\.json$/.test(
+            !/^globals\/proofs\/(?:clashes\/(?:exports|variables|titles)\/[a-f0-9]{64}|removal\/g_[a-zA-Z0-9_-]{8,80}-[a-z-]+)\.json$/.test(
               path,
             )
           )
@@ -1450,6 +1478,7 @@ export class Publisher {
               tree,
               candidate,
               scoped?.input ?? liveGlobalsInput(this, candidate),
+              scoped ? undefined : { data: this.git.tree(h), liveCommit: receipt.liveParent },
             ),
           ),
         );
@@ -1522,7 +1551,7 @@ export class Publisher {
       const original = this.read<{ intentDigest: string }>(t, p.log)!;
       let intent: string | undefined;
       try {
-        intent = JSON.parse(JSON.parse(this.git.blob(t[p.request])).payload).intentDigest;
+        intent = await this.duplicateIntent(t[p.request], opId);
       } catch {
         /* conflict */
       }
@@ -1730,6 +1759,7 @@ export class Publisher {
       try {
         payload = await this.verifyRequest(blob, opId, tree, live);
       } catch (e) {
+        if (e instanceof TranslationPartRefusal) throw e;
         await this.record(
           opId,
           undefined,
@@ -2744,7 +2774,7 @@ export class Publisher {
     await new GlobalsPublisher(this).maintainAuthored();
   }
 
-  async publishBundle() {
+  async publishBundle(materializeRoots = true) {
     for (let attempt = 0; ; attempt++) {
       const sourceCommit = this.head(this.options.dataBranch);
       const tree = this.git.tree(sourceCommit);
@@ -2757,6 +2787,7 @@ export class Publisher {
       );
       try {
         if (index?.liveCommit !== live || index.destination !== this.options.liveBranch) {
+          if (!materializeRoots) return this.bundle();
           const roots = translationRoots(this, tree, live, liveGlobalsInput(this, live));
           if (this.head(this.options.liveBranch) !== live)
             throw new RefRace('Translation root index LIVE source moved');

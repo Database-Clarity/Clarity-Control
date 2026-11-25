@@ -8,6 +8,7 @@ import {
   globalsReleasePaths,
   inactivePublishableHash,
   inactiveRemovalHash,
+  incomingAliases,
   isHeldSetBonus,
   isLegacyAliasStub,
   languages,
@@ -47,6 +48,7 @@ import { expandAliases } from '../../packages/export/src/converter/index.js';
 import { convertDescription } from '../../packages/export/src/converter/descriptionConverter.js';
 import { loadExports } from '../../packages/export/src/converter/converterFunctions/loadExports.js';
 import type { LegacyInput } from '../../packages/export/src/legacy.js';
+import { readFormatV2Lines } from '../../packages/export/src/v2/compile.js';
 import { unloweredEntry } from './consumerOutput.js';
 import type { Tree } from './git.js';
 import {
@@ -122,8 +124,8 @@ function activeSource(
   tree: Tree,
   input: LegacyInput,
   aliases = liveTranslationAliases(input),
+  pushed = pushedSchema.parse(pub.read(tree, 'live/pushed.json')),
 ) {
-  const pushed = pushedSchema.parse(pub.read(tree, 'live/pushed.json'));
   return (hash: number) => {
     const path = snapshotPath(hash);
     if (!input.perks[hash] || !('editor' in input.perks[hash]) || (hash >= 1 && hash <= 3)) return;
@@ -141,13 +143,31 @@ export function translationRoots(
   tree: Tree,
   liveCommit: string,
   input: LegacyInput,
+  previous?: { data: Tree; liveCommit: string },
 ) {
-  const active = activeSource(pub, tree, input);
-  const roots = Object.fromEntries(
-    Object.keys(input.perks).flatMap((key) =>
-      active(Number(key)) ? [[key, tree[snapshotPath(Number(key))]]] : [],
-    ),
-  );
+  const aliases = liveTranslationAliases(input);
+  const pushed = pushedSchema.parse(pub.read(tree, 'live/pushed.json'));
+  const active = activeSource(pub, tree, input, aliases, pushed);
+  let canReuse: (hash: number, oid: string) => boolean = () => false;
+  if (previous) {
+    const index = pub.read<{ destination: string; liveCommit: string; roots: Record<string, string> }>(
+      previous.data, translationRootsPath,
+    );
+    if (index?.liveCommit === previous.liveCommit && index.destination === pub.options.liveBranch && index.roots) {
+      const before = liveTranslationAliases(liveGlobalsInput(pub, previous.liveCommit));
+      const markers = pushedSchema.parse(pub.read(previous.data, 'live/pushed.json'));
+      canReuse = (hash, oid) =>
+        index.roots[hash] === oid && !!pushed[hash] && markers[hash] === pushed[hash] &&
+        same(incomingAliases(hash, before), incomingAliases(hash, aliases));
+    }
+  }
+  const roots: Record<string, string> = {};
+  for (const [key, perk] of Object.entries(input.perks)) {
+    const hash = Number(key);
+    if ((hash >= 1 && hash <= 3) || !('editor' in perk)) continue;
+    const oid = tree[snapshotPath(hash)];
+    if (oid && (canReuse(hash, oid) || active(hash))) roots[key] = oid;
+  }
   return { destination: pub.options.liveBranch, liveCommit, roots };
 }
 
@@ -190,8 +210,10 @@ function effectFacts(
   facts: Publisher['options']['facts'],
   lookup: ReturnType<typeof expandAliases>,
 ) {
-  const cell = liveEntry(input, hash).editor[lang];
+  const perk = liveEntry(input, hash);
+  const cell = perk.editor[lang];
   if (!cell) return null;
+  if (isHeldSetBonus({}, facts[hash] ?? perk)) throw new Error(setBonusHoldMessage);
   if (unloweredEntry({ [hash]: cell }) || cell.main.includes('{{') || cell.secondary.includes('{{'))
     throw new Error(`Tooltip ${hash} (${lang}) contains markup held from publication.`);
   const language: Lang = cell.englishFallback ? 'en' : lang;
@@ -213,7 +235,11 @@ function effectFacts(
       descriptionString: cell[editorType],
     };
     const expanded = loadExports(args);
-    const globals = { variables: '', titles: '', lang: language };
+    const globals = {
+      variables: lookup[2]?.editor[lang]?.main ?? '',
+      titles: lookup[3]?.editor[lang]?.main ?? '',
+      lang: language,
+    };
     const checked = validateTextWithReads(expanded, language, globals, false, hash, aliases);
     const issue = checked.issues.find(
       (value) => value.severity === 'error' || value.code === 'retired',
@@ -224,13 +250,32 @@ function effectFacts(
       throw new Error(`Tooltip ${hash} (${lang}) contains markup held from publication.`);
     return converted.lines ?? null;
   });
+  const imports = new Proxy({} as Record<string, string>, {
+    get(_target, key) {
+      if (typeof key !== 'string') return undefined;
+      if (key === 'global') return database[1]?.editor[language]?.main;
+      return database[key]?.editor[language]?.main ?? (database[key] ? '' : undefined);
+    },
+  });
+  const v2 = readFormatV2Lines(
+    cell.main,
+    {
+      imports,
+      variables: lookup[2]?.editor[lang]?.main ?? '',
+      titles: lookup[3]?.editor[lang]?.main ?? '',
+      lang: language,
+      type: perk.type,
+    },
+    String(hash),
+    lang,
+  );
   for (const target of reads) {
     const dependency = input.perks[target];
     if (!dependency || !('editor' in dependency))
       throw new Error(`Publish tooltip ${target} first.`);
     if (isHeldSetBonus({}, facts[target] ?? dependency)) throw new Error(setBonusHoldMessage);
   }
-  return { cell, parts, imports: [...reads].sort((a, b) => a - b) };
+  return { cell, parts, v2, imports: [...reads].sort((a, b) => a - b) };
 }
 
 function context(pub: Publisher, tree: Tree, live: string) {
@@ -334,8 +379,11 @@ function context(pub: Publisher, tree: Tree, live: string) {
           live: liveDoc
             ? { status: 'active', entry: liveDoc }
             : {
-                status: input.perks[hash] ? 'unverified'
-                  : pushed[hash] === await inactiveRemovalHash(hash) ? 'inactive' : 'missing',
+                status: input.perks[hash]
+                  ? 'unverified'
+                  : pushed[hash] === (await inactiveRemovalHash(hash))
+                    ? 'inactive'
+                    : 'missing',
               },
         }),
       );
@@ -348,7 +396,7 @@ function context(pub: Publisher, tree: Tree, live: string) {
       const checked = structuredClone(liveDoc!);
       if (entry) checked.text[lang] = entry;
       else delete checked.text[lang];
-      refreshNumberFallbacks(checked, lang);
+      if (entry?.text !== oldEntry?.text) refreshNumberFallbacks(checked, lang);
       const fallback = entry ? translationFallbackIds(checked.text.en, lang) : [];
       expected = await translationExpectedDigest(entry);
       english = await translationEnglishDigest(liveDoc!.text.en!);

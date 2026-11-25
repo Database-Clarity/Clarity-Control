@@ -105,6 +105,7 @@ async function scopedParity() {
   if (!recordCommit || !/^[a-f0-9]{40}$/.test(recordCommit))
     throw new Error('Exact DATA RECORD commit required for scoped parity');
   const frozen = read(receipt.sourceCommit, '.publisher/config.json') as Options;
+  const pin = read(receipt.sourceCommit, '.publisher/PIN') as { sha256: string };
   const recordParent = git('rev-parse', `${recordCommit}^`).trim();
   const repository = {
     ...readOnly,
@@ -123,7 +124,11 @@ async function scopedParity() {
           ? recordParent
           : undefined,
   };
-  const publisher = new Publisher(repository, { ...frozen, ...config });
+  const publisher = new Publisher(repository, {
+    ...frozen,
+    ...config,
+    publisherDigest: pin.sha256,
+  });
   const verified = await publisher.verifyTranslationReceipt(receipt, commit);
   const parent = sourceTree(recordParent);
   const after = sourceTree(recordCommit);

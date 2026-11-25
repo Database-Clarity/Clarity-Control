@@ -89,6 +89,20 @@ exact accepted schedule authorized by its signed owner policy; other failures ne
 and remove the due entry. Infrastructure Retry uses the existing authenticated pipeline kick.
 The `scheduledGlobalsV1` capability permits asynchronous schedules with Globals metadata.
 The `globalsExportsV1` capability adds per-entry exports and the ordered hash-1 projection.
+
+`translationPublishV1` lets the installed runtime drain signed translator requests on an active
+Globals destination. The Worker and Review negotiate `translation-publish-v1` before admitting
+requests. Each part lands atomically against the verified LIVE parent. The publisher reconstructs
+the language patches, rechecks the current requester and English revision at the commit fence,
+and records only the selected source cells, their LIVE projections, and publication bookkeeping.
+An earlier publish can leave a request unchanged or require a fresh review.
+
+The bundle carries an optional `translationPublish` member with pending rows and their effect
+digests. DATA records publish `live/translation-roots.json` with verified active-root blob IDs
+for Worker admission. The index is seeded during bundle preparation and advances with RECORD.
+For a scoped receipt, pass its exact DATA RECORD commit after `outputDir` to `parity.mjs`. The
+adapter configuration includes the public verification key whose fingerprint is pinned at the
+frozen DATA source.
 Scheduled batches use the shared definitions already published to LIVE. Preparation, claim,
 and atomic landing recheck the candidate with the current resolver. A batch that reads a shared
 definition absent from LIVE needs attention until the definition is published and the batch is
