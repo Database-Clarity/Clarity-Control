@@ -83,7 +83,7 @@ export function PushConfirm({
           <button
             type="button"
             ref={confirm}
-            className={styles.primary}
+            className={removing ? styles.danger : styles.primary}
             onKeyDown={(event) => {
               // A held Enter that opened this dialog would otherwise confirm it by auto-repeat.
               if (event.repeat) event.preventDefault();
@@ -168,7 +168,12 @@ export function PushConfirm({
             Not in this publish. Review {held.size === 1 ? 'it' : 'these'} again once the other is
             live:
           </p>
-          <ul className={styles.confirmList} aria-label="Not in this publish" tabIndex={0}>
+          <ul
+            className={styles.confirmList}
+            data-held=""
+            aria-label="Not in this publish"
+            tabIndex={0}
+          >
             {[...held].map(([entry, other]) => (
               <li key={entry.tooltip.hash}>
                 <span className={styles.confirmName}>{entry.name}</span>

@@ -263,9 +263,8 @@
   }
 
   // Listed, with its reason, but not publishable now.
-  &[data-blocked] a:first-of-type > span:first-child,
-  &[data-blocked] small:not([data-kind]) {
-    color: var(--text3);
+  &[data-blocked] a:first-of-type > span:first-child {
+    color: var(--text2);
   }
 
   a > span:first-child {
@@ -303,6 +302,10 @@
 
   > small {
     flex: none;
+
+    &::before {
+      content: '· ';
+    }
   }
 }
 
@@ -374,6 +377,40 @@
 
   .row a > span:first-child {
     flex: none;
+  }
+
+  // The second line takes the language too: "Removed · German".
+  .row a:has(> span[data-lane]) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: center;
+    column-gap: 0.25em;
+  }
+
+  .row a > span[data-lane] {
+    display: contents;
+
+    > span {
+      grid-column: 1 / -1;
+      white-space: nowrap;
+    }
+
+    > small {
+      grid-area: 2 / 2;
+      line-height: 1rem;
+    }
+
+    &:last-child > small {
+      grid-column: 1 / -1;
+
+      &::before {
+        content: none;
+      }
+    }
+  }
+
+  .row a:has(> span[data-lane]) > .kind {
+    grid-area: 2 / 1;
   }
 
   .kind {

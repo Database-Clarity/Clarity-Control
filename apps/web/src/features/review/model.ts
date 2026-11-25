@@ -48,8 +48,11 @@ export interface PendingTooltip {
   inactiveAliases?: number[];
   /** The pending definition of a global row. */
   part?: GlobalPart;
-  /** Only translations wait here: folded for editors, published by the translators. */
-  translationOnly?: true;
+  /**
+   * Only translations wait here: folded for editors, published by the translators. Unverified on a
+   * migration leftover until its published text is loaded (`folds.ts`).
+   */
+  translationOnly?: true | 'unverified';
   /** One language of a tooltip or shared text: a translator's row. */
   lane?: Lane;
 }
@@ -204,6 +207,7 @@ async function computePending(
   const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
   const only = folds() ? data.bundle.translationPublish?.only : undefined;
   const onlyTooltips = new Set(only?.tooltips);
+  const translated = only ? readyLanes(data) : undefined;
   const built = (data.tooltipSnapshot ?? data.bundle).tooltips;
   const entries = tooltips.map((tooltip, index) => {
     const pushedMarker = pushed[tooltip.hash];
@@ -219,8 +223,9 @@ async function computePending(
       .map(Number)
       .filter((hash) => hash !== tooltip.hash && resolveAlias(hash, data.aliases) === tooltip.hash);
     // The bundle's word holds for exactly the saved and live text it was built from.
+    const listed = onlyTooltips.has(tooltip.hash);
     const translationOnly =
-      onlyTooltips.has(tooltip.hash) &&
+      (listed || translated?.has(tooltip.hash)) &&
       built[tooltip.hash] === tooltip &&
       pushedMarker !== undefined &&
       pushedMarker === data.bundle.pushed[tooltip.hash] &&
@@ -248,7 +253,9 @@ async function computePending(
           ? { inactiveChange: 'restore' as const }
           : {}),
       ...(inactiveAliases.length ? { inactiveAliases } : {}),
-      ...(translationOnly ? { translationOnly: true as const } : {}),
+      ...(translationOnly
+        ? { translationOnly: listed ? (true as const) : ('unverified' as const) }
+        : {}),
       ...(!removing && !item && !tooltip.custom
         ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
         : {}),
@@ -269,6 +276,16 @@ async function computePending(
         a.name.localeCompare(b.name) ||
         a.tooltip.hash - b.tooltip.hash,
     );
+}
+
+/** Tooltips with translations ready to publish alone, and none that waits for its English. */
+function readyLanes({ bundle }: EditorData): ReadonlySet<number> {
+  const ready = new Set<number>();
+  const blocked = new Set<number>();
+  for (const row of Object.values(bundle.translationPublish?.lanes ?? {}).flat())
+    if (row?.kind === 'tooltip') (row.status === 'ready' ? ready : blocked).add(row.hash);
+  for (const hash of blocked) ready.delete(hash);
+  return ready;
 }
 
 export function toggleSelection(selected: ReadonlySet<number>, hash: number): Set<number> {

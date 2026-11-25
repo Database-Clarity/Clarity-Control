@@ -93,7 +93,7 @@ const QueueRow = memo(function QueueRow({
               {entry.name}
               {distinguish && <small className={styles.identity}> · {identity}</small>}
             </span>
-            <small className={styles.identity}>· {languageLabel(entry.lane.lang)}</small>
+            <small className={styles.identity}>{languageLabel(entry.lane.lang)}</small>
           </span>
         ) : (
           <span data-global={entry.part?.pending ? '' : undefined}>

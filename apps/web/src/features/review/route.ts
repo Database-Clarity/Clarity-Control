@@ -47,6 +47,8 @@ export function reviewRoute({ request }: LoaderFunctionArgs) {
   if (!data) return null;
   const { user } = useAuthStore.getState();
   const languages = publishLanguages(user);
+  // A bundle without the lanes is still being checked: the page settles the route later.
+  if (languages.length && !data.bundle.translationPublish) return null;
   const entries = languages.length
     ? inLanguage(laneEntries(data, languages, acknowledgedTranslations(data)), params.get('lang'))
     : preparedPending(data, acknowledgedMarkers(data), acknowledgedGlobals(data));

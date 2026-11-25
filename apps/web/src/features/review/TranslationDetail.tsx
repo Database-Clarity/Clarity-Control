@@ -41,7 +41,7 @@ export function laneSentence(
     case 'Still correct':
       return (
         <>
-          <b>No text change.</b> Marks the {language} translation as still correct
+          <b>No change to your text.</b> Marks the {language} translation as still correct
           {back ? ': players see it again instead of English.' : '.'}
         </>
       );
@@ -140,6 +140,8 @@ export function LaneDetail({
     (classification?.kind === 'Text changed' ||
       classification?.kind === 'On hold' ||
       change.before.language !== change.after.language);
+  // With no other tooltip in the row's effects, the publisher's fallback is its own.
+  const ownFallback = !!ready?.englishFallback && !ready.affectedHashes.length;
   const plain = removed ? change?.before : change?.after;
   return (
     <section aria-label="Selected change" className={styles.detail}>
@@ -149,7 +151,7 @@ export function LaneDetail({
         classification={classification}
         onRetry={onRetry}
       />
-      {change?.after.language === 'en' && !removed ? (
+      {!removed && (change?.after.language === 'en' || ownFallback) ? (
         <p className={styles.sentence} data-tone="warn">
           <b>Goes live in English.</b> This {languageLabel(lang)} text is too far behind the
           published English, or uses a number that English removed.
@@ -169,7 +171,7 @@ export function LaneDetail({
           Saved by {saved.updatedBy} · <When value={saved.updatedAt} />
         </p>
       )}
-      <div className={styles.evidence} data-global={lane.id !== undefined ? '' : undefined}>
+      <div className={styles.evidence} data-global={signedIn && saved ? undefined : ''}>
         <section lang={lang} aria-label={`${languageLabel(lang)} comparison`}>
           <h4>{languageLabel(lang)}</h4>
           {changed ? (

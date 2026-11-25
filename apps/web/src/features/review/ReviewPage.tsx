@@ -32,6 +32,7 @@ import {
   rowKey,
   type RowKey,
 } from './globalRows';
+import { settledFolds, settleFolds } from './folds';
 import { independentLanes, inLanguage, isLane, laneEntries, type LaneEntry } from './lanes';
 import { neededGlobals, rowIdentity } from './globalsPending';
 import { classifyRows, classifyTooltip, kindOf, localKind, useKinds, useRowKinds } from './kinds';
@@ -153,9 +154,19 @@ export function ReviewPage() {
   const languages = useMemo(() => publishLanguages(user), [user]);
   const translator = languages.length > 0;
   const mayPublish = canPush(user) || translator;
+  // A bundle can come without them for a while: the list, its ticks, and Publish wait for the next.
+  const lanesMissing = translator && !!data && !data.bundle.translationPublish;
+  useEffect(() => {
+    if (!lanesMissing) return;
+    useReviewQueue.setState({ entries: null });
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'hidden') void load({ background: true });
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [lanesMissing, load]);
   const lanes = useMemo(
     () =>
-      translator && data
+      translator && data?.bundle.translationPublish
         ? { entries: laneEntries(data, languages, acknowledgedTranslations(data)), data }
         : undefined,
     // The session's published rows leave the list.
@@ -178,7 +189,8 @@ export function ReviewPage() {
     prepared && data ? { entries: prepared, data } : undefined,
   );
   const comparison = translator ? lanes : compared;
-  const entries = comparison?.entries;
+  const [, setFolded] = useState(0);
+  const entries = comparison && settledFolds(comparison.entries);
   const selected = useReviewQueue((state) => state.selected);
   const versions = useReviewQueue((state) => state.versions);
   const account = useReviewQueue((state) => state.account);
@@ -265,6 +277,17 @@ export function ReviewPage() {
     // A new snapshot (Refresh) also asks again for rows whose last request failed.
     if (entries && liveAvailable) void loadPublished(publishedRows(entries), true);
   }, [entries, liveAvailable, user]);
+  const comparedEntries = compared?.entries;
+  useEffect(() => {
+    if (!comparedEntries) return;
+    let active = true;
+    void settleFolds(comparedEntries, published).then((changed) => {
+      if (active && changed) setFolded((count) => count + 1);
+    });
+    return () => {
+      active = false;
+    };
+  }, [comparedEntries, published]);
   useEffect(() => {
     if (!entries || !data) return;
     classifyRows(
@@ -708,6 +731,8 @@ export function ReviewPage() {
         <p className={styles.counts}>
           {entries ? (
             <SelectionCounts changes={readyCount(changes)} />
+          ) : lanesMissing ? (
+            'Checking published text…'
           ) : (
             'Checking what is waiting to go live…'
           )}
@@ -740,11 +765,6 @@ export function ReviewPage() {
           )}
         </span>
       </header>
-      {translator && data && !data.bundle.translationPublish && (
-        <p className={styles.notice} role="note">
-          The list of translations to publish is not ready. Refresh to check again.
-        </p>
-      )}
       {!mayPublish && (
         <p className={styles.notice} role="note">
           {apiUrl

@@ -330,6 +330,7 @@ it('lists only the rows of the assigned language, with the blocked ones and thei
   expect(host.querySelector('a[data-review-edit="10:de"]')?.getAttribute('data-review-path')).toBe(
     '/t/10?lang=de',
   );
+  expect(row('10:de')!.textContent).not.toContain('German');
 });
 
 it('compares with the published text beside live English, not with an English change that waits', async () => {
@@ -675,13 +676,77 @@ it.each([
   expect(host.querySelector('nav[aria-label="Workspaces"] a[href^="/review"]')).toBeNull();
 });
 
-it('has nothing to publish while the bundle lists no translations', async () => {
-  delete bundle.translationPublish;
+it('keeps the entry, the page, and every tick while a bundle comes without its translations', async () => {
+  answer = ({ opId }) => Response.json({ opId, result: { status: 'done', rows: [] } });
   await signIn(translator);
   await mount();
+  await tick('30:de');
+  await act(async () => head()!.click());
+  for (let step = 0; step < 2; step++)
+    await act(async () => dialog()!.querySelector<HTMLButtonElement>('footer button')!.click());
+  await waitFor(() => expect(rowKeys()).toEqual(['10:de', '20:de']));
+  await tick('10:de');
+  const complete = bundle.translationPublish!;
+  delete bundle.translationPublish;
+  await click('Refresh');
+  await waitFor(() => expect(host.textContent).toContain('Checking published text…'));
   expect(rowKeys()).toEqual([]);
-  expect(host.textContent).toContain('The list of translations to publish is not ready');
   expect(head()!.disabled).toBe(true);
+  await key('p');
+  expect(dialog()).toBeNull();
+  expect(host.querySelector('nav[aria-label="Workspaces"] a[href^="/review"]')?.textContent).toBe(
+    'Review changes',
+  );
+  expect([...useReviewQueue.getState().versions.keys()]).toEqual(['10:de']);
+  expect(sessionStorage.getItem('clarity-review-inclusions:v1')).toContain('10:de');
+  // The next complete bundle is picked up: same version, same tick; the published row stays away.
+  bundle.translationPublish = complete;
+  await click('Refresh');
+  await waitFor(() => expect(rowKeys()).toEqual(['10:de', '20:de']));
+  expect(box('10:de').checked).toBe(true);
+  // Only a changed version drops it.
+  delete bundle.translationPublish;
+  await click('Refresh');
+  await waitFor(() => expect(rowKeys()).toEqual([]));
+  bundle.translationPublish = {
+    ...complete,
+    lanes: lanes([ready({ hash: 10 }, 'de', { effects: digest('2') })]),
+  };
+  await click('Refresh');
+  await waitFor(() => expect(rowKeys()).toEqual(['10:de']));
+  expect(box('10:de').checked).toBe(false);
+});
+
+it('asks for the next bundle by itself while the translations are missing', async () => {
+  await signIn(translator);
+  await mount();
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  try {
+    delete bundle.translationPublish;
+    await click('Refresh');
+    expect(host.textContent).toContain('Checking published text…');
+    const loads = vi.mocked(loadBundle).mock.calls.length;
+    await act(async () => vi.advanceTimersByTime(30_000));
+    await flush();
+    expect(vi.mocked(loadBundle).mock.calls.length).toBe(loads + 1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('folds a translation on a migration leftover, and lists it once anything else waits too', async () => {
+  // Current has aliases that the live marker of 10 and 40 does not name yet.
+  vi.mocked(loadGenerator).mockResolvedValue({
+    ...(await loadGenerator()),
+    aliases: { 11: { to: 10, kind: 'frame' }, 41: { to: 40, kind: 'frame' } },
+  });
+  bundle.translationPublish!.only = { tooltips: [30], globals: [] };
+  bundle.tooltips[40] = { ...saved[40]!, associated: [10] };
+  await signIn(editor);
+  await mount();
+  // 40 also has an association: it returns to the list with the published text.
+  await waitFor(() => expect(rowKeys()).toEqual(['20', '40']));
+  expect(host.textContent).toContain('2 translations hidden: translators publish them.');
 });
 
 it.each(['editor', 'maintainer'] as const)(

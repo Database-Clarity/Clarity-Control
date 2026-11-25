@@ -76,8 +76,9 @@ error details and must not be interpreted as "nothing was published."
 ## Translators
 
 A translator (managers included) sees the same page with one row per tooltip or global and assigned
-language (`lanes.ts`), while the Worker offers `translationPublish` in `/me` and the bundle carries
-`translationPublish`. Without either there is no entry and nothing changes. The rows, their blocked
+language (`lanes.ts`), while the Worker offers `translationPublish` in `/me`. Without it there is no entry and
+nothing changes. A bundle without `translationPublish` is only incomplete: the page says it is checking,
+keeps every tick and published row, and asks for the next bundle. The rows, their blocked
 reasons, and the signed facts come from the bundle; only their languages are read, so a URL, a key, or
 stored state never reaches another row. A tick stands for all of a row's signed facts and belongs to
 `<account>/translations`, apart from an editor's ticks. The comparison is the saved text against the
@@ -90,7 +91,9 @@ some rows refuse is sent again without them (`resends`), once across tabs and re
 tab ignores whole publishes the account stored as an editor, and an editor's tab the reverse. A removal asks once more in the dialog.
 
 Editors and maintainers fold the rows in `translationPublish.only` (nothing but translations waits)
-into one "Show" line like the leftovers; their publish is unchanged.
+into one "Show" line like the leftovers; their publish is unchanged. A translation on a migration
+leftover is folded too, and returns to the list if its published text shows any other change
+(`folds.ts`).
 
 ## Publisher mode (flag `VITE_PUBLISHER_ENABLED=1`, OFF by default)
 

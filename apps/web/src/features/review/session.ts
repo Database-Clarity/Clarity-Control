@@ -61,6 +61,8 @@ export function acknowledgedTranslations(data: EditorData): ReadonlySet<string> 
   const { translations } = useReviewSession.getState();
   const acknowledged = Object.entries(translations);
   if (!acknowledged.length) return none;
+  // Only a complete bundle can say that one has caught up.
+  if (!data.bundle.translationPublish) return new Set(Object.keys(translations));
   const rows = new Map(
     Object.values(data.bundle.translationPublish?.lanes ?? {})
       .flat()

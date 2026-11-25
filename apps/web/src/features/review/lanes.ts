@@ -91,7 +91,7 @@ export function laneEntries(
       }
     }
   // Saved in this tab after the bundle was built: listed at once, publishable after a refresh.
-  if (bundle.translationPublish && built !== bundle.tooltips)
+  if (built !== bundle.tooltips)
     for (const tooltip of Object.values(bundle.tooltips)) {
       const { hash } = tooltip;
       if (built[hash] === tooltip || hash <= 3) continue;
