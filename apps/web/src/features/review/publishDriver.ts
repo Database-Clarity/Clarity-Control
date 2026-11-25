@@ -49,7 +49,9 @@ export const publishTiming = {
 export interface PublishApi {
   post(body: PublishBody, switched?: true): Promise<PublishAnswer>;
   postTranslations(body: TranslationPublishBody): Promise<PublishAnswer>;
-  status(opId: string, translations?: true): Promise<RemoteStatus | 'unknown'>;
+  status(opId: string): Promise<RemoteStatus | 'unknown'>;
+  /** A translators' operation, with the reason of each row that refused it. */
+  translationStatus(opId: string): Promise<PublishAnswer | { status: 'unknown' }>;
   kick(opId: string): Promise<void>;
 }
 
@@ -65,6 +67,8 @@ export interface DriverDeps {
   broadcast(): void;
   /** A publish finished with `done`/`unchanged`: mark its hashes pushed in the review overlay. */
   acknowledge(op: PublishOp): void;
+  /** The Worker refused this account: its languages may have changed. */
+  forbidden?(): void;
 }
 
 export interface PublishState {
@@ -143,17 +147,20 @@ export const activeGlobals = (ops: readonly PublishOp[]): Set<string> =>
   new Set(heldOps(ops).flatMap((op) => op.globals?.map(({ id }) => id) ?? []));
 
 /** Translators' rows covered likewise, by key; a refused request holds the rows it sends again. */
-export const activeTranslations = (ops: readonly PublishOp[]): Set<string> =>
+export const activeTranslations = (ops: readonly PublishOp[], now = Date.now()): Set<string> =>
   new Set(
     ops.flatMap((op) =>
-      (isTerminal(op.status) && !needsPublishReceipt(op)
-        ? remainder(op, ops)
-        : (op.translations ?? [])
-      ).map(({ row }) => translationKey(row)),
+      (isTerminal(op.status) ? owedRows(op, ops, now) : (op.translations ?? [])).map(({ row }) =>
+        translationKey(row),
+      ),
     ),
   );
 
-/** The rows a refused request still owes: those not refused themselves, until they are sent again. */
+/** The rows a refused request still sends again; past the window they are free to review again. */
+export const owedRows = (op: PublishOp, ops: readonly PublishOp[], now: number) =>
+  op.released || now - op.updatedAt > publishTiming.ackWindowMs ? [] : remainder(op, ops);
+
+/** The rows of a refused request that were not refused themselves and were not sent again. */
 export function remainder(op: PublishOp, ops: readonly PublishOp[]) {
   if (!op.translations || !op.refusedRows?.length || op.dismissed) return [];
   if (ops.some(({ resends }) => resends === op.opId)) return [];
@@ -222,7 +229,8 @@ const receiptDue = (op: PublishOp) =>
 
 export class PublishDriver {
   private userId: string | null = null;
-  private translationsOnly = false;
+  /** A translator's assigned languages; undefined for an editor's whole publishes. */
+  private languages: ReadonlySet<string> | undefined;
   /** Includes dismissed group predecessors; their acceptance still orders unsent chunks. */
   private storedOps: PublishOp[] = [];
   private timer: unknown;
@@ -240,11 +248,11 @@ export class PublishDriver {
    * Switch to an account (or null). Resumes that account's stored operations: a translator's own
    * rows, or an editor's whole publishes, never those of a role the account no longer has.
    */
-  async start(userId: string | null, translationsOnly = false): Promise<void> {
+  async start(userId: string | null, languages?: readonly string[]): Promise<void> {
     this.stopTimer();
     const generation = ++this.generation;
     this.userId = userId;
-    this.translationsOnly = translationsOnly;
+    this.languages = languages && new Set(languages);
     this.storedOps = [];
     this.paused.clear();
     this.attempts.clear();
@@ -396,13 +404,16 @@ export class PublishDriver {
     void this.sendChunks(parts);
   }
 
+  /** A request naming a language this account lost: never sent, resent, or kicked again. */
+  private parked(op: PublishOp) {
+    return !!op.translations?.some(({ row }) => !this.languages?.has(row.lang));
+  }
+
   /** Refused translators' requests whose other rows still go out again. */
   private owed() {
+    const now = this.deps.now();
     return this.storedOps.flatMap((op) => {
-      const rows =
-        this.deps.now() - op.updatedAt > publishTiming.ackWindowMs
-          ? []
-          : remainder(op, this.storedOps);
+      const rows = owedRows(op, this.storedOps, now);
       return rows.length ? [{ op, rows }] : [];
     });
   }
@@ -410,6 +421,11 @@ export class PublishDriver {
   /** The rest of a refused request is sent once, whichever tab gets there. */
   private async resendTranslations(generation: number) {
     for (const { op, rows } of this.owed()) {
+      if (this.parked(op)) {
+        await this.settle(op.opId, { released: true });
+        if (generation !== this.generation) return;
+        continue;
+      }
       const now = this.deps.now();
       const part = translationOp(op.userId, now, rows, newOpId(now), {
         groupId: op.groupId ?? op.opId,
@@ -449,6 +465,8 @@ export class PublishDriver {
 
   /** Manual Retry: kick one waiting operation. One pipeline run drains the whole queue. */
   async kickWaiting(opId: string): Promise<void> {
+    const waiting = this.current(opId);
+    if (!waiting || this.parked(waiting)) return;
     const claimed = await this.claim(opId, (op, now) =>
       op.status !== 'pending' ||
       (op.kickedAt !== undefined && now - op.kickedAt < publishTiming.manualKickGapMs)
@@ -472,7 +490,7 @@ export class PublishDriver {
 
   private async list(userId: string) {
     const stored = await this.deps.store.list(userId);
-    return stored.filter((op) => !!op.translations === this.translationsOnly);
+    return stored.filter((op) => !!op.translations === !!this.languages);
   }
 
   private async reload(generation: number, first = false) {
@@ -611,6 +629,8 @@ export class PublishDriver {
 
   private async autoKick(opId: string, generation: number) {
     const now = this.deps.now();
+    const op = this.current(opId);
+    if (!op || this.parked(op)) return;
     const claimed = await this.deps.store
       .claimKick(opId, now, (members, bundleAt) => {
         if (generation !== this.generation) return false;
@@ -736,6 +756,7 @@ export class PublishDriver {
    * then the record is kept as stored and this tab follows it instead.
    */
   private async settle(opId: string, patch: Partial<PublishOp>, whileCreated = false) {
+    const generation = this.generation;
     const stored = await this.deps.store
       .update(opId, (op) => {
         // Keep the first observed confirmation time when two tabs see the same receipt.
@@ -744,7 +765,7 @@ export class PublishDriver {
         return { ...op, ...patch, updatedAt: this.deps.now() };
       })
       .catch(() => undefined);
-    if (!stored) return;
+    if (!stored || generation !== this.generation) return;
     this.storedOps = this.storedOps.map((op) => (op.opId === opId ? stored : op));
     this.note(opId, undefined);
     usePublishState.setState((state) => ({
@@ -777,7 +798,7 @@ export class PublishDriver {
         });
       refusedGlobals = outcome;
     }
-    if (remote === 'rejected' && !answer) {
+    if (remote === 'rejected' && !answer && !op.translations) {
       const generation = this.generation;
       if (op.status !== 'rejected') {
         // Store the rejection first: a finished part is never kicked or retried, and if the
@@ -818,7 +839,7 @@ export class PublishDriver {
     return this.settle(opId, {
       status: remote,
       acceptedAt: op.acceptedAt ?? this.deps.now(),
-      ...(remote === 'rejected' && answer ? { receiptChecked: true } : {}),
+      ...(remote === 'rejected' && (answer || op.translations) ? { receiptChecked: true } : {}),
       ...(refusedGlobals.length ? { refusedGlobals } : {}),
       ...(refusal !== undefined
         ? {
@@ -933,8 +954,14 @@ export class PublishDriver {
     return op.switched ? this.deps.api.post(body, true) : this.deps.api.post(body);
   }
 
-  private status(op: PublishOp) {
-    return op.translations ? this.deps.api.status(op.opId, true) : this.deps.api.status(op.opId);
+  private async status(
+    op: PublishOp,
+  ): Promise<{ remote: RemoteStatus | 'unknown'; answer?: PublishAnswer }> {
+    if (!op.translations) return { remote: await this.deps.api.status(op.opId) };
+    const answer = await this.deps.api.translationStatus(op.opId);
+    return answer.status === 'unknown'
+      ? { remote: 'unknown' }
+      : { remote: answer.status, answer: answer as PublishAnswer };
   }
 
   private async send(opId: string) {
@@ -964,12 +991,16 @@ export class PublishDriver {
         if (!(await this.groupReady(op))) return;
       }
       const now = this.deps.now();
-      if (op.status === 'created' && now - op.createdAt > publishTiming.sendExpiryMs) {
+      const parked = this.parked(op);
+      // Accepted once: the Worker knows it, whatever this answer said.
+      if (parked && op.status !== 'created') return;
+      if (parked || (op.status === 'created' && now - op.createdAt > publishTiming.sendExpiryMs)) {
         // The window for (re)creating the request has closed, but the Worker may already hold it (a
         // lost 202). Only the Worker's own answer can say so: never infer non-delivery from age.
         let remote: RemoteStatus | 'unknown';
+        let answer: PublishAnswer | undefined;
         try {
-          remote = await this.status(op);
+          ({ remote, answer } = await this.status(op));
         } catch {
           if (generation !== this.generation) return;
           this.attempts.set(opId, { count: 9, at: now + publishTiming.sendBackoffMs(9) });
@@ -985,11 +1016,13 @@ export class PublishDriver {
             opId,
             {
               status: 'failed',
-              error: 'The Worker has no record of this publish and it is too old to send. Publish again.',
+              error: parked
+                ? 'One of its languages is no longer yours, and the Worker has no record of it. Publish the rest again.'
+                : 'The Worker has no record of this publish and it is too old to send. Publish again.',
             },
             true,
           );
-        else await this.adopt(opId, remote);
+        else await this.adopt(opId, remote, answer);
         return;
       }
       await this.deps.store
@@ -1028,6 +1061,7 @@ export class PublishDriver {
       return;
     }
     if (status === 403) {
+      this.deps.forbidden?.();
       await this.settle(op.opId, {
         status: 'failed',
         error: op.translations
@@ -1050,9 +1084,9 @@ export class PublishDriver {
     if (status === 400) {
       // Never a new opId: ask the Worker whether it knows this one.
       try {
-        const remote = await this.status(op);
+        const { remote, answer } = await this.status(op);
         if (generation !== this.generation) return;
-        if (remote !== 'unknown') return void (await this.adopt(op.opId, remote));
+        if (remote !== 'unknown') return void (await this.adopt(op.opId, remote, answer));
       } catch {
         // The Worker really did reject the body; report that below.
       }
@@ -1098,14 +1132,15 @@ export class PublishDriver {
     if (workerError && count >= publishTiming.workerErrorAttempts) {
       // A create may have landed during an earlier attempt: only the Worker's "unknown" settles it.
       let remote: RemoteStatus | 'unknown' | undefined;
+      let answer: PublishAnswer | undefined;
       try {
-        remote = await this.status(op);
+        ({ remote, answer } = await this.status(op));
       } catch {
         remote = undefined;
       }
       if (generation !== this.generation) return;
       if (remote !== undefined && remote !== 'unknown')
-        return void (await this.adopt(op.opId, remote));
+        return void (await this.adopt(op.opId, remote, answer));
       if (remote === 'unknown') {
         await this.settle(
           op.opId,
@@ -1131,10 +1166,11 @@ export class PublishDriver {
   private async poll(opId: string) {
     const generation = this.generation;
     let remote: RemoteStatus | 'unknown';
+    let answer: PublishAnswer | undefined;
     try {
       const op = this.current(opId);
       if (!op) return;
-      remote = await this.status(op);
+      ({ remote, answer } = await this.status(op));
     } catch (reason) {
       if (generation !== this.generation) return;
       const status = reason instanceof PublishHttpError ? reason.status : 0;
@@ -1159,7 +1195,7 @@ export class PublishDriver {
       this.note(opId, undefined);
       return remote;
     }
-    await this.adopt(opId, remote);
+    await this.adopt(opId, remote, answer);
   }
 
   private async kick(opId: string) {

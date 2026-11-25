@@ -1,26 +1,62 @@
 import { apiUrl } from '../../services/api';
 import {
   getPublishStatus,
+  getTranslationStatus,
   kickPublish,
   postPublish,
   postTranslations,
+  PublishHttpError,
 } from '../../services/publisher/api';
+import { sessionToken } from '../../services/session';
 import { publisherEnabled } from '../../services/publisher/flag';
 import { createIndexedDbOpStore } from '../../services/publisher/opStore';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { translationKey } from '../../services/translationPublish';
-import { canPublishTranslations, canPushLive as canPush } from '../auth/permissions';
-import { PublishDriver } from './publishDriver';
+import {
+  canPublishTranslations,
+  canPushLive as canPush,
+  publishLanguages,
+} from '../auth/permissions';
+import { PublishDriver, usePublishState } from './publishDriver';
 import { useReviewSession } from './session';
 
 const channelName = 'clarity-publisher';
 const store = createIndexedDbOpStore();
 
+/**
+ * A request carries whatever session the browser holds when it is sent: only the settled one of the
+ * account these operations belong to may send it (another tab may be signing in as someone else).
+ */
+function bound<A extends unknown[], R>(send: (...args: A) => Promise<R>) {
+  return (...args: A): Promise<R> => {
+    const { user, token, loading } = useAuthStore.getState();
+    const settled = !loading && user && String(user.id) === usePublishState.getState().userId;
+    return settled && token === currentToken()
+      ? send(...args)
+      : Promise.reject(new PublishHttpError(0, 'The sign-in is changing'));
+  };
+}
+function currentToken(): string | null {
+  try {
+    return sessionToken();
+  } catch {
+    return null;
+  }
+}
+
 /** The tab's publisher. Inert (never touches storage or the network) unless the flag is on. */
 export const publishDriver = new PublishDriver({
   store,
-  api: { post: postPublish, postTranslations, status: getPublishStatus, kick: kickPublish },
+  api: {
+    post: bound(postPublish),
+    postTranslations: bound(postTranslations),
+    status: bound(getPublishStatus),
+    translationStatus: bound(getTranslationStatus),
+    kick: bound(kickPublish),
+  },
+  // Its assignments may have changed: the menu, the list, and the ticks follow.
+  forbidden: () => void useAuthStore.getState().load(),
   now: () => Date.now(),
   setTimer: (run, ms) => setTimeout(run, ms),
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
@@ -97,15 +133,17 @@ export function startPublisher(): void {
     const { user, token } = useAuthStore.getState();
     // A new session token for the same account also restarts: paused (signed-out) sends resume.
     const translator = canPublishTranslations(user);
+    const languages = translator ? publishLanguages(user) : undefined;
+    // Other languages are another start: a request naming a lost one is never sent again.
     const next =
       canPush(user) || translator
-        ? `${String(user!.id)}|${token ?? ''}${translator ? '|translations' : ''}`
+        ? `${String(user!.id)}|${token ?? ''}${languages ? `|${languages.join()}` : ''}`
         : null;
     if (next === key) return;
     key = next;
     if (next) {
       void observeBundle(useDataStore.getState().data?.bundle.generatedAt);
-      void publishDriver.start(String(user!.id), translator);
+      void publishDriver.start(String(user!.id), languages);
     } else publishDriver.stop();
   };
   useAuthStore.subscribe(sync);

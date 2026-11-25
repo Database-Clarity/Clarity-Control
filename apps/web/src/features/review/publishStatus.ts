@@ -3,6 +3,7 @@ import { languageLabel } from '../../languageLabels';
 import { translationKey } from '../../services/translationPublish';
 import {
   needsPublishReceipt,
+  owedRows,
   publishTiming,
   regroupRefusals,
   remainder,
@@ -66,7 +67,7 @@ const notPublished = (refused: readonly { name: string; error: string }[]) =>
  * nothing is queued and Retry would do nothing.
  */
 export function describeOp(
-  op: PublishOp,
+  op: PublishOp & { unsent?: number },
   note: string | undefined,
   now: number,
   when: When,
@@ -86,10 +87,14 @@ export function describeOp(
   // What a finished request left out waits in Review; the rest is live.
   if (op.refusedGlobals?.length && (op.status === 'done' || op.status === 'unchanged'))
     return { ...base, tone: 'warn', chip: 'Partly live', detail: notPublished(op.refusedGlobals) };
-  if (op.refusedRows?.length && isTerminal(op.status))
+  if (op.refusedRows?.length && isTerminal(op.status)) {
+    const detail = `${notPublished(op.refusedRows)}${
+      op.unsent ? ` ${op.unsent} more not sent; publish them again.` : ''
+    }`;
     return op.status === 'done' || op.status === 'unchanged'
-      ? { ...base, tone: 'warn', chip: 'Partly live', detail: notPublished(op.refusedRows) }
-      : { ...base, tone: 'bad', chip: 'Refused', detail: notPublished(op.refusedRows) };
+      ? { ...base, tone: 'warn', chip: 'Partly live', detail }
+      : { ...base, tone: 'bad', chip: 'Refused', detail };
+  }
   switch (op.status) {
     case 'created':
       return {
@@ -180,9 +185,13 @@ export function foreignWaiting(
 }
 
 /** A translator's publish as one action: the parts it went out in stay invisible. */
-function groupTranslations(members: PublishOp[]): ReturnType<typeof groupPublishes>[number] {
+function groupTranslations(
+  members: PublishOp[],
+  now: number,
+): ReturnType<typeof groupPublishes>[number] {
   const first = members[0]!;
-  const owed = members.some((op) => remainder(op, members).length > 0);
+  const owed = members.some((op) => owedRows(op, members, now).length > 0);
+  const unsent = owed ? 0 : members.reduce((n, op) => n + remainder(op, members).length, 0);
   const unfinished =
     members.find((op) => op.status === 'pending') ?? members.find((op) => !isTerminal(op.status));
   const checking = !unfinished && (owed || members.some(needsPublishReceipt));
@@ -211,6 +220,7 @@ function groupTranslations(members: PublishOp[]): ReturnType<typeof groupPublish
       acceptedAt: unfinished ? (unfinished.acceptedAt ?? unfinished.createdAt) : first.acceptedAt,
       translations,
       refusedRows: refusedRows.length && !failed ? refusedRows : undefined,
+      ...(unsent ? { unsent } : {}),
       status: unfinished
         ? unfinished.status
         : checking
@@ -238,7 +248,13 @@ function groupTranslations(members: PublishOp[]): ReturnType<typeof groupPublish
  */
 export function groupPublishes(
   ops: readonly PublishOp[],
-): { op: PublishOp; members: PublishOp[]; liveCount?: number; checking?: boolean }[] {
+  now = Date.now(),
+): {
+  op: PublishOp & { unsent?: number };
+  members: PublishOp[];
+  liveCount?: number;
+  checking?: boolean;
+}[] {
   const groups = new Map<string, PublishOp[]>();
   for (const op of ops) {
     const id = op.groupId ?? op.opId;
@@ -247,7 +263,7 @@ export function groupPublishes(
     groups.set(id, members);
   }
   return [...groups.values()].map((members) => {
-    if (members.some((op) => op.translations)) return groupTranslations(members);
+    if (members.some((op) => op.translations)) return groupTranslations(members, now);
     const first = members[0]!;
     const tooltips = members.reduce((total, op) => total + op.hashes.length, 0);
     const count = members.reduce((total, op) => total + changeCount(op), 0);

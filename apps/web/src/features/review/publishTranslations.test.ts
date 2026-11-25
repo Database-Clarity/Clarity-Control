@@ -36,9 +36,11 @@ function tab(store = createMemoryOpStore()) {
     post: vi.fn<PublishApi['post']>(async () => ({ status: 'pending' })),
     postTranslations: vi.fn<PublishApi['postTranslations']>(async () => ({ status: 'pending' })),
     status: vi.fn<PublishApi['status']>(async () => 'pending'),
+    translationStatus: vi.fn<PublishApi['translationStatus']>(async () => ({ status: 'pending' })),
     kick: vi.fn<PublishApi['kick']>(async () => undefined),
   };
   const acked: string[] = [];
+  const forbidden = vi.fn();
   const driver = new PublishDriver({
     store,
     api,
@@ -49,8 +51,9 @@ function tab(store = createMemoryOpStore()) {
     broadcast: () => undefined,
     acknowledge: (op) =>
       acked.push(...op.translations!.map(({ row }) => `${'hash' in row && row.hash}`)),
+    forbidden,
   });
-  return { store, api, driver, acked };
+  return { store, api, driver, acked, forbidden };
 }
 const ops = () => usePublishState.getState().ops;
 const sent = (api: ReturnType<typeof tab>['api']) =>
@@ -80,7 +83,7 @@ it('names the same contract as core', () => {
 
 it('sends automatic parts of the size the Worker takes, as one publish', async () => {
   const { driver, api, acked } = tab();
-  await driver.start('1', true);
+  await driver.start('1', ['de']);
   await driver.createTranslations(items(11, 12, 13, 14, 15), 2);
   await vi.advanceTimersByTimeAsync(0);
   expect(sent(api)).toEqual([[11, 12], [13, 14], [15]]);
@@ -88,9 +91,9 @@ it('sends automatic parts of the size the Worker takes, as one publish', async (
     expect(translationPublishBodySchema.safeParse(body).success).toBe(true);
   expect(groupPublishes(ops())).toHaveLength(1);
   expect(view(ops()).lead).toBe('0 of 5 translations live.');
-  api.status.mockResolvedValue('done');
+  api.translationStatus.mockResolvedValue({ status: 'done' });
   await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0));
-  expect(api.status).toHaveBeenCalledWith(expect.any(String), true);
+  expect(api.status).not.toHaveBeenCalled();
   expect(acked.sort()).toEqual(['11', '12', '13', '14', '15']);
   expect(view(ops())).toMatchObject({ chip: 'Published', lead: '5 German translations' });
 });
@@ -103,7 +106,7 @@ it('sends the rest of a refused part again without its refused rows, until it la
       new PublishHttpError(409, 'Review it again.', true, undefined, refuse(3).rows),
     )
     .mockResolvedValue({ status: 'done' });
-  await driver.start('1', true);
+  await driver.start('1', ['de']);
   await driver.createTranslations(items(1, 2, 3), 12);
   await vi.advanceTimersByTimeAsync(0);
   // The rows that go out again stay held meanwhile, and nothing reads as finished.
@@ -120,32 +123,31 @@ it('sends the rest of a refused part again without its refused rows, until it la
   });
 });
 
-it('reads a polled refusal from its receipt, and says so when nothing went live', async () => {
+it('reads a polled refusal from its own status, and says so when nothing went live', async () => {
   const { driver, api } = tab();
-  await driver.start('1', true);
+  await driver.start('1', ['de']);
   await driver.createTranslations(items(1), 12);
   await vi.advanceTimersByTimeAsync(0);
-  api.status.mockResolvedValue('rejected');
-  api.postTranslations.mockResolvedValue(refuse(1));
+  api.translationStatus.mockResolvedValue(refuse(1));
   await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0));
   expect(view(ops())).toMatchObject({
     chip: 'Refused',
     detail: 'Not published: Tooltip 1 (Review it again).',
     finished: true,
   });
-  expect(sent(api)).toEqual([[1], [1]]);
+  expect(sent(api)).toEqual([[1]]);
 });
 
 it('two tabs and a reload send the rest once', async () => {
   const first = tab();
   first.api.postTranslations.mockResolvedValueOnce(refuse(2));
-  await first.driver.start('1', true);
+  await first.driver.start('1', ['de']);
   await first.driver.createTranslations(items(1, 2), 12);
   await vi.advanceTimersByTimeAsync(0);
   first.driver.stop();
   const second = tab(first.store);
   const third = tab(first.store);
-  await Promise.all([second.driver.start('1', true), third.driver.start('1', true)]);
+  await Promise.all([second.driver.start('1', ['de']), third.driver.start('1', ['de'])]);
   await vi.advanceTimersByTimeAsync(1_000);
   const resends = [...first.store.records.values()].filter(({ resends }) => resends);
   expect(resends).toHaveLength(1);
@@ -154,14 +156,16 @@ it('two tabs and a reload send the rest once', async () => {
 });
 
 it('keeps a language the account lost out of every later request', async () => {
-  const { driver, api } = tab();
+  const { driver, api, forbidden } = tab();
   api.postTranslations.mockRejectedValue(
     new PublishHttpError(403, 'Publish only translations in your assigned languages', true),
   );
-  await driver.start('1', true);
+  await driver.start('1', ['de']);
   await driver.createTranslations(items(1, 2, 3), 2);
   await vi.advanceTimersByTimeAsync(60_000);
   expect(api.postTranslations).toHaveBeenCalledTimes(1);
+  // The account's assignments are read again at once.
+  expect(forbidden).toHaveBeenCalledTimes(1);
   expect(view(ops())).toMatchObject({
     tone: 'bad',
     detail: expect.stringContaining('not yours to publish'),
@@ -170,7 +174,7 @@ it('keeps a language the account lost out of every later request', async () => {
 
 it('refuses rows that another publish of this account already holds', async () => {
   const { driver } = tab();
-  await driver.start('1', true);
+  await driver.start('1', ['de']);
   await driver.createTranslations(items(1), 12);
   await expect(driver.createTranslations(items(1, 2), 12)).rejects.toThrow(
     'already being published',
@@ -182,7 +186,7 @@ it('a translator’s tab never resumes a whole publish of the same account', asy
   await driver.start('1');
   await driver.create([{ hash: 10, digest: digest('a'), previous: undefined }]);
   const before = api.post.mock.calls.length;
-  await driver.start('1', true);
+  await driver.start('1', ['de']);
   await vi.advanceTimersByTimeAsync(120_000);
   expect(ops()).toEqual([]);
   expect(api.post).toHaveBeenCalledTimes(before);
@@ -192,7 +196,7 @@ it('a translator’s tab never resumes a whole publish of the same account', asy
 
 it('an editor’s tab never resumes translations of the same account', async () => {
   const { driver, api } = tab();
-  await driver.start('1', true);
+  await driver.start('1', ['de']);
   await driver.createTranslations(items(1), 12);
   await vi.advanceTimersByTimeAsync(0);
   const before = api.postTranslations.mock.calls.length;
@@ -200,7 +204,69 @@ it('an editor’s tab never resumes translations of the same account', async () 
   await vi.advanceTimersByTimeAsync(120_000);
   expect(ops()).toEqual([]);
   expect(api.postTranslations).toHaveBeenCalledTimes(before);
-  expect(api.status).not.toHaveBeenCalled();
+  expect(api.translationStatus).not.toHaveBeenCalled();
+});
+
+it('parks a stored part once the account loses one of its languages', async () => {
+  const { driver, api, store } = tab();
+  const both = [...items(1), { row: row(2, 'fr'), name: 'Tooltip 2' }];
+  // Never acknowledged: only the Worker can say it did not arrive, and nothing is sent again.
+  api.postTranslations.mockRejectedValue(new PublishHttpError(0, 'Offline'));
+  await driver.start('1', ['de', 'fr']);
+  await driver.createTranslations(both, 12);
+  await vi.advanceTimersByTimeAsync(0);
+  const posts = api.postTranslations.mock.calls.length;
+  api.translationStatus.mockResolvedValue({ status: 'unknown' });
+  await driver.start('1', ['de']);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(api.postTranslations).toHaveBeenCalledTimes(posts);
+  expect(view(ops())).toMatchObject({
+    tone: 'bad',
+    detail: expect.stringContaining('One of its languages is no longer yours'),
+  });
+  expect(activeTranslations(ops()).size).toBe(0);
+  // An accepted one is still followed to its result, but never kicked.
+  store.records.clear();
+  await driver.start('1', ['de', 'fr']);
+  api.postTranslations.mockResolvedValue({ status: 'pending' });
+  api.translationStatus.mockResolvedValue({ status: 'pending' });
+  await driver.createTranslations(both, 12);
+  await vi.advanceTimersByTimeAsync(0);
+  const accepted = api.postTranslations.mock.calls.length;
+  await driver.start('1', ['de']);
+  await vi.advanceTimersByTimeAsync(30 * 60_000);
+  await driver.kickWaiting(ops()[0]!.opId);
+  expect(api.kick).not.toHaveBeenCalled();
+  api.translationStatus.mockResolvedValue({
+    status: 'rejected',
+    rows: [{ key: '2:fr', error: 'Not yours.' }],
+  });
+  await vi.advanceTimersByTimeAsync(5 * 60_000);
+  expect(api.postTranslations).toHaveBeenCalledTimes(accepted);
+  expect(view(ops())).toMatchObject({
+    chip: 'Refused',
+    detail: 'Not published: Tooltip 2 (Not yours). 1 more not sent; publish them again.',
+  });
+});
+
+it('releases the rest of a refused part once it is too late to send it by itself', async () => {
+  const first = tab();
+  first.api.postTranslations.mockResolvedValueOnce(refuse(2));
+  await first.driver.start('1', ['de']);
+  await first.driver.createTranslations(items(1, 2), 12);
+  await vi.advanceTimersByTimeAsync(0);
+  first.driver.stop();
+  vi.setSystemTime(Date.now() + publishTiming.ackWindowMs + 1_000);
+  const later = tab(first.store);
+  await later.driver.start('1', ['de']);
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(later.api.postTranslations).not.toHaveBeenCalled();
+  expect(activeTranslations(ops()).size).toBe(0);
+  expect(view(ops())).toMatchObject({
+    chip: 'Refused',
+    finished: true,
+    detail: 'Not published: Tooltip 2 (Review it again). 1 more not sent; publish them again.',
+  });
 });
 
 it('publishes rows of one language that change the same tooltip one after the other', () => {

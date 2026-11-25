@@ -1,4 +1,9 @@
-import { inactivePublishableHash, isMovedInactive, type Tooltip } from '@clarity/core';
+import {
+  inactivePublishableHash,
+  isMovedInactive,
+  translationExpectedDigest,
+  type Tooltip,
+} from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
 import { errorMessage } from '../../services/http';
 import { translationRequestRow } from '../../services/translationPublish';
@@ -6,6 +11,7 @@ import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { publishLanguages } from '../auth/permissions';
 import { neededGlobals } from './globalsPending';
+import { publishedOf } from './globalRows';
 import type { LaneEntry } from './lanes';
 import { canPush, type PendingTooltip } from './model';
 import { publishDependencies } from './publishDependencies';
@@ -126,6 +132,20 @@ export function planReviewedPublish(
   return planned;
 }
 
+/** Why these translations cannot be confirmed yet: each is shown against its signed live version. */
+export function unreadyComparison(chosen: readonly PendingTooltip[]): string | undefined {
+  const byHash = usePublished.getState().byHash;
+  const statuses = new Set(chosen.map((entry) => publishedOf(entry, byHash)?.status ?? 'loading'));
+  if (statuses.has('changed'))
+    return 'Some of these changed after this list was built. Refresh to review them.';
+  if (statuses.has('missing'))
+    return 'Some selected changes need published versions that could not be recovered.';
+  if (statuses.has('error')) return 'Refresh Review to retry loading the published versions.';
+  return statuses.has('loading')
+    ? 'Wait for the published versions to load, then publish again.'
+    : undefined;
+}
+
 /**
  * A translator's publish: the confirmed rows as scoped requests of their languages only. The rows
  * and their reviewed facts come from the bundle; the Worker and the publisher check them again.
@@ -139,8 +159,17 @@ export async function queueTranslations(
   if (!chosen.length || useReviewSession.getState().pushing) return false;
   useReviewSession.setState({ pushing: true, notice: undefined, error: undefined });
   try {
+    const reviewed = await Promise.all(
+      chosen.map(
+        async ({ lane }) =>
+          lane.row?.status === 'ready' &&
+          (await translationExpectedDigest(lane.saved)) === lane.row.expected,
+      ),
+    );
     if (
       useDataStore.getState().data !== data ||
+      !sameUser(useAuthStore.getState().user, user) ||
+      !reviewed.every(Boolean) ||
       chosen.some(({ lane }) => !languages.includes(lane.lang))
     )
       throw new Error('The list changed. Review it and publish again');

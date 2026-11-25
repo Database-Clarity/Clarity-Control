@@ -1,7 +1,7 @@
 import { globalsInPlacePublishContract, translationPublishReasons } from '@clarity/core';
 import { expect, it, vi } from 'vitest';
 import { apiRequest } from '../api';
-import { getPublishStatus, postPublish, postTranslations } from './api';
+import { getTranslationStatus, postPublish, postTranslations } from './api';
 
 vi.mock('../api', () => ({ apiRequest: vi.fn() }));
 
@@ -94,11 +94,24 @@ it('asks for a translators’ operation with its contract, and never adopts anot
   vi.mocked(apiRequest).mockResolvedValueOnce(
     Response.json({ operations: [{ opId: 'op', status: 'unknown' }] }),
   );
-  await expect(getPublishStatus('op', true)).resolves.toBe('unknown');
+  await expect(getTranslationStatus('op')).resolves.toEqual({ status: 'unknown' });
   expect(apiRequest).toHaveBeenLastCalledWith(
     '/publish/status?opId=op&contract=translation-publish-v1',
     expect.anything(),
   );
+  // The reasons of its refused rows come with the status, without another POST.
+  const rows = [{ kind: 'tooltip', hash: 10, lang: 'de', reason: 'review-changed' }];
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ operations: [{ opId: 'op', status: 'rejected', rows }] }),
+  );
+  await expect(getTranslationStatus('op')).resolves.toEqual({
+    status: 'rejected',
+    rows: [{ key: '10:de', error: translationPublishReasons['review-changed'] }],
+  });
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ operations: [{ opId: 'other', status: 'done' }] }),
+  );
+  await expect(getTranslationStatus('op')).rejects.toMatchObject({ status: 502 });
   vi.mocked(apiRequest).mockResolvedValueOnce(
     Response.json({ opId: 'other', status: 'pending' }, { status: 202 }),
   );

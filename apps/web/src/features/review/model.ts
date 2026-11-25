@@ -48,11 +48,10 @@ export interface PendingTooltip {
   inactiveAliases?: number[];
   /** The pending definition of a global row. */
   part?: GlobalPart;
-  /**
-   * Only translations wait here: folded for editors, published by the translators. Unverified on a
-   * migration leftover until its published text is loaded (`folds.ts`).
-   */
-  translationOnly?: true | 'unverified';
+  /** Only translations wait here: folded for editors, published by the translators. */
+  translationOnly?: true;
+  /** Translations wait here, on a row the bundle does not vouch for: see `folds.ts`. */
+  mayFold?: true;
   /** One language of a tooltip or shared text: a translator's row. */
   lane?: Lane;
 }
@@ -254,7 +253,9 @@ async function computePending(
           : {}),
       ...(inactiveAliases.length ? { inactiveAliases } : {}),
       ...(translationOnly
-        ? { translationOnly: listed ? (true as const) : ('unverified' as const) }
+        ? listed
+          ? { translationOnly: true as const }
+          : { mayFold: true as const }
         : {}),
       ...(!removing && !item && !tooltip.custom
         ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
@@ -339,9 +340,11 @@ export async function prepareReviewQueue(data: EditorData) {
   const markers = acknowledgedMarkers(data);
   const settled = acknowledgedGlobals(data);
   const { acknowledgments, globals } = useReviewSession.getState();
+  const { user } = useAuthStore.getState();
   const entries = await pendingTooltips(data, markers, settled);
   const current = useReviewSession.getState();
   if (
+    useAuthStore.getState().user === user &&
     useDataStore.getState().data === data &&
     current.acknowledgments === acknowledgments &&
     current.globals === globals

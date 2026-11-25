@@ -477,6 +477,7 @@ it.each([
         store: createMemoryOpStore(),
         api: {
           postTranslations: () => Promise.reject(new Error('unused')),
+          translationStatus: () => Promise.reject(new Error('unused')),
           async post(body) {
             if (!receipts.has(body.opId) && !queued.some((part) => part.opId === body.opId))
               queued.push(body);

@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { getPushedVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
+import { matchesLane, type Lane } from './lanes';
 import type { PendingTooltip } from './model';
 
 /**
@@ -18,9 +19,18 @@ export type Published =
   /** The request failed; Retry asks again. */
   | { status: 'error'; error: string }
   /** A legacy marker whose text could not be recovered from history (the Worker's 409). */
-  | { status: 'missing' };
+  | { status: 'missing' }
+  /** The server's version is not the one a translator's row was prepared from. */
+  | { status: 'changed' };
 
 type Entry = Published & { marker: string };
+
+interface Wanted {
+  hash: number;
+  marker: string;
+  /** A translator's row: is this exactly the version it was prepared from? */
+  matches?: (tooltip: Tooltip) => Promise<boolean>;
+}
 
 interface PublishedState {
   byHash: Readonly<Record<number, Entry>>;
@@ -109,22 +119,27 @@ async function writeStored(hash: number, value: Stored) {
 // ---- loading ----
 /** Requests at once: enough to finish a typical batch quickly, few enough to stay polite. */
 const parallel = 4;
-const queued: { hash: number; marker: string }[] = [];
+const queued: Wanted[] = [];
 let running = 0;
 /** A reset (account change) frees the slots of requests still out; they finish unheard. */
 let generation = 0;
 
 function pump() {
   while (running < parallel && queued.length) {
-    const { hash, marker } = queued.shift()!;
+    const { hash, marker, matches } = queued.shift()!;
     if (usePublished.getState().byHash[hash]?.marker !== marker) continue;
     running++;
     const started = generation;
     void getPushedVersion(hash)
+      .then(async (result) => ({
+        ...result,
+        matched: !matches || (!!result.tooltip && (await matches(result.tooltip))),
+      }))
       .then(
         (result) => {
           if (started !== generation || usePublished.getState().byHash[hash]?.marker !== marker)
             return;
+          if (!result.matched) return put(hash, { status: 'changed', marker });
           put(hash, { status: 'ready', tooltip: result.tooltip, marker });
           // Only the exact pair is immutable; a server marker newer than ours shows once, unstored.
           if (result.pushedHash === marker.split('@')[0] && result.tooltip)
@@ -155,14 +170,18 @@ function pump() {
  * server (a few at a time). `retry` asks again for rows whose last request failed.
  */
 export async function loadPublished(
-  rows: readonly { hash: number; marker: string | undefined }[],
+  rows: readonly (Omit<Wanted, 'marker'> & { marker: string | undefined })[],
   retry = false,
 ): Promise<void> {
   const byHash = usePublished.getState().byHash;
+  const failed = (hash: number) => {
+    const status = byHash[hash]?.status;
+    return status === 'error' || status === 'changed';
+  };
   const wanted = rows.filter(
-    (row): row is { hash: number; marker: string } =>
+    (row): row is Wanted =>
       row.marker !== undefined &&
-      (byHash[row.hash]?.marker !== row.marker || (retry && byHash[row.hash]?.status === 'error')),
+      (byHash[row.hash]?.marker !== row.marker || (retry && failed(row.hash))),
   );
   if (!wanted.length) return;
   usePublished.setState((state) => {
@@ -178,10 +197,15 @@ export async function loadPublished(
   for (const row of wanted) {
     const value = stored.get(row.hash);
     const parsed = value?.marker === row.marker ? tooltipSchema.safeParse(value.tooltip) : null;
-    if (parsed?.success && parsed.data.hash === row.hash)
+    if (
+      parsed?.success &&
+      parsed.data.hash === row.hash &&
+      (!row.matches || (await row.matches(parsed.data)))
+    )
       hits[row.hash] = { status: 'ready', tooltip: parsed.data, marker: row.marker };
     else queued.push(row);
   }
+  if (started !== generation) return;
   if (Object.keys(hits).length)
     usePublished.setState((state) => {
       const next = { ...state.byHash };
@@ -196,12 +220,18 @@ export async function loadPublished(
 export function publishedRows(
   entries: readonly Pick<PendingTooltip, 'markerOnly' | 'pushed' | 'tooltip' | 'lane'>[],
 ) {
-  const rows = new Map<number, { hash: number; marker: string | undefined }>();
+  const rows = new Map<number, Wanted>();
+  const lanes = new Map<number, Lane[]>();
   for (const { markerOnly, pushed, tooltip, lane } of entries) {
     const hash = lane ? lane.hash : tooltip.hash;
     const marker = lane ? lane.marker : pushed;
-    if (!markerOnly && hash !== undefined && marker !== undefined) rows.set(hash, { hash, marker });
+    if (markerOnly || hash === undefined || marker === undefined) continue;
+    if (lane) lanes.set(hash, [...(lanes.get(hash) ?? []), lane]);
+    rows.set(hash, { hash, marker });
   }
+  for (const [hash, of] of lanes)
+    rows.get(hash)!.matches = async (tooltip) =>
+      (await Promise.all(of.map((lane) => matchesLane(lane, tooltip)))).every(Boolean);
   return [...rows.values()];
 }
 

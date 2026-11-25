@@ -6,6 +6,8 @@ import { useConflictStore, useOpenConflicts, usePausedForOtherTab } from '../../
 import { tooltipPath } from './stepping';
 import { reconcileDrafts } from '../conflicts/rebase';
 import { useSaveNotice } from '../../services/save/notice';
+import { useAuthStore } from '../../stores/auth';
+import { publishLanguages } from '../auth/permissions';
 import { useSettingsNotices } from '../settings/SettingsChoice';
 import { useSettingsPanel } from '../settings/panel';
 import { count, type ShellNotice } from './notices';
@@ -77,6 +79,7 @@ export function useShellNotices(): ShellNotice[] {
   const [adoptNote, setAdoptNote] = useState<string | null>(null);
   const saveNotice = useSaveNotice((state) => state.notice);
   const saveReview = useSaveNotice((state) => state.review);
+  const assigned = publishLanguages(useAuthStore((state) => state.user));
   const dismissSaveNotice = useSaveNotice((state) => state.dismiss);
   const settingsOpen = useSettingsPanel((state) => state.open);
   const settings = useSettingsNotices();
@@ -182,14 +185,14 @@ export function useShellNotices(): ShellNotice[] {
       level: 'status',
       text: saveNotice,
       onDismiss: dismissSaveNotice,
-      ...(saveReview
+      ...(saveReview && assigned.some((lang) => lang === saveReview.lang)
         ? {
             actions: [
               {
                 label: 'Review changes',
                 onClick: () => {
                   dismissSaveNotice();
-                  navigate(saveReview);
+                  navigate(`/review?hash=${encodeURIComponent(saveReview.key)}`);
                 },
               },
             ],

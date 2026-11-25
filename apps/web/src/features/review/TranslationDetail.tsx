@@ -135,14 +135,10 @@ export function LaneDetail({
   const removed = !saved;
   const changed =
     change &&
-    !removed &&
-    change.source.before !== undefined &&
-    (classification?.kind === 'Text changed' ||
-      classification?.kind === 'On hold' ||
-      change.before.language !== change.after.language);
+    (change.before.text !== change.after.text || change.before.language !== change.after.language);
   // With no other tooltip in the row's effects, the publisher's fallback is its own.
   const ownFallback = !!ready?.englishFallback && !ready.affectedHashes.length;
-  const plain = removed ? change?.before : change?.after;
+  const plain = change?.after;
   return (
     <section aria-label="Selected change" className={styles.detail}>
       <Sentence

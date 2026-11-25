@@ -33,7 +33,14 @@ import {
   type RowKey,
 } from './globalRows';
 import { settledFolds, settleFolds } from './folds';
-import { independentLanes, inLanguage, isLane, laneEntries, type LaneEntry } from './lanes';
+import {
+  filteredLanguage,
+  independentLanes,
+  inLanguage,
+  isLane,
+  laneEntries,
+  type LaneEntry,
+} from './lanes';
 import { neededGlobals, rowIdentity } from './globalsPending';
 import { classifyRows, classifyTooltip, kindOf, localKind, useKinds, useRowKinds } from './kinds';
 import {
@@ -50,6 +57,7 @@ import {
   planReviewedPublish,
   queuePublish,
   queueTranslations,
+  unreadyComparison,
   withNeededGlobals,
 } from './publishAction';
 import { publishDriver } from './publisher';
@@ -273,7 +281,7 @@ export function ReviewPage() {
   }, [data, acknowledgments, publishedGlobals, prepared, translator]);
   const list = entries ?? noEntries;
   // What the list shows; what is ticked and published is always an entry of `list`.
-  const rows = inLanguage(list, searchParams.get('lang'));
+  const rows = inLanguage(list, filteredLanguage(searchParams, languages));
   // The published text of every waiting change, once, in the background; then the row words.
   const published = usePublished((state) => state.byHash);
   const classified = useKinds((state) => state.byHash);
@@ -348,7 +356,7 @@ export function ReviewPage() {
     const row = rows.find((candidate) => String(rowKey(candidate)) === routedHash);
     if (!row?.part || !kindFilter || kinds.get(rowKey(row))) return false;
     const status = publishedOf(row, published)?.status;
-    return status !== 'error' && status !== 'missing';
+    return status !== 'error' && status !== 'missing' && status !== 'changed';
   }, [routedHash, rows, published, kindFilter, kinds]);
   useEffect(() => {
     if (subview === 'batches' || !entries || selectionIntent.current || waitingRow) return;
@@ -489,6 +497,11 @@ export function ReviewPage() {
     if (!chosen.length) return;
     setError(undefined);
     if (translator) {
+      const reason = unreadyComparison(chosen);
+      if (reason) {
+        setError(reason);
+        return;
+      }
       const { sending, held } = independentLanes(chosen.filter(isLane));
       setConfirming({ entries: sending, data, account, lanes: sending, held });
       return;
@@ -825,7 +838,14 @@ export function ReviewPage() {
             type="button"
             data-perf-navigation="true"
             onClick={() =>
-              setSearchParams(filterParams(searchParams, rows, kinds, '', ''), { replace: true })
+              setSearchParams(
+                (params) => {
+                  const next = new URLSearchParams(params);
+                  next.delete('lang');
+                  return filterParams(next, list, kinds, '', '');
+                },
+                { replace: true },
+              )
             }
           >
             Clear filters

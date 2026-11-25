@@ -185,6 +185,12 @@ export function Sentence({
         </button>
       </p>
     );
+  if (published?.status === 'changed')
+    return (
+      <p className={styles.sentence} role="alert">
+        <b>Changed after this list was built.</b> Refresh to review it.
+      </p>
+    );
   if (published?.status === 'missing')
     return (
       <p className={styles.sentence}>

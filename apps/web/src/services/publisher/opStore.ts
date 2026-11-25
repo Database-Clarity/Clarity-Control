@@ -38,6 +38,8 @@ export interface PublishOp {
   refusedRows?: { key: string; name: string; error: string }[];
   /** Sends the rows of a refused request that were not themselves refused. */
   resends?: string;
+  /** Its other rows are not sent again (a lost language): they are free to review. */
+  released?: true;
   /** The pushed marker each hash had when confirmed (null = none), for the acknowledgment overlay. */
   previous: Record<string, string | null>;
   status: OpStatus;

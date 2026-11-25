@@ -11,7 +11,7 @@ import { isFolded, rowKey } from './globalRows';
 import { kindWords, rowKinds, useKinds, useRowKinds, type Kind } from './kinds';
 import { canPush, publishableHashes, type PendingTooltip } from './model';
 import { globalKey } from './globalsPending';
-import { inLanguage } from './lanes';
+import { filteredLanguage, inLanguage } from './lanes';
 import { activeGlobals, activeHashes, activeTranslations, usePublishState } from './publishDriver';
 import { matchesFilter, queueView, type RowKinds } from './queueModel';
 import { usePublished } from './published';
@@ -152,7 +152,11 @@ function SavedSidebar() {
   const drafts = useDraftStore((state) => Object.keys(state.drafts).length);
   const inFlight = useInFlight();
   const [searchParams, setSearchParams] = useSearchParams();
-  const rows = inLanguage(entries ?? noEntries, searchParams.get('lang'));
+  const user = useAuthStore((state) => state.user);
+  const languages = publishLanguages(user);
+  // A translator of several languages filters by language; the rows then name theirs.
+  const language = filteredLanguage(searchParams, languages) ?? '';
+  const rows = inLanguage(entries ?? noEntries, language || undefined);
   const kinds = useRowKinds(rows);
   const query = searchParams.get('query') ?? '';
   const kind = searchParams.get('kind') ?? '';
@@ -180,10 +184,6 @@ function SavedSidebar() {
   const translationCount = (entries?.length ?? 0) - changes.length - leftoverCount;
   const hiddenLeftovers = leftovers === 'hidden' ? leftoverCount : 0;
   const hiddenTranslations = translations === 'hidden' ? translationCount : 0;
-  // A translator of several languages filters by language; the rows then name theirs.
-  const user = useAuthStore((state) => state.user);
-  const languages = publishLanguages(user);
-  const language = rows === entries ? '' : (searchParams.get('lang') ?? '');
   const filtered = !!(query || kind || language);
   // The changes on screen: the filters' rows outside collapsed groups (never leftovers).
   const shownChanges = useMemo(
@@ -207,7 +207,7 @@ function SavedSidebar() {
     const params = new URLSearchParams(searchParams);
     if (nextLanguage) params.set('lang', nextLanguage);
     else params.delete('lang');
-    const shown = inLanguage(entries ?? noEntries, nextLanguage);
+    const shown = inLanguage(entries ?? noEntries, nextLanguage || undefined);
     setSearchParams(
       filterParams(
         params,

@@ -221,18 +221,37 @@ export async function postTranslations(body: TranslationPublishBody): Promise<Pu
 }
 
 /** `unknown` = the Worker has neither a request nor a log for this opId (a lost 202, or a typo). */
-export async function getPublishStatus(
-  opId: string,
-  translations = false,
-): Promise<RemoteStatus | 'unknown'> {
-  const contract = translations ? `&contract=${translationPublishContract}` : '';
-  const { value } = await send(`/publish/status?opId=${encodeURIComponent(opId)}${contract}`);
+export async function getPublishStatus(opId: string): Promise<RemoteStatus | 'unknown'> {
+  const { value } = await send(`/publish/status?opId=${encodeURIComponent(opId)}`);
   const parsed = statusSchema.safeParse(value);
   const entry = parsed.success ? parsed.data.operations.find((o) => o.opId === opId) : undefined;
   if (!entry) throw new PublishHttpError(502, 'Unexpected status response');
   if (entry.status === 'pending' || entry.status === 'unknown') return entry.status;
   const known = terminal.safeParse(entry.status);
   return known.success ? known.data : 'failed';
+}
+
+/** `getPublishStatus` for a translator's own operation, with the reason of each refused row. */
+export async function getTranslationStatus(
+  opId: string,
+): Promise<PublishAnswer | { status: 'unknown' }> {
+  const { value } = await send(
+    `/publish/status?opId=${encodeURIComponent(opId)}&contract=${translationPublishContract}`,
+  );
+  const operations = z.object({ operations: z.array(z.unknown()) }).safeParse(value).data;
+  const entry = operations?.operations
+    .map((operation) => statusSchema.shape.operations.element.safeParse(operation).data)
+    .findIndex((operation) => operation?.opId === opId);
+  if (entry === undefined || entry < 0)
+    throw new PublishHttpError(502, 'Unexpected status response');
+  const operation = operations!.operations[entry];
+  const { status } = statusSchema.shape.operations.element.parse(operation);
+  if (status === 'pending' || status === 'unknown') return { status };
+  const known = terminal.safeParse(status).data ?? 'failed';
+  return {
+    status: known,
+    ...(known === 'done' || known === 'unchanged' ? {} : { rows: refusedRows(operation) }),
+  };
 }
 
 export async function kickPublish(opId: string): Promise<void> {

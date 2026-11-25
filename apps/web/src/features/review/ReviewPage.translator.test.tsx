@@ -4,7 +4,14 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { publishableHash, translationPublishReasons, type Tooltip } from '@clarity/core';
+import {
+  publishableHash,
+  translationBeforeDigest,
+  translationEnglishDigest,
+  translationExpectedDigest,
+  translationPublishReasons,
+  type Tooltip,
+} from '@clarity/core';
 import type { User } from '../../services/api';
 import type { Bundle } from '../../services/bundle';
 import { loadBundle } from '../../services/bundle';
@@ -18,7 +25,8 @@ import { Layout } from '../navigation/Layout';
 import { useKinds } from './kinds';
 import { publishDriver } from './publisher';
 import { usePublishState } from './publishDriver';
-import { resetPublished } from './published';
+import { prepareReviewQueue } from './model';
+import { resetPublished, usePublished } from './published';
 import { useReviewQueue } from './queueStore';
 import { ReviewPage } from './ReviewPage';
 import { useReviewSession } from './session';
@@ -66,12 +74,34 @@ const ready = (
     expected: digest('a'),
     english: digest('b'),
     before: digest('c'),
+    ...('hash' in id ? facts[`${id.hash}:${lang}`] : undefined),
     effects: digest('d'),
     removed: false,
     englishFallback: false,
     affectedHashes: [],
     ...extra,
   }) as ReadyTranslation;
+
+/** The live facts a row is prepared from, by row; filled in before each test. */
+let facts: Record<string, Pick<ReadyTranslation, 'expected' | 'english' | 'before'>> = {};
+async function liveFacts() {
+  const rows = await Promise.all(
+    Object.values(live).flatMap((entry) =>
+      (['de', 'fr'] as const).map(
+        async (lang) =>
+          [
+            `${entry.hash}:${lang}`,
+            {
+              expected: await translationExpectedDigest(saved[entry.hash]!.text[lang]),
+              english: await translationEnglishDigest(entry.text.en!),
+              before: await translationBeforeDigest(entry.text[lang]),
+            },
+          ] as const,
+      ),
+    ),
+  );
+  return Object.fromEntries(rows);
+}
 
 const capability = { version: 'translation-publish-v1' as const, partRows: 2 };
 const translator: User = {
@@ -113,6 +143,9 @@ let host: HTMLDivElement;
 let calls: { path: string; method: string; body?: unknown }[];
 let answer: (body: { opId: string; rows: { hash?: number; lang: string }[] }) => Response;
 let search = '';
+/** What History answers, and when. */
+let served: (hash: number) => Tooltip | undefined;
+let historyGate: (hash: number) => Promise<void> | void;
 
 async function flush() {
   await act(async () => {
@@ -187,7 +220,11 @@ async function mount(route = '/review') {
 }
 async function signIn(user: User | null) {
   await act(async () => useAuthStore.setState({ user, loading: false, load: async () => {} }));
-  if (user) await publishDriver.start(String(user.id), user.role === 'translator');
+  if (user)
+    await publishDriver.start(
+      String(user.id),
+      user.role === 'translator' ? user.languages : undefined,
+    );
   else publishDriver.stop();
 }
 const lanes = (rows: PendingTranslation[]) => {
@@ -237,6 +274,7 @@ beforeEach(async () => {
     leftovers: 'hidden',
     translations: 'hidden',
   });
+  facts = await liveFacts();
   bundle = {
     sourceCommit: 'baseline',
     generatedAt: '2026-01-01T00:00:00Z',
@@ -279,17 +317,21 @@ beforeEach(async () => {
     drafts: {},
   });
   calls = [];
+  served = (hash) => live[hash];
+  historyGate = () => undefined;
   answer = ({ opId }) => Response.json({ opId, status: 'pending' }, { status: 202 });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       const path = url.replace('https://synthetic.invalid', '');
       const version = /^\/history\/(\d+)\?live=1/.exec(path);
-      if (version)
+      if (version) {
+        await historyGate(Number(version[1]));
         return Response.json({
-          tooltip: live[Number(version[1])] ?? null,
+          tooltip: served(Number(version[1])) ?? null,
           pushedHash: bundle.pushed[version[1]!] ?? null,
         });
+      }
       if (path.startsWith('/history/')) return Response.json({ page: 1, commits: [] });
       const body = init?.body ? JSON.parse(init.body as string) : undefined;
       calls.push({ path, method: init?.method ?? 'GET', body });
@@ -331,6 +373,7 @@ it('lists only the rows of the assigned language, with the blocked ones and thei
     '/t/10?lang=de',
   );
   expect(row('10:de')!.textContent).not.toContain('German');
+  expect(detail()?.querySelector('del')?.textContent).toContain('Alt');
 });
 
 it('compares with the published text beside live English, not with an English change that waits', async () => {
@@ -339,8 +382,10 @@ it('compares with the published text beside live English, not with an English ch
   await waitFor(() =>
     expect(detail()?.textContent).toContain('Removes the German translation. Players see English'),
   );
-  expect(detail()?.textContent).toContain('Alt');
-  expect(detail()?.textContent).not.toContain('English comparison');
+  // Both sides players see: the German that goes, and the live English that comes back.
+  const removed = detail()!.querySelector('section[aria-label="German comparison"]')!;
+  await waitFor(() => expect(removed.querySelector('del')?.textContent).toContain('Alt'));
+  expect(removed.querySelector('ins')?.textContent).toContain('English');
   expect(host.querySelector('section[aria-label="English comparison"]')).toBeNull();
 });
 
@@ -416,7 +461,7 @@ it('offers several languages a filter, and names each row’s language', async (
   expect(search).toContain('lang=fr');
   await waitFor(() => expect(detail()?.querySelector('[lang="fr"]')).not.toBeNull());
   await click('Include all 1');
-  await act(async () => head()!.click());
+  await openConfirm();
   expect(dialog()?.textContent).toContain('1 French translation goes live');
   expect(dialog()?.textContent).toContain('40 · French');
 });
@@ -426,6 +471,7 @@ it('sends exactly the reviewed facts of the confirmed rows, once', async () => {
   await mount();
   await tick('10:de');
   expect(head()!.textContent).toContain('Publish 1');
+  await waitFor(() => expect(usePublished.getState().byHash[10]?.status).toBe('ready'));
   await key('p');
   expect(dialog()?.textContent).toContain('1 German translation goes live');
   expect(dialog()?.textContent).toContain('10 · German');
@@ -443,9 +489,7 @@ it('sends exactly the reviewed facts of the confirmed rows, once', async () => {
           kind: 'tooltip',
           hash: 10,
           lang: 'de',
-          expected: digest('a'),
-          english: digest('b'),
-          before: digest('c'),
+          ...facts['10:de'],
           effects: digest('d'),
         },
       ],
@@ -456,8 +500,21 @@ it('sends exactly the reviewed facts of the confirmed rows, once', async () => {
   expect(box('10:de').disabled).toBe(true);
 });
 
-async function confirm() {
+/** Publish waits for the comparisons it confirms; the confirmation opens once they are shown. */
+async function openConfirm() {
+  await waitFor(() => {
+    const byHash = usePublished.getState().byHash;
+    const { entries, versions } = useReviewQueue.getState();
+    for (const { lane } of entries ?? [])
+      if (lane?.hash !== undefined && versions.has(lane.key))
+        expect(byHash[lane.hash]?.status).toBe('ready');
+  });
   await act(async () => head()!.click());
+  expect(dialog()).not.toBeNull();
+}
+
+async function confirm() {
+  await openConfirm();
   await act(async () => dialog()!.querySelector<HTMLButtonElement>('footer button')!.click());
   await flush();
 }
@@ -515,7 +572,7 @@ it('lists the tooltips a shared text updates, and holds back a row that changes 
   await tick('g_refill-0001:de');
   await tick('10:de');
   await tick('30:de');
-  await act(async () => head()!.click());
+  await openConfirm();
   const listed = dialog()!.querySelector('ul[aria-label="Translations going live"]')!;
   const heldBack = dialog()!.querySelector('ul[aria-label="Not in this publish"]')!;
   expect(listed.textContent).toContain('Updates 2 tooltips');
@@ -556,7 +613,7 @@ it('shows the reason of a refused row, and sends the rest of its part by itself'
   await mount();
   await tick('10:de');
   await tick('30:de');
-  await act(async () => head()!.click());
+  await openConfirm();
   for (let step = 0; step < 2; step++)
     await act(async () => dialog()!.querySelector<HTMLButtonElement>('footer button')!.click());
   await waitFor(() => expect(posts()).toHaveLength(2));
@@ -581,7 +638,7 @@ it('drops a tick when a language is revoked, and never sends it', async () => {
   await tick('10:de');
   await tick('40:fr');
   expect(head()!.textContent).toContain('Publish 2');
-  await act(async () => head()!.click());
+  await openConfirm();
   await act(async () => useAuthStore.setState({ user: translator }));
   await flush();
   expect(dialog()).toBeNull();
@@ -681,7 +738,7 @@ it('keeps the entry, the page, and every tick while a bundle comes without its t
   await signIn(translator);
   await mount();
   await tick('30:de');
-  await act(async () => head()!.click());
+  await openConfirm();
   for (let step = 0; step < 2; step++)
     await act(async () => dialog()!.querySelector<HTMLButtonElement>('footer button')!.click());
   await waitFor(() => expect(rowKeys()).toEqual(['10:de', '20:de']));
@@ -734,7 +791,135 @@ it('asks for the next bundle by itself while the translations are missing', asyn
   }
 });
 
-it('folds a translation on a migration leftover, and lists it once anything else waits too', async () => {
+it('shows a new translation against the English players see now', async () => {
+  const none = { ...live[40]!, text: { en } };
+  served = (hash) => (hash === 40 ? none : live[hash]);
+  bundle.translationPublish!.lanes = lanes([
+    ready({ hash: 40 }, 'fr', { before: await translationBeforeDigest(undefined) }),
+  ]);
+  await signIn({ ...translator, languages: ['fr'] });
+  await mount();
+  await waitFor(() => expect(detail()?.textContent).toContain('New French translation.'));
+  await waitFor(() => expect(detail()?.querySelector('del')?.textContent).toContain('English'));
+  expect(detail()?.querySelector('ins')?.textContent).toContain('Nouveau');
+});
+
+it('never shows or confirms another live version than the signed one', async () => {
+  // The same marker, another stamp: History answers with the newest version.
+  const newer = {
+    ...live[10]!,
+    text: { en, de: { ...live[10]!.text.de!, updatedBy: 'someone' } },
+  };
+  served = (hash) => (hash === 10 ? newer : live[hash]);
+  bundle.translationPublish!.lanes = lanes([
+    ready({ hash: 10 }, 'de', { snapshot: 'a'.repeat(40) }),
+    ready({ hash: 30 }, 'de', { removed: true }),
+  ]);
+  await signIn(translator);
+  await mount();
+  await waitFor(() =>
+    expect(detail()?.textContent).toContain('Changed after this list was built.'),
+  );
+  await tick('10:de');
+  await act(async () => head()!.click());
+  expect(dialog()).toBeNull();
+  expect(host.textContent).toContain(
+    'Some of these changed after this list was built. Refresh to review them.',
+  );
+  // Nothing of it is kept under the signed version: the right one is asked for again.
+  served = (hash) => live[hash];
+  await click('Refresh');
+  await waitFor(() => expect(detail()?.textContent).toContain('Text changed in German'));
+  await openConfirm();
+  expect(dialog()).not.toBeNull();
+});
+
+it('waits for the comparison before it can be confirmed', async () => {
+  let release = () => {};
+  historyGate = (hash) => (hash === 10 ? new Promise((done) => (release = done)) : undefined);
+  await signIn(translator);
+  await mount();
+  await tick('10:de');
+  await act(async () => head()!.click());
+  expect(dialog()).toBeNull();
+  expect(host.textContent).toContain('Wait for the published versions to load');
+  release();
+  await waitFor(() => expect(detail()?.textContent).toContain('Text changed in German'));
+  await openConfirm();
+  expect(dialog()).not.toBeNull();
+});
+
+it('keeps an assigned language without rows selected, until the filters are cleared', async () => {
+  bundle.translationPublish!.lanes = lanes([ready({ hash: 10 }, 'de')]);
+  await signIn({ ...translator, languages: ['de', 'fr'] });
+  await mount();
+  const select = () => host.querySelector<HTMLSelectElement>('select[aria-label="Language"]')!;
+  await act(async () => {
+    select().value = 'fr';
+    select().dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await flush();
+  expect(select().value).toBe('fr');
+  expect(rowKeys()).toEqual([]);
+  await click('Refresh');
+  expect(select().value).toBe('fr');
+  const clear = [...host.querySelectorAll('article button')].find(
+    (b) => b.textContent === 'Clear filters',
+  ) as HTMLButtonElement;
+  await act(async () => clear.click());
+  await flush();
+  expect(rowKeys()).toEqual(['10:de']);
+  // A language that is not assigned never filters.
+  await signIn(translator);
+  expect(rowKeys()).toEqual(['10:de']);
+});
+
+it('a late editor preparation never reaches the list of the translator it became', async () => {
+  await signIn(editor);
+  await mount();
+  await waitFor(() => expect(rowKeys()).toEqual(['20']));
+  const data = structuredClone(useDataStore.getState().data!);
+  useDataStore.setState({ data });
+  const late = prepareReviewQueue(data);
+  await signIn(translator);
+  await act(async () => late);
+  await flush();
+  expect(rowKeys()).toEqual(['10:de', '20:de', '30:de']);
+  expect(useReviewQueue.getState().entries!.every(({ lane }) => lane?.lang === 'de')).toBe(true);
+});
+
+it('drops the ticks of a lost language at once, even while the list is missing', async () => {
+  await signIn({ ...translator, languages: ['de', 'fr'] });
+  await mount();
+  await tick('10:de');
+  await tick('40:fr');
+  delete bundle.translationPublish;
+  await click('Refresh');
+  await waitFor(() => expect(rowKeys()).toEqual([]));
+  await signIn(translator);
+  expect([...useReviewQueue.getState().versions.keys()]).toEqual(['10:de']);
+  expect(sessionStorage.getItem('clarity-review-inclusions:v1')).not.toContain('40:fr');
+  await signIn({ ...translator, languages: ['de', 'fr'] });
+  expect([...useReviewQueue.getState().versions.keys()]).toEqual(['10:de']);
+});
+
+it('sends nothing while another sign-in is settling', async () => {
+  await signIn(translator);
+  await mount();
+  await waitFor(() => expect(detail()?.textContent).toContain('Text changed in German'));
+  await tick('10:de');
+  await act(async () => useAuthStore.setState({ loading: true }));
+  await confirm();
+  await publishDriver.refresh();
+  expect(posts()).toEqual([]);
+  // Another account's token in this browser: still nothing.
+  await act(async () => useAuthStore.setState({ loading: false, token: 'other' }));
+  await publishDriver.refresh();
+  expect(posts()).toEqual([]);
+  expect(usePublishState.getState().ops).toHaveLength(1);
+});
+
+it('folds a translation on a migration leftover, and lists it while anything else waits too', async () => {
   // Current has aliases that the live marker of 10 and 40 does not name yet.
   vi.mocked(loadGenerator).mockResolvedValue({
     ...(await loadGenerator()),
@@ -742,9 +927,16 @@ it('folds a translation on a migration leftover, and lists it once anything else
   });
   bundle.translationPublish!.only = { tooltips: [30], globals: [] };
   bundle.tooltips[40] = { ...saved[40]!, associated: [10] };
+  let release = () => {};
+  historyGate = (hash) => (hash === 10 ? new Promise((done) => (release = done)) : undefined);
   await signIn(editor);
   await mount();
-  // 40 also has an association: it returns to the list with the published text.
+  // Nothing leaves the list before it is proved, and one slow answer holds up no other row.
+  expect(rowKeys()).toEqual(['10', '20', '40']);
+  await waitFor(() => expect(usePublished.getState().byHash[40]?.status).toBe('ready'));
+  expect(rowKeys()).toEqual(['10', '20', '40']);
+  release();
+  // 40 also has an association: it stays.
   await waitFor(() => expect(rowKeys()).toEqual(['20', '40']));
   expect(host.textContent).toContain('2 translations hidden: translators publish them.');
 });

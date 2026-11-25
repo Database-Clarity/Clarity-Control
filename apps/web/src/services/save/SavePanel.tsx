@@ -184,14 +184,14 @@ function SaveProgressBar() {
 const accountChanged = (generation: number) => useDraftStore.getState().generation !== generation;
 
 /** The Review row of the first translation a save changed that this account can publish. */
-function savedTranslation(changes: SaveReview['changes'], user: User | null): string | undefined {
+function savedTranslation(changes: SaveReview['changes'], user: User | null) {
   for (const { hash, base, next, translationRevisions } of changes)
     for (const lang of publishLanguages(user))
       if (
         translationRevisions?.[lang] !== undefined ||
         base?.text[lang]?.text !== next.text[lang]?.text
       )
-        return `/review?hash=${encodeURIComponent(`${hash}:${lang}`)}`;
+        return { key: `${hash}:${lang}`, lang };
 }
 
 function SaveSession({
@@ -199,7 +199,7 @@ function SaveSession({
   onSaved,
 }: {
   review: SaveReview;
-  onSaved(message: string, review?: string): void;
+  onSaved(message: string, review?: ReturnType<typeof savedTranslation>): void;
 }) {
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);

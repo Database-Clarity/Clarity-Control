@@ -2,6 +2,9 @@ import {
   globalsInPlaceDefinition,
   refreshNumberFallbacks,
   stableStringify,
+  translationBeforeDigest,
+  translationEnglishDigest,
+  translationFallbackIds,
   type GlobalDefinition,
   type Lang,
   type LangText,
@@ -111,9 +114,15 @@ export function laneEntries(
 }
 
 const byLanguage = new WeakMap<PendingTooltip[], Map<string, PendingTooltip[]>>();
-/** A translator's rows of one language (the list's language filter); every row without one. */
-export function inLanguage<T extends PendingTooltip>(entries: T[], lang: string | null): T[] {
-  if (!lang || !entries.some((entry) => entry.lane?.lang === lang)) return entries;
+/** The list's language filter: one of several assigned languages, or undefined for all of them. */
+export const filteredLanguage = (params: URLSearchParams, languages: readonly string[]) => {
+  const lang = params.get('lang');
+  return lang !== null && languages.length > 1 && languages.includes(lang) ? lang : undefined;
+};
+
+/** A translator's rows of one language, or every row without one. */
+export function inLanguage<T extends PendingTooltip>(entries: T[], lang: string | undefined): T[] {
+  if (!lang) return entries;
   let cache = byLanguage.get(entries);
   if (!cache) byLanguage.set(entries, (cache = new Map()));
   let rows = cache.get(lang);
@@ -236,7 +245,7 @@ function globalLane(
 
 export interface LaneText {
   text: string;
-  /** English where the language falls back to it. */
+  /** English where the language has no text of its own, or falls back. */
   language: Lang;
 }
 export interface LaneComparison {
@@ -244,6 +253,21 @@ export interface LaneComparison {
   after: LaneText;
   /** As written: the raw view, and what tells a "Still correct" stamp from a text change. */
   source: { before: string | undefined; after: string | undefined };
+}
+
+/**
+ * Does this published version hold exactly the live facts the row was prepared from? History answers
+ * with the newest version, which can be another one under the same marker.
+ */
+export async function matchesLane(lane: Lane, published: Tooltip): Promise<boolean> {
+  const { row, lang } = lane;
+  const english = published.text.en;
+  if (row?.status !== 'ready' || !english) return row?.status !== 'ready';
+  const [source, before] = await Promise.all([
+    translationEnglishDigest(english),
+    translationBeforeDigest(published.text[lang], translationFallbackIds(english, lang)),
+  ]);
+  return source === row.english && before === row.before;
 }
 
 /** What players see in the row's language now, and after it: the saved text against LIVE English. */
@@ -255,17 +279,22 @@ export function laneComparison(
   const { lang, saved, id } = lane;
   const source = { before: published.text[lang]?.text, after: textOf(saved) };
   if (id !== undefined) {
-    const cell = data.bundle.globalsPending?.find((entry) => entry.id === id)?.languages[lang];
+    const pending = data.bundle.globalsPending?.find((entry) => entry.id === id);
+    const cell = pending?.languages[lang];
     const record = data.bundle.globals?.entries.find((entry) => entry.id === id);
     const available =
       cell?.afterAvailable ??
       (!record || !saved || !!globalsInPlaceDefinition(record.definitions, lang));
+    const english = pending?.languages.en
+      ? pending.languages.en.before
+      : record?.definitions.en?.body;
+    const side = (text: string | undefined, own: boolean): LaneText =>
+      text === undefined || !own
+        ? { text: english ?? '', language: 'en' }
+        : { text, language: lang };
     return {
-      before: {
-        text: source.before ?? '',
-        language: cell?.beforeAvailable === false ? 'en' : lang,
-      },
-      after: { text: source.after ?? '', language: available ? lang : 'en' },
+      before: side(source.before, cell?.beforeAvailable !== false),
+      after: side(source.after, available),
       source,
     };
   }
@@ -275,7 +304,7 @@ export function laneComparison(
   // The publisher's own step: a fixed formula ends this language's number fallback.
   refreshNumberFallbacks(composed, lang);
   const cell = (tooltip: Tooltip): LaneText =>
-    tooltip.text[lang] ? publishedCell(data, tooltip, lang, 'live') : { text: '', language: lang };
+    publishedCell(data, tooltip, tooltip.text[lang] ? lang : 'en', 'live');
   return { before: cell(published), after: cell(composed), source };
 }
 

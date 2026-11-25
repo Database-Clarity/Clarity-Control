@@ -310,15 +310,21 @@ function syncAccount({ user, loading }: ReturnType<typeof useAuthStore.getState>
       : user && canPublishTranslations(user)
         ? `${user.id}/translations`
         : null;
-  // Another kind of list, or other languages: nothing of the old one stays on screen.
-  const languages = publishLanguages(user).join();
+  // Another kind of list, or other languages: nothing of the old one stays, on screen or ticked.
+  const assigned = publishLanguages(user);
+  const languages = assigned.join();
+  const listed = ({ key }: { key: RowKey }) =>
+    !assigned.length || assigned.some((lang) => String(key).endsWith(`:${lang}`));
   if (languages !== listedLanguages) {
     listedLanguages = languages;
-    useReviewQueue.setState({ entries: null });
+    const state = useReviewQueue.getState();
+    useReviewQueue.setState({ ...retainRows(state, listed), entries: null });
   }
   const state = useReviewQueue.getState();
   if (accountKnown && state.account === account) return;
-  const versions = accountKnown ? noVersions : readVersions(account);
+  const versions = accountKnown
+    ? noVersions
+    : new Map([...readVersions(account)].filter(([key]) => listed({ key })));
   if (accountKnown && state.versions.size) writeVersions(account, noVersions);
   accountKnown = true;
   const next = { ...state, account, versions, selected: empty, decisions: [], message: undefined };
