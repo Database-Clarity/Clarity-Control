@@ -32634,7 +32634,9 @@ function bundleInPlaceReview(pub, tree, fence, current = new GlobalsPublisher(pu
   if (renames.length) {
     for (const document of publishedDocuments(pub, tree, input2, false)) {
       const updated = rewriteTooltipGlobals(document, renames);
-      if (updated !== document) rewritten.set(document.hash, updated);
+      const saved2 = current[document.hash];
+      const clears = saved2 && withoutEnglish(saved2) && !withoutEnglish(document);
+      if (updated !== document && !clears) rewritten.set(document.hash, updated);
     }
     rewritePushed(pub, tree, pushed, rewritten);
     const pendingIds = new Set(pending.map(({ id }) => id));
@@ -35877,8 +35879,11 @@ var Publisher = class _Publisher {
   }
   /** A malformed published version has no English: it must not stop the bundle or the queue. */
   publishedEnglish(tree, hash2) {
-    const { data } = tooltipSchema.safeParse(this.read(tree, `live/tooltips/${hash2}.json`));
-    return !!data && !withoutEnglish(data);
+    try {
+      return !withoutEnglish(tooltipSchema.parse(this.read(tree, `live/tooltips/${hash2}.json`)));
+    } catch {
+      return false;
+    }
   }
   /** Each document's cleared state at `tree` (core clearedState), for the ones that have one. */
   clearedStates(tree, documents, moves) {
