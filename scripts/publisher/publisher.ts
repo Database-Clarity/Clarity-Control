@@ -1238,6 +1238,11 @@ export class Publisher {
   }
 
   async verifyTranslationReceipt(receipt: Receipt, candidate: string) {
+    const parents = this.git.commitParents(candidate);
+    if (parents.length !== 1 || parents[0] !== receipt.liveParent)
+      throw new ConsumerOutputRejected(
+        'Translation receipt does not match its candidate LIVE parent.',
+      );
     const frozen = this.git.tree(receipt.sourceCommit);
     if (frozen[paths(receipt.opId).request] !== receipt.requestBlob)
       throw new ConsumerOutputRejected(

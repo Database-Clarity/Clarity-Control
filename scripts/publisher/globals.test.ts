@@ -93,6 +93,10 @@ class Memory implements Repository {
   head(ref: string) {
     return this.refs.get(ref);
   }
+  commitParents(commit: string) {
+    const parent = this.parents.get(commit);
+    return parent ? [parent] : [];
+  }
   commit(parent: string | undefined, tree: Tree) {
     const oid = (++this.sequence).toString(16).padStart(40, '0');
     this.trees.set(oid, { ...tree });
@@ -377,6 +381,98 @@ describe('in-place shared text publication', () => {
   const selection = (row: GlobalsPending[number]) => [{ id: row.id, expected: row.digest }];
   const live = (f: Awaited<ReturnType<typeof inPlaceFixture>>) =>
     f.pub.read<LegacyInput>(f.git.tree(f.pub.head(f.options.liveBranch)), 'liveDescriptions.json')!;
+  it('refuses a part whose combined edits affect an unreviewed reader', async () => {
+    const f = await inPlaceFixture();
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const sources: Record<number, Tooltip> = {
+      201: {
+        ...tooltip(201, 'Left'),
+        text: { en: cell('Left'), de: cell('export A (\nvar a = 0\n)\nLinks #a') },
+      },
+      202: {
+        ...tooltip(202, 'Right'),
+        text: { en: cell('Right'), de: cell('export B (\nvar b = 0\n)\nRechts #b') },
+      },
+      203: {
+        ...tooltip(203, 'Result'),
+        text: {
+          en: cell('Result'),
+          de: cell('import A from 201\nimport B from 202\nErgebnis ${#a*#b}'),
+        },
+      },
+    };
+    const current = structuredClone(sources);
+    current[201].text.de!.text = current[201].text.de!.text.replace(' = 0', ' = 2');
+    current[202].text.de!.text = current[202].text.de!.text.replace(' = 0', ' = 3');
+    const changes: Record<string, unknown> = { '.publisher/PIN': pin };
+    const markers: Record<string, string> = {};
+    for (const { hash } of Object.values(sources)) {
+      changes[`live/tooltips/${hash}.json`] = sources[hash];
+      changes[`tooltips/${hash}.json`] = current[hash];
+      markers[hash] = await inactivePublishableHash(sources[hash], {});
+      f.options.facts[hash] = { name: String(hash), type: 'Weapon Perk' };
+    }
+    changes['live/pushed.json'] = markers;
+    f.change(changes);
+    const parent = f.git.head(L)!;
+    const old = f.pub.read<LegacyInput>(f.git.tree(parent), 'liveDescriptions.json')!;
+    Object.assign(old.perks, exportLegacy(Object.values(sources), 0, f.options.facts));
+    f.git.cas(
+      L,
+      parent,
+      f.git.commit(parent, {
+        ...f.git.tree(parent),
+        'liveDescriptions.json': f.git.writeBlob(encode(old)),
+      }),
+    );
+    const preview = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, current);
+    const ready = (preview.lanes.de ?? []).filter(
+      (row) => row.status === 'ready' && row.kind === 'tooltip',
+    );
+    expect(ready.map((row) => row.affectedHashes)).toEqual([[], []]);
+    const rows: TranslationPublishRow[] = ready.map(
+      ({ kind, hash, lang, expected, english, before, effects }) => ({
+        kind,
+        hash,
+        lang,
+        expected,
+        english,
+        before,
+        effects,
+      }),
+    );
+    const payload: TranslationPublishPayload = {
+      kind: 'push',
+      scope: 'translations',
+      opId: A,
+      rows,
+      repo: f.options.repo,
+      dataBranch: f.options.dataBranch,
+      liveBranch: f.options.liveBranch,
+      requester: { id: 2, login: 'translator' },
+      createdAt: new Date(now).toISOString(),
+      intentDigest: '',
+    };
+    payload.intentDigest = await translationPublishIntentDigest(payload);
+    const bytes = stableStringify(payload);
+    f.change({ [paths(A).request]: { payload: bytes, sig: f.sign(bytes) } });
+    await f.pub.operation(A);
+    const after = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    const rendered = (input: LegacyInput) => {
+      const database = expandAliases(input.perks);
+      return descriptionConverter({
+        database,
+        language: 'de',
+        editorType: 'main',
+        hash: 203,
+        descriptionString: database[203].editor.de!.main,
+      });
+    };
+    const log = f.read(paths(A).log);
+    expect(log.result).toMatchObject({ status: 'rejected', rows: [{ hash: 201 }, { hash: 202 }] });
+    expect(rendered(after)).toEqual(rendered(old));
+  });
   it('reviews a historical alias marker and folds rows with only translation changes', async () => {
     const f = await inPlaceFixture();
     const hash = 141;
@@ -596,6 +692,14 @@ describe('in-place shared text publication', () => {
     const landed = f.git.head(L)!;
     const receipt = f.pub.receipt(landed, A)!;
     const frozen = receipt.sourceCommit;
+    const wrongParent = f.git.commit(receipt.liveParent, {
+      ...f.git.tree(receipt.liveParent),
+      'unrelated.json': f.git.writeBlob(encode({ kept: true })),
+    });
+    const wrongCandidate = f.git.commit(wrongParent, f.git.tree(landed));
+    await expect(f.pub.verifyTranslationReceipt(receipt, wrongCandidate)).rejects.toThrow(
+      'Translation receipt does not match its candidate LIVE parent.',
+    );
     const tainted = f.git.commit(receipt.liveParent, {
       ...f.git.tree(landed),
       'unreviewed.json': f.git.writeBlob(encode({ surprise: true })),

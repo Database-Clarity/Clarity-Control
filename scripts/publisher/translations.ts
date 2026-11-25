@@ -598,7 +598,9 @@ export async function planTranslations(
   const rows: ResultRow[] = [];
   const refused: ResultRow[] = [];
   const selected = new Set<string>();
-  const effects: { id: Identity; facts: Awaited<ReturnType<typeof ctx.assess>>['facts'] }[] = [];
+  const effects: (Pick<Awaited<ReturnType<typeof ctx.assess>>, 'facts' | 'changed'> & {
+    id: Identity;
+  })[] = [];
   const changedGlobalLanes = new Set<string>();
   for (const signed of payload.rows) {
     const { lang } = signed;
@@ -621,7 +623,7 @@ export async function planTranslations(
       )
         throw new RowRefusal('review-changed');
       if (!plan.unchanged) {
-        effects.push({ id, facts: plan.facts });
+        effects.push({ id, facts: plan.facts, changed: plan.changed });
         for (const hash of plan.changed) {
           const key = `${hash}/${lang}`;
           if (selected.has(key))
@@ -705,9 +707,12 @@ export async function planTranslations(
       });
     }
     if (refused.length) throw new TranslationPartRefusal(refused);
+    const beforeLookup = expandAliases(ctx.input.perks);
+    const readers = publicationReaders(ctx.input, input);
     for (const lang of new Set(effects.map(({ id }) => id.lang))) {
-      const selected = effects.filter(({ id }) => id.lang === lang).map(({ id }) => id);
-      if (selected.length < 2 || !selected.some(({ kind }) => kind === 'global')) continue;
+      const lane = effects.filter(({ id }) => id.lang === lang);
+      if (lane.length < 2) continue;
+      const selected = lane.map(({ id }) => id);
       try {
         ctx.checkCombined(
           catalog.store,
@@ -715,13 +720,26 @@ export async function planTranslations(
           selected.flatMap((id) => (id.kind === 'tooltip' ? [entries.get(id.hash)!.tooltip] : [])),
           input,
         );
+        const reviewed = new Set(lane.flatMap(({ facts }) => facts.map(([hash]) => hash)));
+        // A reader can render the same after either edit alone and differ after both.
+        for (const key of readers(lane.flatMap(({ changed }) => changed))) {
+          const hash = Number(key);
+          if (reviewed.has(hash) || (!lookup[hash] && !beforeLookup[hash])) continue;
+          const before =
+            beforeLookup[hash] &&
+            effectFacts(ctx.input, hash, lang, ctx.aliases, pub.options.facts, beforeLookup);
+          const after =
+            lookup[hash] && effectFacts(input, hash, lang, ctx.aliases, pub.options.facts, lookup);
+          if (!same(before, after))
+            throw new Error(`Combined translation changes affect tooltip ${hash}.`);
+        }
       } catch {
         throw new TranslationPartRefusal(
           selected.map((id) => ({
             ...id,
             status: 'rejected',
             reason: 'review-changed',
-            message: 'Publish the related shared text first, then review this change again.',
+            message: 'Publish the related translation first, then review this change again.',
           })),
         );
       }

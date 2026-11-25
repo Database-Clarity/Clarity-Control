@@ -75,6 +75,12 @@ const sourceTree = (source = receipt.sourceCommit): Tree =>
   );
 const staged = new Map<string, string>();
 const readOnly = {
+  commitParents: (source: string) =>
+    [
+      ...git('cat-file', 'commit', source)
+        .split('\n\n', 1)[0]
+        .matchAll(/^parent ([a-f0-9]{40})$/gm),
+    ].map(([, parent]) => parent),
   blob: (oid: string) => staged.get(oid) ?? git('cat-file', 'blob', oid),
   writeBlob: (bytes: string) => {
     const oid = execFileSync('git', ['-C', resolve(repo), 'hash-object', '--stdin'], {
@@ -106,7 +112,9 @@ async function scopedParity() {
     throw new Error('Exact DATA RECORD commit required for scoped parity');
   const frozen = read(receipt.sourceCommit, '.publisher/config.json') as Options;
   const pin = read(receipt.sourceCommit, '.publisher/PIN') as { sha256: string };
-  const recordParent = git('rev-parse', `${recordCommit}^`).trim();
+  const parents = readOnly.commitParents(recordCommit);
+  if (parents.length !== 1) throw new Error('Expected a single DATA RECORD parent');
+  const [recordParent] = parents;
   const repository = {
     ...readOnly,
     ancestor: (older: string, newer: string) => {
