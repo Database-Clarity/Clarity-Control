@@ -20,6 +20,10 @@ import {
   currentSaveStagePaths,
   globalsInPlacePath,
   exportLegacy,
+  translationPublishCapability,
+  translationPublishIntentDigest,
+  type TranslationPublishPayload,
+  type TranslationPublishRow,
   classifyPublishIntent,
   validatePublishBody,
   type PublishPayload,
@@ -32,6 +36,7 @@ import { createRequest } from './request.js';
 import { runPipeline } from './pipeline.js';
 import publisherConfig from '../../config/publisher.json';
 import { buildLegacy, legacyPresets, type LegacyInput } from '../../packages/export/src/legacy.js';
+import { bundleTranslations, translationRootsPath } from './translations.js';
 
 // These fixtures run the publisher and the Worker's legacy push-live (the golden oracle) with the
 // build switch OFF, as before PUB-ENABLE turned the checked-in switch ON; a test flips it itself.
@@ -1208,6 +1213,142 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     await f.request();
     await f.pub.run();
     f.assertDone();
+  });
+
+  it('publishes reviewed translation lanes atomically and preserves an ordinary publish', async () => {
+    const f = await setup();
+    await f.request();
+    await f.pub.operation(A);
+    const before = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    const de = { text: 'Geprüft', updatedAt: '2026-11-01T00:00:00Z', updatedBy: 'dora' };
+    const fr = { ...de, text: 'Vérifié', updatedBy: 'fabien' };
+    const current = { ...f.tooltip, text: { ...f.tooltip.text, de, fr } };
+    const pin = f.pub.read<{ capabilities: string[] }>(
+      f.git.tree(f.git.head(D)!),
+      '.publisher/PIN',
+    )!;
+    const permissions = {
+      users: {
+        '1': { login: 'alice', role: 'editor' },
+        '2': { login: 'dora', role: 'translator', languages: ['de'], manages: ['de'] },
+        '3': { login: 'fabien', role: 'translator', languages: ['fr'] },
+        '4': { login: 'dan', role: 'translator', languages: ['de'] },
+      },
+    };
+    f.change(D, {
+      '.publisher/PIN': {
+        ...pin,
+        capabilities: [...pin.capabilities, translationPublishCapability],
+      },
+      'config/permissions.json': permissions,
+      'tooltips/123.json': current,
+    });
+    const rows = async (tooltip = current) => {
+      const bundle = await bundleTranslations(f.pub, f.git.tree(f.git.head(D)!), f.git.head(L)!, {
+        123: tooltip,
+      });
+      return bundle.lanes;
+    };
+    const submit = async (
+      opId: string,
+      ready: NonNullable<Awaited<ReturnType<typeof rows>>['de']>[number],
+      id: number,
+    ) => {
+      expect(ready.status).toBe('ready');
+      if (ready.status !== 'ready') throw new Error('Missing review');
+      const { kind, lang, expected, english, before, effects } = ready;
+      const row: TranslationPublishRow =
+        kind === 'tooltip'
+          ? { kind, hash: ready.hash, lang, expected, english, before, effects }
+          : {
+              kind,
+              id: ready.id,
+              lang,
+              expected,
+              english,
+              before,
+              effects,
+              affected: ready.affected,
+            };
+      const payload: TranslationPublishPayload = {
+        kind: 'push',
+        scope: 'translations',
+        rows: [row],
+        opId,
+        repo: f.options.repo,
+        dataBranch: f.options.dataBranch,
+        liveBranch: f.options.liveBranch,
+        requester: { id, login: id === 2 ? 'dora' : id === 3 ? 'fabien' : 'dan' },
+        createdAt: '2026-11-03T12:00:00.000Z',
+        intentDigest: '',
+      };
+      payload.intentDigest = await translationPublishIntentDigest(payload);
+      const bytes = stableStringify(payload);
+      f.change(D, { [paths(opId).request]: { payload: bytes, sig: f.sign(bytes) } });
+    };
+    const result = (id: string) =>
+      f.pub.read<{ result: unknown }>(f.git.tree(f.git.head(D)!), paths(id).log)!.result;
+    const next = (digit: number) => A.slice(0, -1) + digit;
+    const reviewed = await rows();
+    await submit(B, reviewed.de![0], 2);
+    await submit(next(3), reviewed.fr![0], 3);
+    await submit(next(4), reviewed.de![0], 4);
+    expect(f.pub.queue(f.git.head(D)!)).toEqual([B, next(3), next(4)]);
+    await f.pub.operation(B);
+    const german = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    expect(result(B)).toMatchObject({
+      status: 'done',
+      rows: [{ hash: 123, lang: 'de', status: 'published' }],
+    });
+    expect(result(B)).not.toMatchObject({ error: expect.any(String) });
+    expect(german.perks[123]).toMatchObject({
+      ...before.perks[123],
+      editor: { en: { main: 'reviewed' }, de: { main: de.text } },
+    });
+    expect(german.perks[123]).not.toHaveProperty('editor.fr');
+    const publishedDe = f.pub.read<Tooltip>(f.git.tree(f.git.head(D)!), 'live/tooltips/123.json')!;
+    expect(publishedDe).toEqual({ ...f.tooltip, text: { ...f.tooltip.text, de } });
+    const candidate = f.git.head(L)!;
+    await f.pub.verifyTranslationReceipt(f.pub.receipt(candidate, B)!, candidate);
+    expect(f.pub.read(f.git.tree(f.git.head(D)!), translationRootsPath)).toMatchObject({
+      destination: f.options.liveBranch,
+      liveCommit: candidate,
+      roots: { 123: f.git.tree(f.git.head(D)!)['live/tooltips/123.json'] },
+    });
+    await f.pub.operation(next(3));
+    await f.pub.operation(next(4));
+    expect(result(next(3))).toMatchObject({ status: 'done' });
+    expect(result(next(4))).toMatchObject({ status: 'unchanged' });
+    const pending = { ...current, text: { ...current.text, de: { ...de, text: 'Neu' } } };
+    f.change(D, { 'tooltips/123.json': pending });
+    const pendingRows = await rows(pending);
+    await submit(next(5), pendingRows.de![0], 2);
+    const englishPending = {
+      ...pending,
+      text: {
+        ...pending.text,
+        en: { ...current.text.en!, text: 'Pending English', updatedAt: '2026-11-02T00:00:00Z' },
+      },
+    };
+    f.change(D, { 'tooltips/123.json': englishPending });
+    await f.pub.operation(next(5));
+    expect(result(next(5))).toMatchObject({
+      status: 'rejected',
+      rows: [{ reason: 'english-pending' }],
+    });
+    await f.request(next(6), [123], { 123: await publishableHash(englishPending) });
+    await f.pub.operation(next(6));
+    expect(result(next(6))).toMatchObject({ status: 'done' });
+    const withdrawn = { ...englishPending, text: { en: englishPending.text.en, fr } };
+    f.change(D, { 'tooltips/123.json': withdrawn });
+    const removal = await rows(withdrawn as typeof current);
+    await submit(next(7), removal.de![0], 2);
+    await f.pub.operation(next(7));
+    expect(result(next(7))).toMatchObject({ status: 'done' });
+    const after = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    expect(after.perks[123]).not.toHaveProperty('editor.de');
+    expect(after.perks[123]).not.toHaveProperty('updateTracker.descriptions.de');
+    expect(after.perks[123]).toHaveProperty('editor.fr.main', fr.text);
   });
   it.skipIf(transport !== 'simulator').each(['hold', 'undo'] as const)(
     'preserves staged Current uploads when migration %s wins during the key fetch',

@@ -11,6 +11,13 @@ import {
   observeGlobalSources,
 } from '../../packages/core/src/globalsRelease/index.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
+import {
+  stableStringify,
+  translationPublishCapability,
+  translationPublishIntentDigest,
+  type TranslationPublishPayload,
+  type TranslationPublishRow,
+} from '../../packages/core/src/index.js';
 import { compile, newStyleFile } from '../../packages/export/src/index.js';
 import { buildLegacy, type LegacyInput } from '../../packages/export/src/legacy.js';
 import { descriptionConverter, expandAliases } from '../../packages/export/src/converter/index.js';
@@ -31,6 +38,7 @@ import { GlobalsPublisher, globalTreeOid } from './globals.js';
 import { migrateInPlace } from './globalsInPlace.js';
 import { dryRunGlobalsMigration, restoreGlobalsMigration } from './globalsMigration.js';
 import { Publisher, paths, type Options } from './publisher.js';
+import { bundleTranslations } from './translations.js';
 import { createRequest } from './request.js';
 import { LocalRepository, RefRace, type Repository, type Tree } from './git.js';
 import { RemoteRepository, TransportUnresolved } from './remote.js';
@@ -285,7 +293,19 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
     (current()[`tooltips/${hash}.json`]
       ? read(`tooltips/${hash}.json`)
       : { hash, text: {}, associated: [] }) as Tooltip;
-  return { git, pub, globals, saved, published, options, current, read, change, request };
+  return {
+    git,
+    pub,
+    globals,
+    saved,
+    published,
+    options,
+    current,
+    read,
+    change,
+    request,
+    sign: (bytes: string) => sign(null, Buffer.from(bytes), keys.privateKey).toString('base64'),
+  };
 }
 
 async function inPlaceFixture(titleSource = '', exports = false, secondary?: string) {
@@ -352,6 +372,103 @@ describe('in-place shared text publication', () => {
   const selection = (row: GlobalsPending[number]) => [{ id: row.id, expected: row.digest }];
   const live = (f: Awaited<ReturnType<typeof inPlaceFixture>>) =>
     f.pub.read<LegacyInput>(f.git.tree(f.pub.head(f.options.liveBranch)), 'liveDescriptions.json')!;
+  it('refills only the reviewed global language, then withdraws it with the same scope', async () => {
+    const f = await inPlaceFixture();
+    const { id } = f.entry;
+    const catalogPath = 'globals/live/converter-v2-test.json';
+    const source = f
+      .read(catalogPath)
+      .store.entries.find((entry: { id: string }) => entry.id === id);
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const publish = async (opId: string, entry: typeof f.entry, revokedAtFence = false) => {
+      f.change({ [f.entryPath]: entry, '.publisher/PIN': pin });
+      const preview = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, {});
+      const review = preview.lanes.de?.find((row) => row.kind === 'global' && row.id === id);
+      expect(review).toMatchObject({ status: 'ready', affectedHashes: [141] });
+      if (!review || review.status !== 'ready' || review.kind !== 'global')
+        throw new Error('Expected a reviewable German global');
+      const { expected, english, before, effects, affected } = review;
+      const row: TranslationPublishRow = {
+        kind: 'global',
+        id,
+        lang: 'de',
+        expected,
+        english,
+        before,
+        effects,
+        affected,
+      };
+      const payload: TranslationPublishPayload = {
+        kind: 'push',
+        opId,
+        scope: 'translations',
+        rows: [row],
+        repo: f.options.repo,
+        dataBranch: f.options.dataBranch,
+        liveBranch: f.options.liveBranch,
+        requester: { id: 2, login: 'translator' },
+        createdAt: new Date(now).toISOString(),
+        intentDigest: '',
+      };
+      payload.intentDigest = await translationPublishIntentDigest(payload);
+      const bytes = stableStringify(payload);
+      f.change({ [paths(opId).request]: { payload: bytes, sig: f.sign(bytes) } });
+      if (revokedAtFence)
+        f.git.beforeAtomic = () => f.change({
+          'config/permissions.json': { users: { 1: { login: 'alice', role: 'maintainer' } } },
+        });
+      await f.pub.operation(opId);
+      if (revokedAtFence)
+        expect(f.read(paths(opId).log).result).toMatchObject({
+          status: 'rejected', error: expect.stringContaining('revoked'),
+        });
+      else
+        expect(f.read(paths(opId).log).result).toMatchObject({
+          status: 'done',
+          rows: [{ id, lang: 'de', status: 'published' }],
+        });
+      return review;
+    };
+    const initial = live(f);
+    const { provenance, ...definition } = source.definitions.en;
+    expect(provenance.lang).toBe('en');
+    const selected = {
+      ...source,
+      definitions: { ...source.definitions, de: { ...definition, body: '35' } },
+    };
+    await publish(A, selected);
+    const landed = f.git.head(L)!;
+    const frozen = f.pub.receipt(landed, A)!.sourceCommit;
+    const permissions = f.read('config/permissions.json');
+    f.git.refs.set(D, frozen);
+    f.change({
+      'config/permissions.json': { users: { 1: { login: 'alice', role: 'maintainer' } } },
+    });
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(landed);
+    expect(f.read(paths(A).log).result).toMatchObject({ status: 'done' });
+    f.change({ 'config/permissions.json': permissions });
+    const filled = live(f);
+    expect(filled.perks[141]).toMatchObject({
+      ...initial.perks[141],
+      editor: { en: { main: '20' }, de: { main: '35' } },
+    });
+    for (const [hash, perk] of Object.entries(initial.perks))
+      if (hash !== '141') expect(filled.perks[hash]).toEqual(perk);
+    expect(
+      f.read(catalogPath).store.entries.find((entry: { id: string }) => entry.id === id),
+    ).toEqual(selected);
+    const removed = { ...source, definitions: { en: source.definitions.en } };
+    const withdrawal = await publish(A.slice(0, -1) + '2', removed);
+    expect(withdrawal).toMatchObject({ removed: true, englishFallback: true });
+    expect(live(f).perks[141]).toMatchObject({
+      editor: { en: { main: '20' }, de: { main: '20', englishFallback: true } },
+    });
+    const beforeRevoked = f.git.head(L);
+    await publish(A.slice(0, -1) + '3', selected, true);
+    expect(f.git.head(L)).toBe(beforeRevoked);
+  });
   const formatV2Text = (
     input: LegacyInput,
     hash: number,

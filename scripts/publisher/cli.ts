@@ -86,7 +86,7 @@ async function main() {
           publisher.head(options.liveBranch) === originalLive;
         if (!restored) throw new Error('Migration restore did not recover the original refs.');
         migration = await dryRunGlobalsMigration(publisher, inputs);
-        publisher.bundle();
+        await publisher.publishBundle();
       } else await publisher.run();
     } catch (e) {
       failure = e;
