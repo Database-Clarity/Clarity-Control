@@ -63,6 +63,7 @@ import {
   acknowledgedMarkers,
   acknowledgedTranslations,
   publishReviewed,
+  retireTranslations,
   useReviewSession,
 } from './session';
 import {
@@ -173,6 +174,9 @@ export function ReviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [translator, data, languages, publishedTranslations],
   );
+  useEffect(() => {
+    if (translator && data) retireTranslations(data);
+  }, [translator, data, publishedTranslations]);
   const prepared = useMemo(
     () =>
       !translator &&

@@ -56,13 +56,16 @@ export function acknowledgedGlobals(data: EditorData): ReadonlySet<string> {
   return new Set(waiting.map(([id]) => id));
 }
 
-/** Rows this session published that the loaded bundle still lists with that saved text. */
+/**
+ * Rows this session published that the loaded bundle still lists with that saved text. Read while
+ * rendering, so it never updates the store: `retireTranslations` does.
+ */
 export function acknowledgedTranslations(data: EditorData): ReadonlySet<string> {
   const { translations } = useReviewSession.getState();
   const acknowledged = Object.entries(translations);
-  if (!acknowledged.length) return none;
   // Only a complete bundle can say that one has caught up.
-  if (!data.bundle.translationPublish) return new Set(Object.keys(translations));
+  if (!acknowledged.length || !data.bundle.translationPublish)
+    return new Set(Object.keys(translations));
   const rows = new Map(
     Object.values(data.bundle.translationPublish?.lanes ?? {})
       .flat()
@@ -72,11 +75,17 @@ export function acknowledgedTranslations(data: EditorData): ReadonlySet<string> 
     const row = rows.get(key);
     return row?.status === 'ready' && row.expected === expected;
   });
-  if (waiting.length !== acknowledged.length)
-    useReviewSession.setState({ translations: Object.fromEntries(waiting) });
   return new Set(waiting.map(([key]) => key));
 }
-const none: ReadonlySet<string> = new Set();
+
+/** Forgets the rows a complete bundle has caught up with, or lists with another text. */
+export function retireTranslations(data: EditorData) {
+  const { translations } = useReviewSession.getState();
+  const waiting = acknowledgedTranslations(data);
+  const kept = Object.entries(translations).filter(([key]) => waiting.has(key));
+  if (kept.length !== Object.keys(translations).length)
+    useReviewSession.setState({ translations: Object.fromEntries(kept) });
+}
 
 export function acknowledgedMarkers(data: EditorData): Readonly<Record<string, string>> {
   const { acknowledgments } = useReviewSession.getState();
