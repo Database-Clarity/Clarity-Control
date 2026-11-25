@@ -95,6 +95,16 @@ for (const marker of [
 ])
   if (!runtime.includes(marker))
     throw new Error(`Publisher runtime lacks globals exports (${marker}); refusing its PIN`);
+for (const marker of [
+  'translation-publish-v1',
+  'live/translation-roots.json',
+  'verifyTranslationReceipt(',
+  'parseScopedPublishRequestPayload(',
+])
+  if (!runtime.includes(marker))
+    throw new Error(
+      `Publisher runtime lacks translation publication (${marker}); refusing its PIN`,
+    );
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -141,6 +151,7 @@ writeFileSync(
         'exoticTags',
         'aliasGroupRemovals',
         'globalsInPlaceV1',
+        'translationPublishV1',
       ],
     },
     null,

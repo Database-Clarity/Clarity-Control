@@ -1,6 +1,6 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -11,6 +11,16 @@ import {
   observeGlobalSources,
 } from '../../packages/core/src/globalsRelease/index.js';
 import { exportLegacy } from '../../packages/core/src/exportLegacy.js';
+import {
+  stableStringify,
+  translationBeforeDigest,
+  translationEnglishDigest,
+  translationExpectedDigest,
+  translationPublishCapability,
+  translationPublishIntentDigest,
+  type TranslationPublishPayload,
+  type TranslationPublishRow,
+} from '../../packages/core/src/index.js';
 import { compile, newStyleFile } from '../../packages/export/src/index.js';
 import { buildLegacy, type LegacyInput } from '../../packages/export/src/legacy.js';
 import { descriptionConverter, expandAliases } from '../../packages/export/src/converter/index.js';
@@ -31,6 +41,13 @@ import { GlobalsPublisher, globalTreeOid } from './globals.js';
 import { migrateInPlace } from './globalsInPlace.js';
 import { dryRunGlobalsMigration, restoreGlobalsMigration } from './globalsMigration.js';
 import { Publisher, paths, type Options } from './publisher.js';
+import {
+  bundleTranslations,
+  planTranslations,
+  translationCheckRefusal,
+  translationRootsPath,
+} from './translations.js';
+import { createTranslationWork } from './translationWork.js';
 import { createRequest } from './request.js';
 import { LocalRepository, RefRace, type Repository, type Tree } from './git.js';
 import { RemoteRepository, TransportUnresolved } from './remote.js';
@@ -84,6 +101,10 @@ class Memory implements Repository {
   }
   head(ref: string) {
     return this.refs.get(ref);
+  }
+  commitParents(commit: string) {
+    const parent = this.parents.get(commit);
+    return parent ? [parent] : [];
   }
   commit(parent: string | undefined, tree: Tree) {
     const oid = (++this.sequence).toString(16).padStart(40, '0');
@@ -285,10 +306,27 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
     (current()[`tooltips/${hash}.json`]
       ? read(`tooltips/${hash}.json`)
       : { hash, text: {}, associated: [] }) as Tooltip;
-  return { git, pub, globals, saved, published, options, current, read, change, request };
+  return {
+    git,
+    pub,
+    globals,
+    saved,
+    published,
+    options,
+    current,
+    read,
+    change,
+    request,
+    sign: (bytes: string) => sign(null, Buffer.from(bytes), keys.privateKey).toString('base64'),
+  };
 }
 
-async function inPlaceFixture(titleSource = '', exports = false, secondary?: string) {
+async function inPlaceFixture(
+  titleSource = '',
+  exports = false,
+  secondary?: string,
+  secondaryLang: 'de' | 'en' = 'en',
+) {
   const f = await fixture(titleSource, exports, true, 100);
   const legacyData = f.pub.head(f.options.dataBranch);
   let legacyLive = f.pub.head(f.options.liveBranch);
@@ -296,8 +334,8 @@ async function inPlaceFixture(titleSource = '', exports = false, secondary?: str
     const tree = f.git.tree(legacyLive);
     const input = f.pub.read<LegacyInput>(tree, 'liveDescriptions.json')!;
     const row = input.perks[141];
-    if (!('editor' in row) || !row.editor.en) throw new Error('Missing test tooltip');
-    row.editor.en.secondary = secondary;
+    if (!('editor' in row) || !row.editor[secondaryLang]) throw new Error('Missing test tooltip');
+    row.editor[secondaryLang]!.secondary = secondary;
     const historical = f.git.commit(legacyLive, {
       ...tree,
       'liveDescriptions.json': f.git.writeBlob(encode(input)),
@@ -352,6 +390,684 @@ describe('in-place shared text publication', () => {
   const selection = (row: GlobalsPending[number]) => [{ id: row.id, expected: row.digest }];
   const live = (f: Awaited<ReturnType<typeof inPlaceFixture>>) =>
     f.pub.read<LegacyInput>(f.git.tree(f.pub.head(f.options.liveBranch)), 'liveDescriptions.json')!;
+  it('drains ordinary work while sustained saves race the optional translation summary', async () => {
+    const f = await inPlaceFixture();
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    f.change({ '.publisher/PIN': pin });
+    await f.pub.publishBundle();
+    await f.request([142]);
+    let saves = 0;
+    const bundle = f.pub.bundle.bind(f.pub);
+    const churn = vi.spyOn(f.pub, 'bundle').mockImplementation((scoped) => {
+      if (scoped) {
+        expect(f.read(paths(A).log).result.status).toBe('done');
+        f.change({ 'tooltips/140.json': tooltip(140, `Unrelated save ${++saves}`) });
+      }
+      return bundle(scoped);
+    });
+    await f.pub.run(false);
+    churn.mockRestore();
+    expect(saves).toBeGreaterThan(0);
+    expect(f.read(paths(A).log).result).toMatchObject({ status: 'done' });
+    const readBundle = () =>
+      f.pub.read<{ sourceCommit: string; translationPublish?: unknown }>(
+        f.git.tree(f.pub.head('editor-data-bundle')),
+        'bundle.json',
+      )!;
+    const dataHead = f.git.head(D);
+    expect(readBundle()).toMatchObject({ sourceCommit: dataHead });
+    expect(readBundle().translationPublish).toBeUndefined();
+    await f.pub.publishBundle();
+    expect(readBundle()).toMatchObject({
+      sourceCommit: dataHead,
+      translationPublish: { liveCommit: f.git.head(L) },
+    });
+    expect(f.git.head(D)).toBe(dataHead);
+  });
+  it('terminates an isolated translation check that never returns', async () => {
+    const f = await inPlaceFixture();
+    const root = mkdtempSync(resolve(tmpdir(), 'publisher-translation-check-'));
+    try {
+      const path = resolve(root, 'cache.git');
+      execFileSync('git', ['init', '--bare', path]);
+      execFileSync('git', ['--git-dir', path, 'config', 'publisher.simulator', 'true']);
+      const runtime = resolve(root, 'stuck.mjs');
+      const started = resolve(root, 'started');
+      writeFileSync(
+        runtime,
+        "import { appendFileSync } from 'node:fs';\n" +
+          `process.on('message', () => { appendFileSync(${JSON.stringify(started)}, 'started\\n'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0); });\n`,
+      );
+      const git = new LocalRepository(path);
+      const work = createTranslationWork(runtime, 750, 750);
+      const source = 'a'.repeat(40);
+      const live = 'b'.repeat(40);
+      const payload: TranslationPublishPayload = {
+        kind: 'push',
+        scope: 'translations',
+        opId: A,
+        rows: [
+          {
+            kind: 'tooltip',
+            hash: 142,
+            lang: 'de',
+            english: '',
+            before: '',
+            expected: '',
+            effects: '',
+          },
+        ],
+        repo: f.options.repo,
+        dataBranch: f.options.dataBranch,
+        liveBranch: f.options.liveBranch,
+        requester: { id: 2, login: 'translator' },
+        createdAt: new Date(now).toISOString(),
+        intentDigest: '',
+      };
+      await expect(work.preview(git, f.options, source, live)).resolves.toBeUndefined();
+      await expect(work.plan(git, f.options, source, live, payload)).rejects.toMatchObject({
+        rows: [
+          {
+            kind: 'tooltip',
+            hash: 142,
+            lang: 'de',
+            status: 'rejected',
+            reason: 'translation-check-limit',
+          },
+        ],
+      });
+      expect(readFileSync(started, 'utf8')).toBe('started\nstarted\n');
+      expect(git.git(['for-each-ref'])).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('refuses expensive scoped renders and still publishes the following ordinary request', async () => {
+    const f = await inPlaceFixture();
+    const raw = (hash: number, de: string): Tooltip => ({
+      ...tooltip(hash, 'Published English'),
+      text: { en: cell('Published English'), de: cell(de) },
+    });
+    const imports = (hash: number) => `import main from ${hash}\n`.repeat(60);
+    const measuredShapes = [' ', '${', '${1+', 'title A (\n', '#a', '#a[', '<\n', '<a \n'];
+    const drafts = [
+      raw(201, '<'.repeat(64_000)),
+      raw(202, imports(203)),
+      ...measuredShapes.map((token, index) =>
+        raw(index + 205, `x${token.repeat(Math.floor(16_000 / token.length))}x`),
+      ),
+      raw(213, imports(214)),
+    ];
+    const sources = [
+      ...drafts.map(({ hash }) => raw(hash, 'Vorher')),
+      raw(203, imports(204)),
+      raw(204, 'x'.repeat(2_000)),
+      // Short inputs also need the guard once their imports have been expanded.
+      raw(214, `x${' '.repeat(400)}x`),
+    ];
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const changes: Record<string, unknown> = { '.publisher/PIN': pin };
+    const markers: Record<number, string> = {};
+    for (const source of sources) {
+      const { hash } = source;
+      f.options.facts[hash] = { name: String(hash), type: 'Weapon Perk' };
+      markers[hash] = await inactivePublishableHash(source, {});
+      changes[`live/tooltips/${hash}.json`] = source;
+      changes[`tooltips/${hash}.json`] = drafts.find((draft) => draft.hash === hash) ?? source;
+    }
+    f.change({ ...changes, 'live/pushed.json': markers });
+    const parent = f.git.head(L)!;
+    const input = live(f);
+    Object.assign(input.perks, exportLegacy(sources, 0, f.options.facts));
+    f.git.cas(
+      L,
+      parent,
+      f.git.commit(parent, {
+        ...f.git.tree(parent),
+        'liveDescriptions.json': f.git.writeBlob(encode(input)),
+      }),
+    );
+    const reason = 'This text is too large to check here. Ask an editor to publish it.';
+    const preview = await bundleTranslations(
+      f.pub,
+      f.current(),
+      f.git.head(L)!,
+      Object.fromEntries(drafts.map((draft) => [draft.hash, draft])),
+    );
+    expect(preview.lanes.de).toMatchObject(
+      drafts.map(({ hash }) => ({ hash, status: 'refused', reason })),
+    );
+    const rows = await Promise.all(
+      drafts.map(async (draft, index) => ({
+        kind: 'tooltip' as const,
+        hash: draft.hash,
+        lang: 'de' as const,
+        english: await translationEnglishDigest(sources[index].text.en!),
+        before: await translationBeforeDigest(sources[index].text.de),
+        expected: await translationExpectedDigest(draft.text.de),
+        effects: 'a'.repeat(64),
+      })),
+    );
+    const payload: TranslationPublishPayload = {
+      kind: 'push',
+      scope: 'translations',
+      opId: A,
+      rows,
+      repo: f.options.repo,
+      dataBranch: f.options.dataBranch,
+      liveBranch: f.options.liveBranch,
+      requester: { id: 2, login: 'translator' },
+      createdAt: new Date(now).toISOString(),
+      intentDigest: '',
+    };
+    payload.intentDigest = await translationPublishIntentDigest(payload);
+    const bytes = stableStringify(payload);
+    f.change({ [paths(A).request]: { payload: bytes, sig: f.sign(bytes) } });
+    const ordinary = '01K95H00000000000000000002';
+    await f.request([142], ordinary);
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'rejected',
+      rows: drafts.map(({ hash }) => ({
+        hash,
+        status: 'rejected',
+        reason: 'translation-check-limit',
+        message: reason,
+      })),
+    });
+    expect(f.read(paths(ordinary).log).result.status).toBe('done');
+    for (const { hash } of drafts) expect(live(f).perks[hash]).toEqual(input.perks[hash]);
+  });
+  const scopedPartQueueCases = [
+    'timeout',
+    'ready',
+    'one save',
+    'replacement before timeout',
+    'replacement after a valid plan',
+    'replacement during a rebuild',
+  ] as const;
+  it.each(scopedPartQueueCases)(
+    'drains ordinary work behind a scoped part with %s',
+    async (kind) => {
+      const f = await inPlaceFixture();
+      const published = f
+        .read('globals/live/converter-v2-test.json')
+        .store.entries.find(({ id }: { id: string }) => id === f.entry.id);
+      const pin = f.read('.publisher/PIN');
+      pin.capabilities.push(translationPublishCapability);
+      const draft = {
+        ...published,
+        definitions: { ...published.definitions, de: { ...published.definitions.de, body: '35' } },
+      };
+      f.change({ '.publisher/PIN': pin, [f.entryPath]: draft });
+      const preview = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, {});
+      const row = preview.lanes.de?.find((item) => item.kind === 'global' && item.id === draft.id);
+      if (row?.kind !== 'global' || row.status !== 'ready') throw new Error('Missing review');
+      const { id, lang, expected, english, before, effects, affected } = row;
+      const payload: TranslationPublishPayload = {
+        kind: 'push',
+        scope: 'translations',
+        opId: A,
+        rows: [{ kind: 'global', id, lang, expected, english, before, effects, affected }],
+        repo: f.options.repo,
+        dataBranch: f.options.dataBranch,
+        liveBranch: f.options.liveBranch,
+        requester: { id: 2, login: 'translator' },
+        createdAt: new Date(now).toISOString(),
+        intentDigest: '',
+      };
+      payload.intentDigest = await translationPublishIntentDigest(payload);
+      const bytes = stableStringify(payload);
+      const signed = { payload: bytes, sig: f.sign(bytes) };
+      const replacement = {
+        ...payload,
+        rows: payload.rows.map((item) => ({ ...item, expected: 'f'.repeat(64) })),
+      };
+      replacement.intentDigest = await translationPublishIntentDigest(replacement);
+      const replacementBytes = stableStringify(replacement);
+      const replacementSigned = { payload: replacementBytes, sig: f.sign(replacementBytes) };
+      f.change({ [paths(A).request]: signed });
+      const ordinary = '01K95H00000000000000000002';
+      await f.request([142], ordinary);
+      const beforeLive = live(f);
+      const replacesRequest = kind.startsWith('replacement');
+      const replaceOnPlan = kind === 'replacement during a rebuild' ? 2 : 1;
+      let plans = 0;
+      const publisher = new Publisher(f.git, f.options, {
+        preview: async () => undefined,
+        plan: async (_git, _options, source, parent, part) => {
+          plans++;
+          if (kind !== 'one save' || plans === 1)
+            f.change({ 'tooltips/140.json': tooltip(140, `Unrelated save ${plans}`) });
+          const replacing = replacesRequest && plans === replaceOnPlan;
+          if (replacing) f.change({ [paths(A).request]: replacementSigned });
+          if (kind === 'timeout' || (replacing && kind !== 'replacement after a valid plan'))
+            throw translationCheckRefusal(part.rows);
+          return planTranslations(f.pub, f.git.tree(source), parent, part);
+        },
+      });
+      await publisher.run(false);
+      expect(f.read(paths(ordinary).log).result.status).toBe('done');
+      if (kind === 'one save') {
+        expect(plans).toBe(3); // One superseded proposal, one rebuild, and one independent proof.
+        expect(f.read(paths(A).log).result.status).toBe('done');
+        expect(live(f).perks[141]).not.toEqual(beforeLive.perks[141]);
+        return;
+      }
+      expect(plans).toBe(kind === 'ready' || kind === 'replacement during a rebuild' ? 2 : 1);
+      expect(live(f).perks[141]).toEqual(beforeLive.perks[141]);
+      if (replacesRequest) {
+        expect(f.current()[paths(A).log]).toBeUndefined();
+        expect(f.read(paths(A).request)).toEqual(replacementSigned);
+        const next = '01K95H00000000000000000003';
+        f.change({ 'tooltips/142.json': tooltip(142, 'Second ordinary edit') });
+        await f.request([142], next);
+        await publisher.run(false);
+        expect(f.read(paths(A).log)).toMatchObject({
+          request: replacementSigned,
+          result: { status: 'rejected', rows: [{ id, reason: 'review-changed' }] },
+        });
+        expect(f.read(paths(next).log).result.status).toBe('done');
+        expect(f.git.head(paths(A).candidate)).toBeUndefined();
+        return;
+      }
+      expect(f.read(paths(A).log)).toMatchObject({
+        request: signed,
+        result: {
+          status: 'rejected',
+          rows: [{ id, reason: kind === 'timeout' ? 'translation-check-limit' : 'review-changed' }],
+        },
+      });
+      expect(f.current()[paths(A).request]).toBeUndefined();
+      expect(f.git.head(paths(A).candidate)).toBeUndefined();
+      expect(f.read('tooltips/140.json').text.en.text).toBe(`Unrelated save ${plans}`);
+    },
+  );
+  it('refuses a part whose combined edits affect an unreviewed reader', async () => {
+    const f = await inPlaceFixture();
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const sources: Record<number, Tooltip> = {
+      201: {
+        ...tooltip(201, 'Left'),
+        text: { en: cell('Left'), de: cell('export A (\nvar a = 0\n)\nLinks #a') },
+      },
+      202: {
+        ...tooltip(202, 'Right'),
+        text: { en: cell('Right'), de: cell('export B (\nvar b = 0\n)\nRechts #b') },
+      },
+      203: {
+        ...tooltip(203, 'Result'),
+        text: {
+          en: cell('Result'),
+          de: cell('import A from 201\nimport B from 202\nErgebnis ${#a*#b}'),
+        },
+      },
+    };
+    const current = structuredClone(sources);
+    current[201].text.de!.text = current[201].text.de!.text.replace(' = 0', ' = 2');
+    current[202].text.de!.text = current[202].text.de!.text.replace(' = 0', ' = 3');
+    const changes: Record<string, unknown> = { '.publisher/PIN': pin };
+    const markers: Record<string, string> = {};
+    for (const { hash } of Object.values(sources)) {
+      changes[`live/tooltips/${hash}.json`] = sources[hash];
+      changes[`tooltips/${hash}.json`] = current[hash];
+      markers[hash] = await inactivePublishableHash(sources[hash], {});
+      f.options.facts[hash] = { name: String(hash), type: 'Weapon Perk' };
+    }
+    changes['live/pushed.json'] = markers;
+    f.change(changes);
+    const parent = f.git.head(L)!;
+    const old = f.pub.read<LegacyInput>(f.git.tree(parent), 'liveDescriptions.json')!;
+    Object.assign(old.perks, exportLegacy(Object.values(sources), 0, f.options.facts));
+    f.git.cas(
+      L,
+      parent,
+      f.git.commit(parent, {
+        ...f.git.tree(parent),
+        'liveDescriptions.json': f.git.writeBlob(encode(old)),
+      }),
+    );
+    const preview = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, current);
+    const ready = (preview.lanes.de ?? []).filter(
+      (row) => row.status === 'ready' && row.kind === 'tooltip',
+    );
+    expect(ready.map((row) => row.affectedHashes)).toEqual([[], []]);
+    const rows: TranslationPublishRow[] = ready.map(
+      ({ kind, hash, lang, expected, english, before, effects }) => ({
+        kind,
+        hash,
+        lang,
+        expected,
+        english,
+        before,
+        effects,
+      }),
+    );
+    const payload: TranslationPublishPayload = {
+      kind: 'push',
+      scope: 'translations',
+      opId: A,
+      rows,
+      repo: f.options.repo,
+      dataBranch: f.options.dataBranch,
+      liveBranch: f.options.liveBranch,
+      requester: { id: 2, login: 'translator' },
+      createdAt: new Date(now).toISOString(),
+      intentDigest: '',
+    };
+    payload.intentDigest = await translationPublishIntentDigest(payload);
+    const bytes = stableStringify(payload);
+    f.change({ [paths(A).request]: { payload: bytes, sig: f.sign(bytes) } });
+    await f.pub.operation(A);
+    const after = f.pub.read<LegacyInput>(f.git.tree(f.git.head(L)!), 'liveDescriptions.json')!;
+    const rendered = (input: LegacyInput) => {
+      const database = expandAliases(input.perks);
+      return descriptionConverter({
+        database,
+        language: 'de',
+        editorType: 'main',
+        hash: 203,
+        descriptionString: database[203].editor.de!.main,
+      });
+    };
+    const log = f.read(paths(A).log);
+    expect(log.result).toMatchObject({ status: 'rejected', rows: [{ hash: 201 }, { hash: 202 }] });
+    expect(rendered(after)).toEqual(rendered(old));
+  });
+  it('reviews a historical alias marker and folds rows with only translation changes', async () => {
+    const f = await inPlaceFixture();
+    const hash = 141;
+    const previous = f.read(`live/tooltips/${hash}.json`) as Tooltip;
+    f.options.aliases = { 999: { to: hash, kind: 'frame' } };
+    const parent = f.git.head(L)!;
+    const input = live(f);
+    input.perks[999] = { hash: 999, aliasOf: hash, aliasKind: 'frame' };
+    const candidate = f.git.commit(parent, {
+      ...f.git.tree(parent),
+      'liveDescriptions.json': f.git.writeBlob(encode(input)),
+    });
+    f.git.cas(L, parent, candidate);
+    const marker = await inactivePublishableHash(previous, {});
+    expect(await inactivePublishableHash(previous, f.options.aliases)).not.toBe(marker);
+    const saved = {
+      ...previous,
+      text: { ...previous.text, de: cell('Neue Übersetzung') },
+      legacy: { ...previous.legacy, lastUpload: 100, uploadedBy: 'editor' },
+    };
+    f.change({ 'live/pushed.json': { [hash]: marker }, [`tooltips/${hash}.json`]: saved });
+    const preview = await bundleTranslations(f.pub, f.current(), candidate, { [hash]: saved });
+    expect(preview.lanes.de).toContainEqual(expect.objectContaining({ hash, status: 'ready' }));
+    expect(preview.only.tooltips).toEqual([hash]);
+    f.options.aliases = {};
+    const pendingAlias = await bundleTranslations(f.pub, f.current(), candidate, { [hash]: saved });
+    expect(pendingAlias.only.tooltips).toEqual([]);
+    f.change({ 'live/pushed.json': {} });
+    const unverified = await bundleTranslations(f.pub, f.current(), candidate, { [hash]: saved });
+    expect(unverified.lanes.de).toContainEqual(
+      expect.objectContaining({
+        hash,
+        status: 'waiting',
+        reason: expect.stringContaining('could not be verified'),
+      }),
+    );
+  });
+  it('binds alias copies and their LIVE facts to the scoped global preview', async () => {
+    const f = await inPlaceFixture();
+    const source = f
+      .read('globals/live/converter-v2-test.json')
+      .store.entries.find((entry: { id: string }) => entry.id === f.entry.id);
+    const migratedLive = f.git.head(L)!;
+    const migratedTree = f.git.tree(migratedLive);
+    const previouslyLive = live(f);
+    previouslyLive.perks[999] = { hash: 999, aliasOf: 141, aliasKind: 'frame' };
+    const row = previouslyLive.perks[141];
+    if (!('editor' in row) || !row.editor.de) throw new Error('Missing German fixture');
+    row.editor.de.secondary = 'Historisch 80';
+    const after = f.git.commit(migratedLive, {
+      ...migratedTree,
+      'liveDescriptions.json': f.git.writeBlob(encode(previouslyLive)),
+    });
+    f.git.cas(L, migratedLive, after);
+
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const selected = {
+      ...source,
+      definitions: { ...source.definitions, de: { ...source.definitions.de, body: '35' } },
+    };
+    f.change({ '.publisher/PIN': pin, [f.entryPath]: selected });
+    const bundle = await bundleTranslations(f.pub, f.current(), after, {});
+    const preview = bundle.lanes.de?.find((row) => row.kind === 'global' && row.id === f.entry.id);
+    expect(preview).toMatchObject({ status: 'ready', affectedHashes: [141, 999] });
+  });
+  it('rebuilds an ordinary request after a scoped RECORD lands at its fence', async () => {
+    const f = await inPlaceFixture();
+    const source = f
+      .read('globals/live/converter-v2-test.json')
+      .store.entries.find((entry: { id: string }) => entry.id === f.entry.id);
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const desired = {
+      ...source,
+      definitions: { ...source.definitions, de: { ...source.definitions.de, body: '35' } },
+    };
+    f.change({ '.publisher/PIN': pin, [f.entryPath]: desired });
+    const preview = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, {});
+    const row = preview.lanes.de?.find((row) => row.kind === 'global' && row.id === f.entry.id);
+    if (!row || row.status !== 'ready' || row.kind !== 'global')
+      throw new Error(JSON.stringify(row));
+    const { kind, id, lang, expected, english, before, effects, affected } = row;
+    const payload: TranslationPublishPayload = {
+      kind: 'push',
+      scope: 'translations',
+      opId: A,
+      rows: [{ kind, id, lang, expected, english, before, effects, affected }],
+      repo: f.options.repo,
+      dataBranch: f.options.dataBranch,
+      liveBranch: f.options.liveBranch,
+      requester: { id: 2, login: 'translator' },
+      createdAt: new Date(now).toISOString(),
+      intentDigest: '',
+    };
+    payload.intentDigest = await translationPublishIntentDigest(payload);
+    const bytes = stableStringify(payload);
+    f.change({ [paths(A).request]: { payload: bytes, sig: f.sign(bytes) } });
+    const ordinary = A.slice(0, -1) + '2';
+    await f.request([141], ordinary);
+    const earlierData = f.git.head(D)!;
+    const earlierLive = f.git.head(L)!;
+    await f.pub.operation(A);
+    expect(f.read(paths(A).log).result.status).toBe('done');
+    const advancedData = f.git.head(D)!;
+    const advancedLive = f.git.head(L)!;
+    f.git.refs.set(D, earlierData);
+    f.git.refs.set(L, earlierLive);
+    f.git.beforeAtomic = () => {
+      f.git.refs.set(D, advancedData);
+      f.git.refs.set(L, advancedLive);
+    };
+    await f.pub.operation(ordinary);
+    expect(f.read(paths(ordinary).log).result.status).toBe('done');
+  });
+  it('refuses a global change used by a historical German secondary', async () => {
+    const f = await inPlaceFixture('', false, 'Historisch #Beta', 'de');
+    const source = f
+      .read('globals/live/converter-v2-test.json')
+      .store.entries.find((entry: { id: string }) => entry.id === f.entry.id);
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    const selected = {
+      ...source,
+      definitions: { ...source.definitions, de: { ...source.definitions.de, body: '35' } },
+    };
+    f.change({ '.publisher/PIN': pin, [f.entryPath]: selected });
+    const bundle = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, {});
+    const preview = bundle.lanes.de?.find((row) => row.kind === 'global' && row.id === f.entry.id);
+    expect(preview).toMatchObject({
+      status: 'refused',
+      reason: expect.stringContaining('older text still uses Beta'),
+    });
+  });
+  it('refills only the reviewed global language, then withdraws it with the same scope', async () => {
+    const f = await inPlaceFixture();
+    const { id } = f.entry;
+    const catalogPath = 'globals/live/converter-v2-test.json';
+    const source = f
+      .read(catalogPath)
+      .store.entries.find((entry: { id: string }) => entry.id === id);
+    const pin = f.read('.publisher/PIN');
+    pin.capabilities.push(translationPublishCapability);
+    f.change({ '.publisher/PIN': pin });
+    const initialData = f.git.head(D);
+    await f.pub.publishBundle(false);
+    expect(f.git.head(D)).toBe(initialData);
+    expect(f.current()[translationRootsPath]).toBeUndefined();
+    await f.pub.publishBundle();
+    expect(f.current()[translationRootsPath]).toBeDefined();
+    const publish = async (opId: string, entry: typeof f.entry, revokedAtFence = false) => {
+      f.change({ [f.entryPath]: entry, '.publisher/PIN': pin });
+      const preview = await bundleTranslations(f.pub, f.current(), f.git.head(L)!, {});
+      const review = preview.lanes.de?.find((row) => row.kind === 'global' && row.id === id);
+      expect(review).toMatchObject({ status: 'ready', affectedHashes: [141] });
+      if (!review || review.status !== 'ready' || review.kind !== 'global')
+        throw new Error('Expected a reviewable German global');
+      const { expected, english, before, effects, affected } = review;
+      const row: TranslationPublishRow = {
+        kind: 'global',
+        id,
+        lang: 'de',
+        expected,
+        english,
+        before,
+        effects,
+        affected,
+      };
+      const payload: TranslationPublishPayload = {
+        kind: 'push',
+        opId,
+        scope: 'translations',
+        rows: [row],
+        repo: f.options.repo,
+        dataBranch: f.options.dataBranch,
+        liveBranch: f.options.liveBranch,
+        requester: { id: 2, login: 'translator' },
+        createdAt: new Date(now).toISOString(),
+        intentDigest: '',
+      };
+      payload.intentDigest = await translationPublishIntentDigest(payload);
+      const bytes = stableStringify(payload);
+      f.change({ [paths(opId).request]: { payload: bytes, sig: f.sign(bytes) } });
+      if (revokedAtFence)
+        f.git.beforeAtomic = () =>
+          f.change({
+            'config/permissions.json': { users: { 1: { login: 'alice', role: 'maintainer' } } },
+          });
+      await f.pub.operation(opId);
+      if (revokedAtFence)
+        expect(f.read(paths(opId).log).result).toMatchObject({
+          status: 'rejected',
+          error: expect.stringContaining('revoked'),
+        });
+      else
+        expect(f.read(paths(opId).log).result).toMatchObject({
+          status: 'done',
+          rows: [{ id, lang: 'de', status: 'published' }],
+        });
+      return review;
+    };
+    const initial = live(f);
+    const { provenance, ...definition } = source.definitions.en;
+    expect(provenance.lang).toBe('en');
+    const selected = {
+      ...source,
+      definitions: { ...source.definitions, de: { ...definition, body: '35' } },
+    };
+    let kicks = 0;
+    const queueMovement = () => {
+      f.change({ [`publish/kicks/${A}-${++kicks}.json`]: {} });
+      if (kicks < 3) f.git.beforeAtomic = queueMovement;
+    };
+    f.git.beforeAtomic = queueMovement;
+    await publish(A, selected);
+    expect(kicks).toBe(3);
+    const landed = f.git.head(L)!;
+    const receipt = f.pub.receipt(landed, A)!;
+    const frozen = receipt.sourceCommit;
+    const wrongParent = f.git.commit(receipt.liveParent, {
+      ...f.git.tree(receipt.liveParent),
+      'unrelated.json': f.git.writeBlob(encode({ kept: true })),
+    });
+    const wrongCandidate = f.git.commit(wrongParent, f.git.tree(landed));
+    await expect(f.pub.verifyTranslationReceipt(receipt, wrongCandidate)).rejects.toThrow(
+      'Translation receipt does not match its candidate LIVE parent.',
+    );
+    const tainted = f.git.commit(receipt.liveParent, {
+      ...f.git.tree(landed),
+      'unreviewed.json': f.git.writeBlob(encode({ surprise: true })),
+    });
+    await expect(f.pub.verifyTranslationReceipt(receipt, tainted)).rejects.toThrow(
+      'unexpected bytes at unreviewed.json',
+    );
+    const permissions = f.read('config/permissions.json');
+    f.git.refs.set(D, frozen);
+    f.change({
+      'config/permissions.json': { users: { 1: { login: 'alice', role: 'maintainer' } } },
+    });
+    await f.pub.operation(A);
+    expect(f.git.head(L)).toBe(landed);
+    expect(f.read(paths(A).log).result).toMatchObject({ status: 'done' });
+    f.change({ 'config/permissions.json': permissions });
+    const filled = live(f);
+    expect(filled.perks[141]).toMatchObject({
+      ...initial.perks[141],
+      editor: { en: { main: '20' }, de: { main: '35' } },
+    });
+    for (const [hash, perk] of Object.entries(initial.perks))
+      if (hash !== '141') expect(filled.perks[hash]).toEqual(perk);
+    expect(
+      f.read(catalogPath).store.entries.find((entry: { id: string }) => entry.id === id),
+    ).toEqual(selected);
+    const removed = { ...source, definitions: { en: source.definitions.en } };
+    const withdrawal = await publish(A.slice(0, -1) + '2', removed);
+    expect(withdrawal).toMatchObject({ removed: true, englishFallback: true });
+    expect(live(f).perks[141]).toMatchObject({
+      editor: { en: { main: '20' }, de: { main: '20', englishFallback: true } },
+    });
+    const staleId = A.slice(0, -1) + '4';
+    const stale: TranslationPublishPayload = JSON.parse(f.read(paths(A).log).request.payload);
+    stale.opId = staleId;
+    stale.intentDigest = await translationPublishIntentDigest(stale);
+    const staleBytes = stableStringify(stale);
+    const movedEnglish = {
+      ...selected,
+      definitions: {
+        ...selected.definitions,
+        en: { ...source.definitions.en, updatedAt: '2026-11-01T00:00:00Z' },
+      },
+    };
+    f.change({
+      [f.entryPath]: movedEnglish,
+      [paths(staleId).request]: { payload: staleBytes, sig: f.sign(staleBytes) },
+    });
+    const record = f.pub.record.bind(f.pub);
+    const kick = `publish/kicks/${staleId}-1.json`;
+    vi.spyOn(f.pub, 'record').mockImplementationOnce(async (...args) => {
+      f.change({ [kick]: {} });
+      return record(...args);
+    });
+    await f.pub.operation(staleId);
+    expect(f.current()[kick]).toBeDefined();
+    expect(f.read(paths(staleId).log).result).toMatchObject({
+      status: 'rejected',
+      rows: [{ id, lang: 'de', reason: 'english-pending' }],
+    });
+    const beforeRevoked = f.git.head(L);
+    await publish(A.slice(0, -1) + '3', selected, true);
+    expect(f.git.head(L)).toBe(beforeRevoked);
+  });
   const formatV2Text = (
     input: LegacyInput,
     hash: number,

@@ -11,6 +11,7 @@ import { Publisher, paths, type Receipt, type Options } from './publisher.js';
 import { activeGlobalsFence } from './globalsInPlace.js';
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import { drainCurrentSaves } from './currentSave.js';
+import type { TranslationWork } from './translationWork.js';
 
 export type PipelineConfig = Omit<Options, 'now' | 'publicKey'> & {
   keyEndpoint: string;
@@ -125,6 +126,7 @@ export async function runPipeline(
   config: PipelineConfig,
   output: string,
   remoteMode = false,
+  translationWork?: TranslationWork,
 ) {
   if (
     config.repo !== 'Database-Clarity/Live-Clarity-Database' ||
@@ -190,14 +192,21 @@ export async function runPipeline(
         })
       : new LocalRepository(repo);
   }
-  async function publishBundle(repo: LocalRepository, options: Options, prepare = false) {
-    const pub = new Publisher(repo, options);
-    if (prepare) await pub.prepareBundle();
+  async function publishBundle(
+    repo: LocalRepository,
+    options: Options,
+    mode: 'plain' | 'prepare' | 'translations' = 'plain',
+  ) {
+    const pub = new Publisher(repo, options, translationWork);
+    if (mode === 'prepare') await pub.prepareBundle();
     let next: string;
+    let moved = false;
     for (let attempt = 0; ; attempt++) {
       const old = repo.head(bundleRef);
-      pub.bundle();
+      if (mode === 'translations') await pub.refreshTranslationBundle();
+      else pub.bundle();
       next = repo.head(bundleRef)!;
+      moved ||= next !== old;
       if (next === old || repo instanceof RemoteRepository) break;
       gitAt(cwd, ['fetch', '--no-tags', repo.path, `+${bundleRef}:refs/publisher/bundle`]);
       try {
@@ -219,6 +228,7 @@ export async function runPipeline(
         repo.cas(bundleRef, next, current);
       }
     }
+    if (mode === 'translations' && !moved) return;
     const queue = pub.queue(pub.head(options.dataBranch));
     reports.push({
       sourceCommit: pub.head(options.dataBranch),
@@ -276,7 +286,7 @@ export async function runPipeline(
       )
         throw new Error('Worker key fingerprint mismatch');
       options.publicKey = key.publicKey;
-      const publisher = new Publisher(initial, options);
+      const publisher = new Publisher(initial, options, translationWork);
       // GITHUB_TOKEN commits do not trigger another workflow. Authored upkeep joins bundle
       // preparation before publication in the same serialized run.
       active =
@@ -285,9 +295,9 @@ export async function runPipeline(
       if (active) {
         await drainCurrentSaves(publisher);
         await new SchedulePreparer(publisher).drain();
-        if (enabled) await publishBundle(initial, options, true);
+        if (enabled) await publishBundle(initial, options, 'prepare');
         else await publisher.prepareBundle();
-        await publisher.run(false);
+        await publisher.run(false, false);
       }
     } catch (e) {
       failure = e;
@@ -310,6 +320,11 @@ export async function runPipeline(
               if (config.liveBranch === 'converter' && needsOutputs(latest, identity))
                 handoff = identity;
             }
+          }
+          try {
+            await publishBundle(latest, options, 'translations');
+          } catch {
+            console.warn('Translation readiness refresh unavailable.');
           }
         }
       }

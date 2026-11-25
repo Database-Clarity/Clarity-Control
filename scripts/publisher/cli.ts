@@ -8,6 +8,7 @@ import { maxBuffer } from './childProcess.mjs';
 import { LocalRepository } from './git.js';
 import { Publisher, type Options } from './publisher.js';
 import { runPipeline, verifyRuntime } from './pipeline.js';
+import { createTranslationWork, translationWorkChild } from './translationWork.js';
 import {
   dryRunGlobalsMigration,
   restoreGlobalsMigration,
@@ -17,8 +18,14 @@ import {
 // Publication requires the explicit pipeline-publish flag plus both configuration gates.
 async function main() {
   const [flag, source, config, output, migrationInput] = process.argv.slice(2);
+  if (flag === '--translation-work' && source && process.send) {
+    await translationWorkChild(source);
+    return;
+  }
+  const runtime = fileURLToPath(import.meta.url);
+  const translationWork = createTranslationWork(runtime);
   if (['--pipeline-dry-run', '--pipeline-publish'].includes(flag) && source && config && output) {
-    const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
+    const pin = verifyRuntime(dirname(runtime));
     const bytes = readFileSync(config);
     const options = JSON.parse(bytes.toString('utf8'));
     if (options.publisherSha !== pin.sourceSha || !/^[0-9a-f]{40}$/.test(options.generatorSha))
@@ -36,6 +43,7 @@ async function main() {
       },
       output,
       flag === '--pipeline-publish',
+      translationWork,
     );
     return;
   }
@@ -64,13 +72,17 @@ async function main() {
     });
     const git = new LocalRepository(repo);
     const options = JSON.parse(readFileSync(config, 'utf8')) as Omit<Options, 'now'>;
-    const pin = verifyRuntime(dirname(fileURLToPath(import.meta.url)));
-    const publisher = new Publisher(git, {
-      ...options,
-      publisherDigest: pin.sha256,
-      verifierDigest: pin.verifierSha256,
-      now: Date.now,
-    });
+    const pin = verifyRuntime(dirname(runtime));
+    const publisher = new Publisher(
+      git,
+      {
+        ...options,
+        publisherDigest: pin.sha256,
+        verifierDigest: pin.verifierSha256,
+        now: Date.now,
+      },
+      translationWork,
+    );
     let failure: unknown;
     let migration: Awaited<ReturnType<typeof dryRunGlobalsMigration>> | undefined;
     let restored: boolean | undefined;
@@ -86,7 +98,7 @@ async function main() {
           publisher.head(options.liveBranch) === originalLive;
         if (!restored) throw new Error('Migration restore did not recover the original refs.');
         migration = await dryRunGlobalsMigration(publisher, inputs);
-        publisher.bundle();
+        await publisher.publishBundle();
       } else await publisher.run();
     } catch (e) {
       failure = e;

@@ -71,6 +71,10 @@ class Memory implements Repository {
   head(ref: string) {
     return this.refs.get(ref);
   }
+  commitParents(commit: string) {
+    const parent = this.commits.get(commit)?.parent;
+    return parent ? [parent] : [];
+  }
   tree(commit: string) {
     const c = this.commits.get(commit);
     if (!c) throw new Error('Missing commit');

@@ -36,6 +36,7 @@ export function requesterCredits(user: { id: number; login: string }): CommitCre
 }
 export interface Repository {
   head(ref: string): string | undefined;
+  commitParents(commit: string): string[];
   tree(commit: string): Tree;
   /** Entry modes, including explicit empty trees that a flattened tree cannot represent. */
   treeModes?(commit: string): Record<string, string>;
@@ -51,7 +52,8 @@ export interface Repository {
 }
 
 /** Per-document files: a publisher step that reads one reads (nearly) all of them. */
-const bulkPath = /^(tooltips|live\/tooltips|globals|schedule\/batches\/[^/]+\/tooltips)\//;
+const bulkPath =
+  /^(?:(?:tooltips|live\/tooltips|globals|schedule\/batches\/[^/]+\/tooltips)\/|live\/(?:pushed|translation-roots)\.json$)/;
 
 /** Disposable bare object store; the simulator updates only local refs, RemoteRepository supplies transport. */
 export class LocalRepository implements Repository {
@@ -274,6 +276,13 @@ export class LocalRepository implements Repository {
     } catch {
       return false;
     }
+  }
+  commitParents(commit: string) {
+    return [
+      ...this.git(['cat-file', 'commit', commit])
+        .split('\n\n', 1)[0]
+        .matchAll(/^parent ([a-f0-9]{40})$/gm),
+    ].map(([, parent]) => parent);
   }
   history(ref: string) {
     return this.git(['rev-list', '--first-parent', '--reverse', ref])

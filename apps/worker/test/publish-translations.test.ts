@@ -430,7 +430,13 @@ it('reconciles a lost write response and only reveals scoped status and kick to 
         status: 'stale',
         error: 'private stack trace',
         rows: [
-          { kind: 'tooltip', hash: 123, lang: 'de', reason: 'review-changed', error: 'private' },
+          {
+            kind: 'tooltip',
+            hash: 123,
+            lang: 'de',
+            reason: 'translation-check-limit',
+            error: 'private',
+          },
           { kind: 'tooltip', hash: 444, lang: 'fr', reason: 'english-pending' },
         ],
       },
@@ -438,7 +444,7 @@ it('reconciles a lost write response and only reveals scoped status and kick to 
   });
   const result = {
     status: 'stale',
-    rows: [{ kind: 'tooltip', hash: 123, lang: 'de', reason: 'review-changed' }],
+    rows: [{ kind: 'tooltip', hash: 123, lang: 'de', reason: 'translation-check-limit' }],
   };
   expect(await (await status()).json()).toEqual({ operations: [{ opId: A, ...result }] });
   expect(await (await status(2)).json()).toEqual({ operations: [{ opId: A, ...result }] });

@@ -41,6 +41,7 @@ export const translationPublishReasons = {
   'missing-live-english': 'An editor or maintainer must publish English for this entry first.',
   'missing-live-input':
     'A number, variable, or import in this translation is missing from the published text.',
+  'translation-check-limit': 'This text is too large to check here. Ask an editor to publish it.',
   'review-changed':
     'This translation or what it uses has changed. Review it again before publishing.',
 } as const;
