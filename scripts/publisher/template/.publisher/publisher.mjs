@@ -24252,7 +24252,7 @@ function requesterCredits(user) {
     committer: appCredits.committer
   };
 }
-var bulkPath = /^(tooltips|live\/tooltips|globals|schedule\/batches\/[^/]+\/tooltips)\//;
+var bulkPath = /^(?:(?:tooltips|live\/tooltips|globals|schedule\/batches\/[^/]+\/tooltips)\/|live\/(?:pushed|translation-roots)\.json$)/;
 var LocalRepository = class {
   path;
   commandTimeout = 12e4;
@@ -34969,11 +34969,13 @@ function activeSource(pub, tree, input2, aliases = liveTranslationAliases(input2
     if (!input2.perks[hash2] || !("editor" in input2.perks[hash2]) || hash2 >= 1 && hash2 <= 3) return;
     if (!tree[path] || !pushed[hash2]) return;
     const raw = pub.read(tree, path);
-    const { data } = tooltipSchema.safeParse(raw);
-    if (!data || data.hash !== hash2 || !data.text.en?.text.trim()) return;
-    for (const context2 of [aliases, {}]) {
-      const digest6 = createHash6("sha256").update(publishableHashInput(data, context2)).digest("hex");
-      if (digest6 === pushed[hash2]) return raw;
+    if (!raw || raw.hash !== hash2) return;
+    try {
+      if (!raw.text.en?.text.trim()) return;
+      const matches2 = (context2) => createHash6("sha256").update(publishableHashInput(raw, context2)).digest("hex") === pushed[hash2];
+      if (matches2(aliases) || incomingAliases(hash2, aliases).length > 0 && matches2({}))
+        return raw;
+    } catch {
     }
   };
 }

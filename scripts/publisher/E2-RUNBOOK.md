@@ -48,8 +48,8 @@ Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the ma
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.
 No installation, activation, or external data write is authorized by generating this template.
 
-Template source PIN: `e6199595c77926d6adb30d73a912287b2adaed9a`.
-Expected publisher.mjs SHA-256: `44c4b89d1473d8c1846bd5963ea63287c8cfe3aa0baf6634d0fd23fd2fe66042`.
+Template source PIN: `fd93e8c0ccd9f898de94f707e9ba21b8904d2372`.
+Expected publisher.mjs SHA-256: `907a5e7085901a4ddbd38c129a6ab39527c282bcc3b277efbb234bbef8882bfe`.
 
 ### In-place shared text dry run
 
