@@ -1851,8 +1851,10 @@ describe('in-place atomic landing fences', () => {
     const git: Repository = f.git;
     git.treeModes = (head) => {
       const modes = Object.fromEntries(Object.keys(git.tree(head)).map((path) => [path, '100644']));
-      if (mode) modes[siblingKick] = mode;
-      else delete modes[siblingKick];
+      if (Object.hasOwn(modes, siblingKick)) {
+        if (mode) modes[siblingKick] = mode;
+        else delete modes[siblingKick];
+      }
       return modes;
     };
     const live = f.git.head(L);
