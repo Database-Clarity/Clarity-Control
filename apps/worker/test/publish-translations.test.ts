@@ -185,15 +185,42 @@ it.each([3, 5, 8, 99])(
   },
 );
 
-it('lets managers publish their assigned language, and operators publish any non-English lane', async () => {
+it('lets managers publish only their assigned languages', async () => {
   expect((await send(value, 7)).status).toBe(202);
   const fr = {
     ...replaceRow({ lang: 'fr', expected: await translationExpectedDigest(undefined) }),
     opId: B,
   };
   expect((await send(fr, 4)).status).toBe(403);
-  expect((await send(fr, 2)).status).toBe(202);
+  expect((await send({ ...fr, rows: [...value.rows, ...fr.rows] }, 7)).status).toBe(403);
+  expect(f.current()[requestPath(B)]).toBeUndefined();
 });
+
+it.each([1, 2])(
+  'keeps operator %s on ordinary publish without advertising scoped admission',
+  async (id) => {
+    const ordinaryMe = await (await f.request('/me', 'GET', undefined, id)).text();
+    const negotiatedMe = await (await f.request(me, 'GET', undefined, id)).text();
+    const scoped = await send(value, id);
+    expect.soft(negotiatedMe).toBe(ordinaryMe);
+    expect(scoped.status).toBe(403);
+    expect(await scoped.json()).toEqual({ error: 'Permission denied' });
+    expect(f.current()[requestPath(A)]).toBeUndefined();
+    const ordinary = await f.request(
+      `/publish?contract=${globalsInPlacePublishContract}`,
+      'POST',
+      { opId: A, hashes: [123], expected: { 123: await publishableHash(saved, f.aliases) } },
+      id,
+    );
+    expect(ordinary.status).toBe(202);
+    expect(
+      await (await f.request(`/publish/status?opId=${A}`, 'GET', undefined, id)).json(),
+    ).toEqual({
+      operations: [{ opId: A, status: 'pending' }],
+    });
+    expect((await kick(id)).status).toBe(202);
+  },
+);
 
 it('rejects English, reserved hashes, path tricks, mixed scope, and unknown or duplicate lanes', async () => {
   for (const raw of [
