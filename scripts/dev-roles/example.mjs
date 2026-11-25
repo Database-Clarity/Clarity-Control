@@ -69,7 +69,7 @@ try {
   page.setDefaultTimeout(30_000);
   const me = async (role, action) => {
     const expected = page.waitForResponse(
-      (r) => r.url() === directory + '/api/me' && r.request().headers().authorization && r.ok(),
+      (r) => r.url().split('?')[0] === directory + '/api/me' && r.request().headers().authorization && r.ok(),
     );
     await action();
     const user = await (await expected).json();

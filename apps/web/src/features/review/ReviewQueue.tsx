@@ -87,15 +87,22 @@ const QueueRow = memo(function QueueRow({
         aria-label={`${entry.name} ${spoken}${kind ? `, ${kind}` : ''}`}
         aria-current={current ? 'page' : undefined}
       >
-        <span data-global={entry.part?.pending ? '' : undefined}>
-          {entry.name}
-          {(distinguish || entry.part?.pending) && (
-            <small className={styles.identity}> · {identity}</small>
-          )}
-          {language && entry.lane && (
-            <small className={styles.identity}> · {languageLabel(entry.lane.lang)}</small>
-          )}
-        </span>
+        {language && entry.lane ? (
+          <span data-lane="">
+            <span>
+              {entry.name}
+              {distinguish && <small className={styles.identity}> · {identity}</small>}
+            </span>
+            <small className={styles.identity}>· {languageLabel(entry.lane.lang)}</small>
+          </span>
+        ) : (
+          <span data-global={entry.part?.pending ? '' : undefined}>
+            {entry.name}
+            {(distinguish || entry.part?.pending) && (
+              <small className={styles.identity}> · {identity}</small>
+            )}
+          </span>
+        )}
         {kind && (
           <small className={styles.kind} data-kind={kind}>
             {kind}

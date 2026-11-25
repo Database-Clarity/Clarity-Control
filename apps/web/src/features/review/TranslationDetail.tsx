@@ -186,7 +186,8 @@ export function LaneDetail({
               <PlainText text={plain.text} lang={plain.language} hash={hash} side="live" />
             )
           ) : (
-            published?.status !== 'loading' &&
+            // Judged by its saved text while a blocked row has no comparison.
+            (entry.unpublishable || published?.status !== 'loading') &&
             entry.tooltip.text[lang] && (
               <PlainText text={entry.tooltip.text[lang].text} lang={lang} hash={hash} side="live" />
             )

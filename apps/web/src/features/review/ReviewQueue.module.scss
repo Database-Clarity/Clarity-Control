@@ -263,7 +263,8 @@
   }
 
   // Listed, with its reason, but not publishable now.
-  &[data-blocked] a:first-of-type > span:first-child {
+  &[data-blocked] a:first-of-type > span:first-child,
+  &[data-blocked] small:not([data-kind]) {
     color: var(--text3);
   }
 
@@ -285,6 +286,23 @@
 
   small {
     line-height: 1lh;
+  }
+}
+
+// A translator of several languages: the name gives way, its language shows whole.
+.row a > span[data-lane] {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25em;
+
+  > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  > small {
+    flex: none;
   }
 }
 
