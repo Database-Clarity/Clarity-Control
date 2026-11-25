@@ -30,7 +30,7 @@ import {
   type RowKey,
 } from './globalRows';
 import { neededGlobals, rowIdentity } from './globalsPending';
-import { classifyRows, kindOf, useKinds, useRowKinds } from './kinds';
+import { classifyRows, classifyTooltip, kindOf, localKind, useKinds, useRowKinds } from './kinds';
 import {
   canPush,
   pendingTooltips,
@@ -44,7 +44,7 @@ import { PublishActivity } from './PublishActivity';
 import { planReviewedPublish, queuePublish, withNeededGlobals } from './publishAction';
 import { publishDriver } from './publisher';
 import { PushConfirm } from './PushConfirm';
-import { queueView, stepRow } from './queueModel';
+import { queueView, stepRow, type RowKinds } from './queueModel';
 import { useReviewQueue } from './queueStore';
 import { ReviewDetail, RestoreLive } from './ReviewDetail';
 import { filterParams, SelectionCounts, useInFlight } from './ReviewSidebar';
@@ -455,6 +455,53 @@ export function ReviewPage() {
       'The list changed while the publish was being confirmed. Review it and publish again.',
     );
   }, [confirming, data]);
+
+  const confirmedComparison = useMemo(() => {
+    if (!confirming?.entries.some(({ part }) => part?.pending)) return undefined;
+    return {
+      data: confirming.data,
+      entries: confirming.entries.filter((entry) => !entry.part && !localKind(entry)),
+      selected: new Set(confirming.entries.map(({ tooltip }) => tooltip.hash)),
+    };
+  }, [confirming]);
+  const [confirmedWords, setConfirmedWords] = useState<{
+    comparison: NonNullable<typeof confirmedComparison>;
+    kinds: RowKinds;
+  }>();
+  useEffect(() => {
+    if (!confirmedComparison?.entries.length) return;
+    let active = true;
+    const { data, entries, selected } = confirmedComparison;
+    void Promise.all(
+      entries.map(async (entry) => {
+        const version = publishedOf(entry, published);
+        const result =
+          version?.status === 'ready' && version.tooltip
+            ? await classifyTooltip(data, version.tooltip, entry.tooltip, selected).catch(
+                () => undefined,
+              )
+            : kindOf(entry, version, {});
+        return [rowKey(entry), result?.kind] as const;
+      }),
+    ).then((words) => {
+      if (active) setConfirmedWords({ comparison: confirmedComparison, kinds: new Map(words) });
+    });
+    return () => {
+      active = false;
+    };
+  }, [confirmedComparison, published]);
+  const confirmationKinds = useMemo(() => {
+    if (!confirmedComparison) return kinds;
+    const result = new Map(kinds);
+    const words =
+      confirmedWords?.comparison === confirmedComparison ? confirmedWords.kinds : undefined;
+    for (const entry of confirmedComparison.entries) {
+      const key = rowKey(entry);
+      result.set(key, words?.get(key));
+    }
+    return result;
+  }, [confirmedComparison, confirmedWords, kinds]);
+
   const [raw, setRaw] = useRawDiff();
   const actions = useRef({ decide, skip, undo, askToPublish, selectIndex, raw, setRaw, pause });
   actions.current = { decide, skip, undo, askToPublish, selectIndex, raw, setRaw, pause };
@@ -655,7 +702,7 @@ export function ReviewPage() {
       {confirming && (
         <PushConfirm
           entries={confirming.entries}
-          kinds={kinds}
+          kinds={confirmationKinds}
           needed={confirming.needed}
           background={publisher}
           onConfirm={() => void publish(confirming)}

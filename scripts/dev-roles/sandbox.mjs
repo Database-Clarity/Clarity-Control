@@ -28,9 +28,10 @@ async function downloadSources(directory) {
     downloadRepo(
       paths[0],
       `${owner}/${dataRepo}`,
-      [refspec(dataBranch)],
+      // Startup verifies the current LIVE tip descends from the recorded migration.
+      [refspec(liveBranch), refspec(dataBranch)],
       [
-        ...[liveBranch, bundleBranch, draftsBranch].map(refspec),
+        ...[bundleBranch, draftsBranch].map(refspec),
         `${legacyCommit}:refs/heads/local-legacy-history`,
       ],
     ),

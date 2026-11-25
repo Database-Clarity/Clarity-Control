@@ -15,8 +15,6 @@ import { loadBundle, type Bundle } from '../../services/bundle';
 import { useReviewSession } from './session';
 import { publishDriver } from './publisher';
 import { publishTiming } from './publishDriver';
-import { ReviewDetail } from './ReviewDetail';
-import { globalKey } from './globalsPending';
 import { useReviewQueue } from './queueStore';
 
 vi.mock('../../services/generator', () => ({ loadGenerator: vi.fn() }));
@@ -109,7 +107,7 @@ async function click(label: string) {
   await act(async () => button(label).click());
   await flush();
 }
-async function mount(route = '/review') {
+async function mount(route = '/review', hasComparison = true) {
   await act(async () =>
     root.render(
       createElement(
@@ -129,11 +127,13 @@ async function mount(route = '/review') {
   );
   await waitFor(() => {
     expect(useDataStore.getState().status).toBe('ready');
-    expect(
-      host.querySelector(
-        'section[aria-label="Selected change"] section[aria-label$=" comparison"]',
-      ),
-    ).not.toBeNull();
+    if (hasComparison) {
+      expect(
+        host.querySelector(
+          'section[aria-label="Selected change"] section[aria-label$=" comparison"]',
+        ),
+      ).not.toBeNull();
+    }
     const sidebar = host.querySelector('nav[aria-label="Pending saved changes"]');
     expect(sidebar).not.toBeNull();
     expect(sidebar!.querySelector('[aria-busy="true"]')).toBeNull();
@@ -227,7 +227,7 @@ afterEach(async () => {
 
 const posts = () => calls.filter((c) => c.path === '/publish');
 
-it('updates the open tooltip summary and comparison when a German global translation is included', async () => {
+it('shows the effective German change in the tooltip detail and publish confirmation', async () => {
   const id = 'g_refill-0001';
   const en = { ...tooltip.text.en!, text: 'English <title Details [G_refill] />' };
   const live = {
@@ -269,43 +269,39 @@ it('updates the open tooltip summary and comparison when a German global transla
       languages: { de: { before: null, after: 'Deutsche Notiz' } },
     },
   ];
-  const queue = useReviewQueue.getState();
-  useReviewQueue.setState({ selected: new Set([10]) });
-  useDataStore.setState({
-    data: { items: {}, categories: [], aliases: {}, bundle },
-    status: 'ready',
-  });
-  function Detail() {
-    const selected = useReviewQueue((state) => state.selected);
-    return createElement(ReviewDetail, {
-      entry: {
-        tooltip: edited,
-        name: 'Tooltip 10',
-        category: 'Other',
-        categoryId: 'other',
-        categoryOrder: 1,
-        markerOnly: false,
-        isNew: false,
-      },
-      published: { status: 'ready', tooltip: live },
-      classification: { kind: 'No visible change' },
-      selected,
-      raw: false,
-      onRetry: () => {},
-    });
-  }
-  await act(async () =>
-    root.render(createElement(MemoryRouter, null, createElement(Detail))),
+  const marker = await publishableHash(live);
+  bundle.pushed[10] = marker;
+  bundle.tooltips[10] = edited;
+  const fetchHistory = globalThis.fetch;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string, init?: RequestInit) =>
+      url.includes('/history/10?live=1')
+        ? Promise.resolve(Response.json({ tooltip: live, pushedHash: marker }))
+        : fetchHistory(url, init),
+    ),
   );
-  expect(host.textContent).toContain('No visible change');
-  await act(async () => queue.toggle(globalKey(id)));
+  await mount('/review?hash=10', false);
+  const detail = () => host.querySelector('section[aria-label="Selected change"]');
+  await waitFor(() => expect(detail()?.textContent).toContain('No visible change'));
+  await selectAll();
   await waitFor(() => {
-    expect(host.textContent).toContain('Text changed in German');
-    expect(host.querySelector('section[lang="de"]')?.textContent).toContain('Neu');
+    expect(detail()?.textContent).toContain('Text changed in German');
+    expect(detail()?.querySelector('section[lang="de"]')?.textContent).toContain('Neu');
   });
-  await act(async () => queue.clearSelection());
-  expect(host.textContent).toContain('No visible change');
-  expect(host.querySelector('section[lang="de"]')).toBeNull();
+  await openPublish();
+  await waitFor(() => {
+    const dialog = host.querySelector('dialog[open]');
+    const row = [...(dialog?.querySelectorAll('li') ?? [])].find((item) =>
+      item.textContent?.includes('Tooltip 10'),
+    );
+    expect(dialog?.textContent).toContain('1 tooltip with changed text goes live');
+    expect(row?.textContent).toContain('Text changed');
+  });
+  await click('Cancel');
+  await act(async () => useReviewQueue.getState().clearSelection());
+  expect(detail()?.textContent).toContain('No visible change');
+  expect(detail()?.querySelector('section[lang="de"]')).toBeNull();
 });
 
 it('loads a manually included migration leftover before confirming a removal selection', async () => {
