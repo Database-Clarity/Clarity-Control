@@ -11,12 +11,14 @@ import {
 import { FinderSheetCloseContext } from '../navigation/FinderSheetContext';
 import { flushSync } from 'react-dom';
 import { useHref, useLocation, useNavigate } from 'react-router-dom';
+import { languageLabel } from '../../languageLabels';
 import styles from './ReviewQueue.module.scss';
 import { editorLabel, editorPath, rowKey } from './globalRows';
 import { rowIdentity } from './globalsPending';
 import type { Kind } from './kinds';
 import {
   markerGroup,
+  translationGroup,
   type QueueGroup,
   type QueueItem,
   type QueueView,
@@ -40,9 +42,12 @@ const QueueRow = memo(function QueueRow({
   locked,
   kind,
   distinguish,
+  language,
 }: {
   entry: PendingTooltip;
   distinguish: boolean;
+  /** Name the row's language (a translator of several). */
+  language: boolean;
   href: string;
   editorHref: string;
   current: boolean;
@@ -57,8 +62,13 @@ const QueueRow = memo(function QueueRow({
   const identity = rowIdentity(entry);
   const path = editorPath(entry);
   const label = editorLabel(entry);
+  const spoken = entry.lane ? `${identity}, ${languageLabel(entry.lane.lang)}` : identity;
   return (
-    <div className={styles.row} data-current={current || undefined}>
+    <div
+      className={styles.row}
+      data-current={current || undefined}
+      data-blocked={(entry.lane && entry.unpublishable && '') ?? undefined}
+    >
       <label className={styles.check}>
         <input
           type="checkbox"
@@ -67,22 +77,32 @@ const QueueRow = memo(function QueueRow({
           disabled={!!locked}
           title={locked}
           data-review-toggle={hash}
-          aria-label={`Include ${entry.name}, ${entry.category}, ${identity}`}
+          aria-label={`Include ${entry.name}, ${entry.category}, ${spoken}`}
         />
       </label>
       <a
         href={`${href}?hash=${encodeURIComponent(key)}`}
         data-review-hash={key}
         title={`${entry.name} · ${identity}${entry.unpublishable ? ` · ${entry.unpublishable}` : ''}`}
-        aria-label={`${entry.name} ${identity}${kind ? `, ${kind}` : ''}`}
+        aria-label={`${entry.name} ${spoken}${kind ? `, ${kind}` : ''}`}
         aria-current={current ? 'page' : undefined}
       >
-        <span data-global={entry.part?.pending ? '' : undefined}>
-          {entry.name}
-          {(distinguish || entry.part?.pending) && (
-            <small className={styles.identity}> · {identity}</small>
-          )}
-        </span>
+        {language && entry.lane ? (
+          <span data-lane="">
+            <span>
+              {entry.name}
+              {distinguish && <small className={styles.identity}> · {identity}</small>}
+            </span>
+            <small className={styles.identity}>{languageLabel(entry.lane.lang)}</small>
+          </span>
+        ) : (
+          <span data-global={entry.part?.pending ? '' : undefined}>
+            {entry.name}
+            {(distinguish || entry.part?.pending) && (
+              <small className={styles.identity}> · {identity}</small>
+            )}
+          </span>
+        )}
         {kind && (
           <small className={styles.kind} data-kind={kind}>
             {kind}
@@ -119,7 +139,7 @@ const GroupHeader = memo(function GroupHeader({
   available: number;
   locked: boolean;
 }) {
-  const marker = group.id === markerGroup;
+  const marker = group.id === markerGroup || group.id === translationGroup;
   const checkbox = useRef<HTMLInputElement>(null);
   const all = available > 0 && selectedCount === available;
   useLayoutEffect(() => {
@@ -146,9 +166,11 @@ const GroupHeader = memo(function GroupHeader({
         data-review-group={group.id}
         aria-expanded={!group.collapsed}
         title={
-          marker
+          group.id === markerGroup
             ? 'Saved text already matches live; listed only because of the alias migration.'
-            : undefined
+            : marker
+              ? 'Only translations wait here; translators publish their own languages.'
+              : undefined
         }
       >
         <span className={styles.chevron} aria-hidden="true" />
@@ -172,6 +194,7 @@ export function ReviewQueue({
   selectedHash,
   locked = false,
   inFlight,
+  languages = false,
 }: {
   view: QueueView;
   kinds: RowKinds;
@@ -179,12 +202,14 @@ export function ReviewQueue({
   /** A publish is starting: selection is frozen. */
   locked?: boolean;
   inFlight?: ReadonlySet<number>;
+  /** Rows of several languages: each names its own. */
+  languages?: boolean;
 }) {
   const items = view.items;
   const repeatedNames = useMemo(() => {
     const counts = new Map<string, number>();
     for (const entry of view.ordered) {
-      const key = `${entry.categoryId}:${entry.name}`;
+      const key = nameKey(entry);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return new Set([...counts].filter(([, count]) => count > 1).map(([key]) => key));
@@ -601,7 +626,8 @@ export function ReviewQueue({
     return (
       <QueueRow
         entry={item.entry}
-        distinguish={repeatedNames.has(`${item.entry.categoryId}:${item.entry.name}`)}
+        distinguish={repeatedNames.has(nameKey(item.entry))}
+        language={languages}
         href={href}
         editorHref={editorHref}
         current={currentHash === String(rowKey(item.entry))}
@@ -615,6 +641,10 @@ export function ReviewQueue({
     );
   }
 }
+
+/** Rows of one category, name, and language are told apart by their identity. */
+const nameKey = ({ categoryId, name, lane }: PendingTooltip) =>
+  `${lane?.lang ?? ''}:${categoryId}:${name}`;
 
 function itemKey(item: QueueItem) {
   return item.kind === 'group' ? `g:${item.id}` : rowKey(item.entry);

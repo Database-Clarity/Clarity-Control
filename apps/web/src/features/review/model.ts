@@ -7,7 +7,8 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import { fingerprintDigests, prepareFingerprintWorker } from './fingerprints';
-import type { GlobalPart } from './globalRows';
+import { isFolded, type GlobalPart } from './globalRows';
+import type { Lane } from './lanes';
 import { globalEntries } from './globalsPending';
 import { heldSetBonus } from './setBonusHold';
 import { useReviewQueue } from './queueStore';
@@ -16,6 +17,7 @@ import { useAuthStore } from '../../stores/auth';
 import { allowBackgroundCode } from '../../workspacePreload';
 import { useSidebarQueueStore, type SidebarPendingChange } from '../navigation/sidebarQueue';
 import { acknowledgedGlobals, acknowledgedMarkers, useReviewSession } from './session';
+import { canPushLive } from '../auth/permissions';
 export { canPushLive as canPush } from '../auth/permissions';
 
 import { categoryDisplay } from '../../services/categoryLabels';
@@ -46,6 +48,12 @@ export interface PendingTooltip {
   inactiveAliases?: number[];
   /** The pending definition of a global row. */
   part?: GlobalPart;
+  /** Only translations wait here: folded for editors, published by the translators. */
+  translationOnly?: true;
+  /** Translations wait here, on a row the bundle does not vouch for: see `folds.ts`. */
+  mayFold?: true;
+  /** One language of a tooltip or shared text: a translator's row. */
+  lane?: Lane;
 }
 
 const snapshots = new WeakMap<
@@ -62,15 +70,16 @@ const snapshots = new WeakMap<
     globalsPending: EditorData['bundle']['globalsPending'];
     settled: ReadonlySet<string>;
     ahead: ReadonlySet<string>;
+    folds: boolean;
   }
 >();
 const queues = new WeakMap<PendingTooltip[], SidebarPendingChange[]>();
-/** The sidebar lists what a person changed; marker-only leftovers are one footer link. */
+/** The sidebar lists what a person changed; folded rows are its footer's lines. */
 export function sidebarChanges(entries: PendingTooltip[]): SidebarPendingChange[] {
   let queue = queues.get(entries);
   if (!queue) {
     queue = entries
-      .filter(({ markerOnly }) => !markerOnly)
+      .filter((entry) => !isFolded(entry))
       .map(({ tooltip, name, category }) => ({ hash: tooltip.hash, name, category }));
     queues.set(entries, queue);
   }
@@ -92,6 +101,9 @@ function sameMarkers(a: Record<string, string>, b: Record<string, string>): bool
 const noGlobals: ReadonlySet<string> = new Set();
 const sameGlobals = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
   a.size === b.size && [...a].every((id) => b.has(id));
+
+/** Editors and maintainers fold the rows that translators publish. */
+const folds = () => canPushLive(useAuthStore.getState().user);
 
 /** A global's save changes no loaded data, only what its listed row is compared with. */
 const globalsAhead = ({ bundle }: EditorData) =>
@@ -119,7 +131,8 @@ function sameInputs(snapshot: NonNullable<ReturnType<typeof snapshots.get>>, dat
     snapshot.categories === data.categories &&
     snapshot.inactiveMoves === data.bundle.inactiveMoves &&
     snapshot.globalsPending === data.bundle.globalsPending &&
-    sameGlobals(snapshot.ahead, globalsAhead(data))
+    sameGlobals(snapshot.ahead, globalsAhead(data)) &&
+    snapshot.folds === folds()
   );
 }
 
@@ -149,6 +162,7 @@ export function pendingTooltips(
     globalsPending: data.bundle.globalsPending,
     settled,
     ahead: globalsAhead(data),
+    folds: folds(),
   };
   snapshots.set(data, snapshot);
   void snapshot.pending.then(
@@ -190,6 +204,10 @@ async function computePending(
     ),
   );
   const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
+  const only = folds() ? data.bundle.translationPublish?.only : undefined;
+  const onlyTooltips = new Set(only?.tooltips);
+  const translated = only ? readyLanes(data) : undefined;
+  const built = (data.tooltipSnapshot ?? data.bundle).tooltips;
   const entries = tooltips.map((tooltip, index) => {
     const pushedMarker = pushed[tooltip.hash];
     const removing = isMovedInactive(tooltip.hash, moves);
@@ -203,6 +221,16 @@ async function computePending(
     const inactiveAliases = Object.keys(moves)
       .map(Number)
       .filter((hash) => hash !== tooltip.hash && resolveAlias(hash, data.aliases) === tooltip.hash);
+    // The bundle's word holds for exactly the saved and live text it was built from.
+    const listed = onlyTooltips.has(tooltip.hash);
+    const translationOnly =
+      (listed || translated?.has(tooltip.hash)) &&
+      built[tooltip.hash] === tooltip &&
+      pushedMarker !== undefined &&
+      pushedMarker === data.bundle.pushed[tooltip.hash] &&
+      !removing &&
+      !restoring &&
+      !inactiveAliases.length;
     return {
       tooltip,
       name: item?.name ?? tooltip.custom?.name ?? `Tooltip ${tooltip.hash}`,
@@ -224,6 +252,11 @@ async function computePending(
           ? { inactiveChange: 'restore' as const }
           : {}),
       ...(inactiveAliases.length ? { inactiveAliases } : {}),
+      ...(translationOnly
+        ? listed
+          ? { translationOnly: true as const }
+          : { mayFold: true as const }
+        : {}),
       ...(!removing && !item && !tooltip.custom
         ? { unpublishable: 'No generator entry for this tooltip, so it cannot be pushed.' }
         : {}),
@@ -231,9 +264,9 @@ async function computePending(
     };
   });
   const globals = globalEntries(data, {
-    order: (categories.get('none') ?? categoryDisplay('none')).order,
     settled,
     ahead: globalsAhead(data),
+    only: new Set(only?.globals),
   });
   return [...entries, ...globals]
     .filter((entry): entry is PendingTooltip => entry !== null)
@@ -246,15 +279,25 @@ async function computePending(
     );
 }
 
+/** Tooltips with translations ready to publish alone, and none that waits for its English. */
+function readyLanes({ bundle }: EditorData): ReadonlySet<number> {
+  const ready = new Set<number>();
+  const blocked = new Set<number>();
+  for (const row of Object.values(bundle.translationPublish?.lanes ?? {}).flat())
+    if (row?.kind === 'tooltip') (row.status === 'ready' ? ready : blocked).add(row.hash);
+  for (const hash of blocked) ready.delete(hash);
+  return ready;
+}
+
 export function toggleSelection(selected: ReadonlySet<number>, hash: number): Set<number> {
   const next = new Set(selected);
   if (!next.delete(hash)) next.add(hash);
   return next;
 }
 
-/** The server would take this row; a removed or empty global has no text either. */
-const canPublish = ({ tooltip, unpublishable, inactiveChange, part }: PendingTooltip) =>
-  (part?.pending || !isTextlessDescription(tooltip) || inactiveChange === 'remove') &&
+/** The server would take this row; a removed global or translation has no text either. */
+const canPublish = ({ tooltip, unpublishable, inactiveChange, part, lane }: PendingTooltip) =>
+  (part?.pending || lane || !isTextlessDescription(tooltip) || inactiveChange === 'remove') &&
   !unpublishable;
 
 export function selectedPending(
@@ -280,10 +323,10 @@ export function publishSelection(
   return pending.filter(({ tooltip }) => chosen.has(tooltip.hash));
 }
 
-/** What "Include all N" and group ticks pick: never the leftovers, which a data task clears. */
+/** What "Include all N" and group ticks pick: never the folded rows. */
 export function publishableHashes(page: PendingTooltip[]): number[] {
   const hashes = page
-    .filter((entry) => canPublish(entry) && !entry.markerOnly)
+    .filter((entry) => canPublish(entry) && !isFolded(entry))
     .map(({ tooltip }) => tooltip.hash);
   return [...new Set(hashes)];
 }
@@ -297,9 +340,11 @@ export async function prepareReviewQueue(data: EditorData) {
   const markers = acknowledgedMarkers(data);
   const settled = acknowledgedGlobals(data);
   const { acknowledgments, globals } = useReviewSession.getState();
+  const { user } = useAuthStore.getState();
   const entries = await pendingTooltips(data, markers, settled);
   const current = useReviewSession.getState();
   if (
+    useAuthStore.getState().user === user &&
     useDataStore.getState().data === data &&
     current.acknowledgments === acknowledgments &&
     current.globals === globals

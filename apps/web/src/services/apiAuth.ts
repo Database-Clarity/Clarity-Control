@@ -15,6 +15,8 @@ export {
  * zod/mini. services/api.ts re-exports it for the editor.
  */
 export const apiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '') || undefined;
+/** Core's translationPublishContract, without its zod schemas (asserted equal in the tests). */
+export const translationContract = 'translation-publish-v1';
 const userSchema = z.object({
   id: z.union([z.number(), z.string()]),
   login: z.string(),
@@ -32,6 +34,16 @@ const userSchema = z.object({
   schedulePreparation: z.optional(z.boolean()),
   /** The Worker accepts maintainers' Compendium decisions for everyone. */
   compendiumDecisions: z.optional(z.boolean()),
+  /** The Worker accepts scoped translation publishes of this contract, in parts of this many rows. */
+  translationPublish: z.catch(
+    z.optional(
+      z.object({
+        version: z.literal(translationContract),
+        partRows: z.int().check(z.positive()),
+      }),
+    ),
+    undefined,
+  ),
 });
 export type User = z.infer<typeof userSchema>;
 export type Me = User;
@@ -76,7 +88,7 @@ export function loginUrl(client?: string): string {
 
 export async function getMe(): Promise<User | null> {
   const headers = authorization();
-  const response = await fetch(endpoint('/me'), {
+  const response = await fetch(endpoint(`/me?contract=${translationContract}`), {
     credentials: 'omit',
     headers,
   });

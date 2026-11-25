@@ -1,4 +1,5 @@
 import type { User } from '../../services/api';
+import { canPublishTranslations } from '../auth/permissions';
 
 export interface NavLink {
   to: string;
@@ -25,7 +26,8 @@ const link = (to: string) => links.find((candidate) => candidate.to === to)!;
 const pick = (...paths: string[]) => paths.map(link);
 
 /** The account fields the menu reads; `projects` names an export partner's projects. */
-export type MenuUser = Pick<User, 'role'> & Partial<Pick<User, 'projects'>>;
+export type MenuUser = Pick<User, 'role'> &
+  Partial<Pick<User, 'projects' | 'languages' | 'translationPublish'>>;
 
 export interface WorkspaceMenu {
   /** Header tabs. */
@@ -56,7 +58,12 @@ export function workspaceMenu(user: MenuUser | null | undefined): WorkspaceMenu 
     case 'trial':
       return { primary: pick('/', '/compendium', '/translations', '/drift'), more: [] };
     case 'translator':
-      return { primary: pick('/', '/translations'), more: [] };
+      return {
+        primary: canPublishTranslations(user)
+          ? pick('/', '/review', '/translations')
+          : pick('/', '/translations'),
+        more: [],
+      };
     default:
       // Export partners (no editing role, spec section 8): their project and the published tooltips.
       if (user?.projects?.length) return { primary: pick('/exports', '/tooltips'), more: [] };

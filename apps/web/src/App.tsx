@@ -10,6 +10,7 @@ import { SettingsRedirect } from './features/settings/SettingsRedirect';
 import { PlaceholderPage } from './ui/PlaceholderPage';
 import { useAuthStore } from './stores/auth';
 import { useEffect } from 'react';
+import { canPublishTranslations } from './features/auth/permissions';
 import { visibleLinks } from './features/navigation/links';
 import { preloadWorkspaces, workspacePage } from './workspacePreload';
 import { reviewRoute } from './features/review/route';
@@ -83,16 +84,17 @@ const workspaceLoaders: Record<string, () => Promise<unknown>> = {
 
 function WorkspaceRouteLayer() {
   const role = useAuthStore((state) => state.user?.role);
+  const translator = useAuthStore((state) => canPublishTranslations(state.user));
   const loading = useAuthStore((state) => state.loading);
   const ready = useDataStore((state) => state.status === 'ready');
   useEffect(() => {
     if (!ready || loading) return;
     return preloadWorkspaces(
-      visibleLinks(role ? { role } : null)
+      visibleLinks(role ? { ...useAuthStore.getState().user, role } : null)
         .map(({ to }) => workspaceLoaders[to])
         .filter((load) => load !== undefined),
     );
-  }, [role, ready, loading]);
+  }, [role, translator, ready, loading]);
   return <Layout />;
 }
 // Per-entry globals (stable IDs) replace the aggregate list and the /t/1–/t/3 editors only when

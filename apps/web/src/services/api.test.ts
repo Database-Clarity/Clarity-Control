@@ -38,10 +38,13 @@ describe('worker client', () => {
     const token = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 60 })) + '.signature';
     api.setSession(token);
     expect((await api.getMe())?.login).toBe('StardustD2');
-    expect(fetch).toHaveBeenCalledWith('https://worker.example/me', {
-      credentials: 'omit',
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://worker.example/me?contract=translation-publish-v1',
+      {
+        credentials: 'omit',
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
     api.clearSession();
     expect(sessionStorage.getItem('clarity-editor-session')).toBeNull();
   });

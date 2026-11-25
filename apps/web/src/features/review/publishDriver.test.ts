@@ -24,6 +24,8 @@ interface Harness {
   store: ReturnType<typeof createMemoryOpStore>;
   api: {
     post: ReturnType<typeof vi.fn<PublishApi['post']>>;
+    postTranslations: ReturnType<typeof vi.fn<PublishApi['postTranslations']>>;
+    translationStatus: ReturnType<typeof vi.fn<PublishApi['translationStatus']>>;
     status: ReturnType<typeof vi.fn<PublishApi['status']>>;
     kick: ReturnType<typeof vi.fn<PublishApi['kick']>>;
   };
@@ -37,6 +39,8 @@ function harness(store = createMemoryOpStore()): Harness {
   const log: string[] = [];
   const api: Harness['api'] = {
     post: vi.fn(async () => ({ status: 'pending' as const })),
+    postTranslations: vi.fn<PublishApi['postTranslations']>(async () => ({ status: 'pending' })),
+    translationStatus: vi.fn<PublishApi['translationStatus']>(async () => ({ status: 'pending' })),
     status: vi.fn(async () => 'pending' as RemoteStatus | 'unknown'),
     kick: vi.fn(async () => undefined),
   };

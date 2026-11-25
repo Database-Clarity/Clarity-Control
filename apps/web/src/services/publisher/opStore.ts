@@ -1,3 +1,4 @@
+import type { TranslationPublishRow } from '@clarity/core';
 import type { RemoteStatus } from './api';
 
 export type OpStatus = 'created' | 'pending' | RemoteStatus;
@@ -31,6 +32,14 @@ export interface PublishOp {
   switched?: true;
   /** Globals a finished request left out; the rest of it went live. */
   refusedGlobals?: { id: string; name: string; error: string }[];
+  /** A translator's request: exactly these rows of their languages, and the names for display. */
+  translations?: { row: TranslationPublishRow; name: string }[];
+  /** The rows that refused a translator's request, with the reason; none of it went live. */
+  refusedRows?: { key: string; name: string; error: string }[];
+  /** Sends the rows of a refused request that were not themselves refused. */
+  resends?: string;
+  /** Its other rows are not sent again (a lost language): they are free to review. */
+  released?: true;
   /** The pushed marker each hash had when confirmed (null = none), for the acknowledgment overlay. */
   previous: Record<string, string | null>;
   status: OpStatus;
@@ -226,12 +235,15 @@ export function guardTerminal(current: PublishOp, next: PublishOp): PublishOp {
     globals: current.globals,
     switched: current.switched,
     previous: current.previous,
+    translations: current.translations,
+    resends: current.resends,
   };
   if (isTerminal(current.status) && next.status !== current.status) {
     merged.status = current.status;
     merged.error = current.error;
     merged.refusal = current.refusal;
     merged.refusedGlobals = current.refusedGlobals;
+    merged.refusedRows = current.refusedRows;
     merged.regroupable = current.regroupable;
     merged.receiptChecked = current.receiptChecked;
   }

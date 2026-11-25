@@ -11,6 +11,7 @@ import {
   languages,
 } from '@clarity/core';
 import { z } from 'zod';
+import { translationPublishSchema } from './translationPublish';
 
 export const bundleSchema = z.object({
   sourceCommit: z.string().min(1),
@@ -62,6 +63,11 @@ export const bundleSchema = z.object({
   globalsReviewDefinitions: z
     .record(globalIdSchema, z.partialRecord(z.enum(languages), z.string()))
     .optional(),
+  /**
+   * What translators can publish by themselves, per language. Absent, malformed, or of another
+   * contract: their Review has nothing to publish and the ordinary list is unchanged.
+   */
+  translationPublish: translationPublishSchema.optional().catch(undefined),
   /** Publish requests waiting in the Worker's queue (written by the publisher pipeline; absent until it runs). */
   publishQueue: z
     .array(

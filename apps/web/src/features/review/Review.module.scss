@@ -55,6 +55,10 @@
 
 .confirmSummary {
   margin: 0 0 0.5rem;
+
+  .confirmList + & {
+    margin-top: 0.75rem;
+  }
 }
 
 // A read-only listing with dividers between changes.
@@ -67,7 +71,7 @@
   border-block: 1px solid var(--hair);
   font-size: 0.9rem;
 
-  li {
+  > li {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 7.5rem);
     gap: 0.125rem 0.75rem;
@@ -76,7 +80,7 @@
     overflow-wrap: anywhere;
   }
 
-  li + li {
+  > li + li {
     border-top: 1px solid var(--hair);
   }
 
@@ -84,11 +88,34 @@
     color: var(--text2);
   }
 
+  // "After <name>" needs as much room as the name.
+  &[data-held] > li {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   @include theme.mobile {
-    li {
+    > li,
+    &[data-held] > li {
       grid-template-columns: minmax(0, 1fr) auto;
     }
   }
+}
+
+// A removal's second step reads on its own line, above the buttons it belongs to.
+.confirmRemoval {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
+.danger {
+  color: var(--danger) !important;
+  border-color: var(--danger) !important;
+}
+
+.confirmUpdates {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8rem;
 }
 
 .confirmName {
@@ -510,7 +537,7 @@
     margin-bottom: 0.25rem;
   }
 
-  // A pending global has no saver line above its text.
+  // A pending global, or a removed translation, has no saver line above its text.
   &[data-global] {
     margin-top: 0.75rem;
   }

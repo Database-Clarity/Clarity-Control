@@ -1,10 +1,12 @@
 import { previousCategoryLabel } from '../../services/categoryLabels';
-import { rowKey, type RowKey } from './globalRows';
+import { isFolded, rowKey, type RowKey } from './globalRows';
 import type { Kind } from './kinds';
 import type { PendingTooltip } from './model';
 
 /** The one group that holds every migration leftover (marker-only); never a category id. */
 export const markerGroup = '~marker-only';
+/** The one group of the rows where only translations wait, for editors and maintainers. */
+export const translationGroup = '~translation-only';
 
 /** Each row's word, by its key (undefined while not known). */
 export type RowKinds = ReadonlyMap<RowKey, Kind | undefined>;
@@ -33,8 +35,9 @@ export interface QueueView {
   ordered: PendingTooltip[];
   /** Keys of `ordered` rows that are shown, i.e. not inside a collapsed group. */
   shown: Set<RowKey>;
-  /** Number of content rows after filters. */
+  /** Number of content rows after filters; shown translation-only rows follow, then leftovers. */
   contentCount: number;
+  translationCount: number;
   markerCount: number;
 }
 
@@ -47,8 +50,9 @@ export function matchesFilter(
 ): boolean {
   if (kind && kinds?.get(rowKey(entry)) !== kind) return false;
   if (!query) return true;
-  const { name, category, categoryId, tooltip } = entry;
-  return `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${tooltip.hash}`
+  const { name, category, categoryId, tooltip, lane } = entry;
+  const id = lane ? lane.identity : tooltip.hash;
+  return `${name} ${category} ${categoryId} ${previousCategoryLabel(categoryId)} ${id}`
     .toLowerCase()
     .includes(query.toLowerCase());
 }
@@ -60,8 +64,8 @@ const views = new WeakMap<PendingTooltip[], Map<string, QueueView>>();
 const kindViews = new WeakMap<RowKinds, WeakMap<PendingTooltip[], Map<string, QueueView>>>();
 
 /**
- * Content rows grouped by category (entries arrive sorted by category order), then ONE leftovers
- * group once shown. A kind filter shows only rows of that word, never leftovers. Cached per
+ * Content rows grouped by category (entries arrive sorted by category order), then ONE group per
+ * kind of folded row once shown. A kind filter shows only rows of that word, never folded ones. Cached per
  * (entries, filters, collapse state, and the words when filtering by kind): the sidebar and the
  * page ask for the same view in one commit.
  */
@@ -72,8 +76,9 @@ export function queueView(
   collapsed: ReadonlySet<string>,
   leftovers: Leftovers,
   kinds?: RowKinds,
+  translations: Leftovers = 'hidden',
 ): QueueView {
-  const key = JSON.stringify([query, kind, [...collapsed], leftovers]);
+  const key = JSON.stringify([query, kind, [...collapsed], leftovers, translations]);
   let cache = views;
   if (kind && kinds) {
     let byKinds = kindViews.get(kinds);
@@ -84,10 +89,12 @@ export function queueView(
   const cached = byKey?.get(key);
   if (cached) return cached;
   const content: PendingTooltip[] = [];
+  const translated: PendingTooltip[] = [];
   const markers: PendingTooltip[] = [];
   for (const entry of entries) {
-    if (entry.markerOnly) {
-      if (!kind && leftovers !== 'hidden' && matchesFilter(entry, query, '')) markers.push(entry);
+    if (isFolded(entry)) {
+      const [state, rows] = entry.markerOnly ? [leftovers, markers] : [translations, translated];
+      if (!kind && state !== 'hidden' && matchesFilter(entry, query, '')) rows.push(entry);
     } else if (matchesFilter(entry, query, kind, kinds)) content.push(entry);
   }
   const items: QueueItem[] = [];
@@ -118,28 +125,33 @@ export function queueView(
       }
     start = end;
   }
-  if (markers.length) {
-    // Shown leftovers start collapsed; their rows can be opened and ticked one by one.
-    const isCollapsed = leftovers !== 'open';
+  for (const [id, label, rows, state] of [
+    [translationGroup, 'Translations', translated, translations],
+    [markerGroup, 'Migration leftovers', markers, leftovers],
+  ] as const) {
+    if (!rows.length) continue;
+    // Shown folded rows start collapsed; they can be opened and ticked one by one.
+    const isCollapsed = state !== 'open';
     items.push({
       kind: 'group',
-      id: markerGroup,
-      label: 'Migration leftovers',
-      count: markers.length,
+      id,
+      label,
+      count: rows.length,
       publishable: [],
       collapsed: isCollapsed,
     });
     if (!isCollapsed)
-      for (const entry of markers) {
-        items.push({ kind: 'row', entry, group: markerGroup });
+      for (const entry of rows) {
+        items.push({ kind: 'row', entry, group: id });
         shown.add(rowKey(entry));
       }
   }
   const view = {
     items,
-    ordered: [...content, ...markers],
+    ordered: [...content, ...translated, ...markers],
     shown,
     contentCount: content.length,
+    translationCount: translated.length,
     markerCount: markers.length,
   };
   if (!byKey) cache.set(entries, (byKey = new Map()));

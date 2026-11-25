@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { resolveCompendiumLink, type CompendiumData } from '@clarity/core';
-import { apiUrl } from '../api';
+import { apiUrl, type User } from '../api';
 import { loadCompendium } from '../compendium';
 import { errorMessage } from '../http';
 import { sameUser, useAuthStore } from '../../stores/auth';
@@ -14,6 +14,7 @@ import {
 } from '../../stores/conflicts';
 import { useDraftStore } from '../../stores/drafts';
 import { usePreviewReviewStore } from '../../stores/previewReview';
+import { publishLanguages } from '../../features/auth/permissions';
 import { CompendiumDiff } from '../../features/compendium/CompendiumDiff';
 import { SourceRef } from '../../features/compendium/SourceRef';
 import { linkLocation, matchLocation } from '../../features/compendium/sourceLocation';
@@ -182,7 +183,24 @@ function SaveProgressBar() {
 
 const accountChanged = (generation: number) => useDraftStore.getState().generation !== generation;
 
-function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message: string): void }) {
+/** The Review row of the first translation a save changed that this account can publish. */
+function savedTranslation(changes: SaveReview['changes'], user: User | null) {
+  for (const { hash, base, next, translationRevisions } of changes)
+    for (const lang of publishLanguages(user))
+      if (
+        translationRevisions?.[lang] !== undefined ||
+        base?.text[lang]?.text !== next.text[lang]?.text
+      )
+        return { key: `${hash}:${lang}`, lang };
+}
+
+function SaveSession({
+  review,
+  onSaved,
+}: {
+  review: SaveReview;
+  onSaved(message: string, review?: ReturnType<typeof savedTranslation>): void;
+}) {
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const close = useSaveState((state) => state.close);
@@ -406,6 +424,7 @@ function SaveSession({ review, onSaved }: { review: SaveReview; onSaved(message:
               ? ` Skipped ${skipped} translation confirmation(s). Check whether the tooltip was archived or needs a number updated.`
               : ''
           }`,
+          savedTranslation(changes, user),
         );
         close();
       }

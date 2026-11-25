@@ -1,6 +1,17 @@
 import { z } from 'zod';
-import { globalsInPlacePublishContract } from '@clarity/core';
+import type { PublishOp } from './opStore';
+import {
+  globalIdSchema,
+  globalsInPlacePublishContract,
+  hashSchema,
+  translationLanguageSchema,
+  translationPublishContract,
+  translationPublishReasons,
+  type TranslationPublishBody,
+  type TranslationPublishReason,
+} from '@clarity/core';
 import { apiRequest } from '../api';
+import { translationKey } from '../translationPublish';
 
 /** What the Worker reports for one operation (GET /publish/status, fixed shape). */
 export type RemoteStatus = 'pending' | 'done' | 'unchanged' | 'stale' | 'rejected' | 'failed';
@@ -10,6 +21,12 @@ export interface PublishAnswer {
   regroupable?: false;
   /** A finished request with globals, when its receipt says which went live and why others did not. */
   globals?: { live: string[]; refused: { id: string; error: string }[] };
+  /** A translator's refused request: the rows that refused it, with the shared reason text. */
+  rows?: RefusedRow[];
+}
+export interface RefusedRow {
+  key: string;
+  error: string;
 }
 export const terminalStatuses = ['done', 'unchanged', 'stale', 'rejected', 'failed'] as const;
 
@@ -27,6 +44,19 @@ export const publishBody = ({ opId, hashes, expected, globals }: PublishBody): P
   ...(globals ? { globals: globals.map(({ id, expected }) => ({ id, expected })) } : {}),
 });
 
+/** A translator's request: the rows of their languages, with exactly the signed facts. */
+export const translationBody = ({
+  opId,
+  translations,
+}: {
+  opId: string;
+  translations: NonNullable<PublishOp['translations']>;
+}): TranslationPublishBody => ({
+  opId,
+  scope: 'translations',
+  rows: translations.map(({ row }) => row),
+});
+
 /** A non-2xx answer. `status` 0 = the request never got an answer (offline, timeout, CORS). */
 export class PublishHttpError extends Error {
   constructor(
@@ -35,6 +65,8 @@ export class PublishHttpError extends Error {
     /** The message is the Worker's own JSON `error`, not an edge page or a client-side reason. */
     readonly fromWorker = false,
     readonly code?: string,
+    /** The rows of a translator's request that the Worker refused before accepting it. */
+    readonly rows?: RefusedRow[],
   ) {
     super(message);
   }
@@ -48,6 +80,28 @@ const statusSchema = z.object({
 });
 
 const requestTimeoutMs = 30_000;
+
+const reasons = Object.keys(translationPublishReasons) as [
+  TranslationPublishReason,
+  ...TranslationPublishReason[],
+];
+const refusedRow = z
+  .union([
+    z.object({ kind: z.literal('tooltip'), hash: hashSchema, lang: translationLanguageSchema }),
+    z.object({ kind: z.literal('global'), id: globalIdSchema, lang: translationLanguageSchema }),
+  ])
+  .and(z.object({ reason: z.enum(reasons) }));
+/** The refused rows an answer names; undefined when it names none. */
+function refusedRows(value: unknown): RefusedRow[] | undefined {
+  const { data } = z.object({ rows: z.array(z.unknown()) }).safeParse(value);
+  const rows = data?.rows.flatMap((row) => {
+    const parsed = refusedRow.safeParse(row).data;
+    return parsed
+      ? [{ key: translationKey(parsed), error: translationPublishReasons[parsed.reason] }]
+      : [];
+  });
+  return rows?.length ? rows : undefined;
+}
 
 async function send(path: string, init?: RequestInit): Promise<{ status: number; value: unknown }> {
   let response: Response;
@@ -72,6 +126,7 @@ async function send(path: string, init?: RequestInit): Promise<{ status: number;
       error.success ? error.data.error : text.slice(0, 200),
       error.success,
       details.data?.code,
+      refusedRows(error.data?.details),
     );
   }
   return { status: response.status, value };
@@ -146,6 +201,25 @@ export async function postPublish(body: PublishBody, switched = false): Promise<
       };
 }
 
+/** `postPublish` for a translator's request. */
+export async function postTranslations(body: TranslationPublishBody): Promise<PublishAnswer> {
+  const { status, value } = await send(`/publish?contract=${translationPublishContract}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const answer = (status === 202 ? acceptedSchema : completeSchema).safeParse(value);
+  if (!answer.success || answer.data.opId !== body.opId)
+    throw new PublishHttpError(502, 'Unexpected publish response');
+  if (!('result' in answer.data)) return { status: 'pending' };
+  const { result } = answer.data;
+  const resolved = z.object({ status: terminal }).safeParse(result).data?.status ?? 'failed';
+  return {
+    status: resolved,
+    ...(resolved === 'done' || resolved === 'unchanged' ? {} : { rows: refusedRows(result) }),
+  };
+}
+
 /** `unknown` = the Worker has neither a request nor a log for this opId (a lost 202, or a typo). */
 export async function getPublishStatus(opId: string): Promise<RemoteStatus | 'unknown'> {
   const { value } = await send(`/publish/status?opId=${encodeURIComponent(opId)}`);
@@ -155,6 +229,29 @@ export async function getPublishStatus(opId: string): Promise<RemoteStatus | 'un
   if (entry.status === 'pending' || entry.status === 'unknown') return entry.status;
   const known = terminal.safeParse(entry.status);
   return known.success ? known.data : 'failed';
+}
+
+/** `getPublishStatus` for a translator's own operation, with the reason of each refused row. */
+export async function getTranslationStatus(
+  opId: string,
+): Promise<PublishAnswer | { status: 'unknown' }> {
+  const { value } = await send(
+    `/publish/status?opId=${encodeURIComponent(opId)}&contract=${translationPublishContract}`,
+  );
+  const operations = z.object({ operations: z.array(z.unknown()) }).safeParse(value).data;
+  const entry = operations?.operations
+    .map((operation) => statusSchema.shape.operations.element.safeParse(operation).data)
+    .findIndex((operation) => operation?.opId === opId);
+  if (entry === undefined || entry < 0)
+    throw new PublishHttpError(502, 'Unexpected status response');
+  const operation = operations!.operations[entry];
+  const { status } = statusSchema.shape.operations.element.parse(operation);
+  if (status === 'pending' || status === 'unknown') return { status };
+  const known = terminal.safeParse(status).data ?? 'failed';
+  return {
+    status: known,
+    ...(known === 'done' || known === 'unchanged' ? {} : { rows: refusedRows(operation) }),
+  };
 }
 
 export async function kickPublish(opId: string): Promise<void> {

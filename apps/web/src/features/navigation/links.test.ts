@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { links, visibleLinks, workspaceMenu, workspacePath } from './links';
 
 const split = (role: Parameters<typeof workspaceMenu>[0]) => {
@@ -44,6 +44,26 @@ describe('workspaceMenu', () => {
     [null, { primary: ['/'], more: [] }],
   ] as const)('role %s sees %j', (role, expected) => {
     expect(split({ role })).toEqual(expected);
+  });
+
+  it('gives translators Review only while they can publish their own languages', () => {
+    const user = {
+      role: 'translator' as const,
+      languages: ['de' as const],
+      translationPublish: { version: 'translation-publish-v1' as const, partRows: 12 },
+    };
+    const without = { primary: ['/', '/translations'], more: [] };
+    expect(split(user)).toEqual(without); // This build has no publisher.
+    vi.stubEnv('VITE_PUBLISHER_ENABLED', '1');
+    try {
+      expect(split(user)).toEqual({ primary: ['/', '/review', '/translations'], more: [] });
+      expect(split({ ...user, translationPublish: undefined })).toEqual(without);
+      // The server's capability decides, not the assignments.
+      expect(split({ ...user, languages: [] }).primary).toContain('/review');
+      expect(split({ ...user, role: 'trial' }).primary).not.toContain('/review');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('gives export partners their project and the published tooltips only', () => {

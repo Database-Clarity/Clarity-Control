@@ -40,7 +40,7 @@ export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
     <section className={styles.activity} aria-label="Publish activity">
       {storageError && <p role="alert">{storageError}</p>}
       <ul>
-        {groupPublishes(ops).map(({ op, members, liveCount, checking }) => {
+        {groupPublishes(ops, now).map(({ op, members, liveCount, checking }) => {
           const pending = members.find((member) => member.status === 'pending');
           const active = pending ?? members.find((member) => member.status === 'created');
           const note = active

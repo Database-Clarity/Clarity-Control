@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import type { EditorData } from '../../stores/data';
 import { diffGlobals } from '../history/RenderedWordDiff';
 import { publishedCell, publishedGlobals } from './globalsPending';
+import { isLane, laneComparison, type LaneEntry } from './lanes';
 import { classifyRendered } from '../history/useRenderedDiff';
 import { publishedOf, rowKey, type RowKey } from './globalRows';
 import type { PendingTooltip } from './model';
@@ -21,6 +22,7 @@ type PublishedState = ReturnType<typeof usePublished.getState>;
 export const kindWords = [
   'Text changed',
   'No visible change',
+  'Still correct',
   'Definition changed',
   'New',
   'Links changed',
@@ -51,6 +53,7 @@ export function localKind(entry: PendingTooltip): Classification | undefined {
   if (entry.inactiveChange === 'remove') return { kind: 'Removed' };
   if (entry.inactiveChange === 'restore') return { kind: 'Restored' };
   if (entry.unpublishable) return { kind: 'On hold' };
+  if (entry.lane) return entry.lane.saved ? undefined : { kind: 'Removed' };
   if (entry.markerOnly) return { kind: 'Leftover' };
   if (entry.part?.change === 'removed') return { kind: 'Removed' };
   if (entry.part?.change === 'renamed') return { kind: 'Renamed' };
@@ -181,6 +184,30 @@ export async function classifyTooltip(
   return publishedKind(before, saved, outputs, comparedLanguages);
 }
 
+/** A translator's row: its one language, as it publishes. */
+export async function classifyLane(
+  data: EditorData,
+  entry: LaneEntry,
+  published: Tooltip,
+): Promise<Classification | undefined> {
+  const { lang, hash, id } = entry.lane;
+  const { before, after, source } = laneComparison(data, entry, published);
+  if (source.before === undefined) return { kind: 'New' };
+  if (source.before === source.after) return { kind: 'Still correct' };
+  const output = await classifyRendered(
+    before.text,
+    after.text,
+    reviewGlobals(data, after.language, hash ?? -1, 'live'),
+    id === undefined ? reviewGlobals(data, before.language, hash!, 'live') : undefined,
+  );
+  const side = (text: string): Tooltip => ({
+    hash: entry.tooltip.hash,
+    text: { [lang]: { text, updatedAt: '', updatedBy: '' } },
+    associated: [],
+  });
+  return publishedKind(side(source.before), side(source.after ?? ''), [output], [lang]);
+}
+
 // ---- background classification ----
 interface Classified {
   saved: Tooltip;
@@ -270,14 +297,17 @@ export function classifyRows(
       continue;
     const request = { saved, before, tooltips, aliases };
     running.set(key, request);
-    void classifyTooltip(data, before, saved).then((value) => {
+    const check = isLane(entry)
+      ? classifyLane(data, entry, before)
+      : classifyTooltip(data, before, saved);
+    void check.then((value) => {
       // A newer check for this row (new saved text, published text, or imports) owns the result.
       if (running.get(key) !== request) return;
       running.delete(key);
       // Both sides rendered with the saved imports: for a globals entry that uses others, equal
       // output is not proven.
       const unproven =
-        entry.part &&
+        (entry.part || entry.lane?.id !== undefined) &&
         value?.kind === 'No visible change' &&
         (usesOthers(before) || usesOthers(saved));
       useKinds.setState((state) => ({
@@ -345,6 +375,7 @@ export function kindCounts(kinds: readonly (Kind | undefined)[]): string {
       const phrase: Record<Kind | 'unknown', string> = {
         'Text changed': `with changed text`,
         'No visible change': `with no visible change`,
+        'Still correct': `marked as still correct`,
         'Definition changed': `with a changed definition`,
         New: `new`,
         'Links changed': `with changed links`,

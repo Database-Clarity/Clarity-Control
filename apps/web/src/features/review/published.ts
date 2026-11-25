@@ -3,11 +3,13 @@ import { create } from 'zustand';
 import { getPushedVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
+import { laneFacts, matchesLane, type Lane } from './lanes';
+import type { PendingTooltip } from './model';
 
 /**
  * The published text of every waiting change, loaded once in the background (spec "Review changes
  * redesign" §11). A pushed marker never changes what it points at, so a result is kept per hash and
- * marker: in memory, and on this device in IndexedDB (one record per hash, the newest marker), so a
+ * marker (and its exact snapshot where known): in memory, and on this device in IndexedDB (one record per hash, the newest marker), so a
  * later visit needs no request at all. Never-published rows have no marker and send no request.
  */
 export type Published =
@@ -17,9 +19,20 @@ export type Published =
   /** The request failed; Retry asks again. */
   | { status: 'error'; error: string }
   /** A legacy marker whose text could not be recovered from history (the Worker's 409). */
-  | { status: 'missing' };
+  | { status: 'missing' }
+  /** The server's version is not the one a translator's row was prepared from. */
+  | { status: 'changed' };
 
-type Entry = Published & { marker: string };
+type Entry = Published & { marker: string; facts?: readonly string[] };
+
+interface Wanted {
+  hash: number;
+  marker: string;
+  /** A translator's rows: is this exactly the version they were prepared from? */
+  matches?: (tooltip: Tooltip) => Promise<boolean>;
+  /** The signed facts `matches` checks, one per row; a request with another one checks again. */
+  facts?: readonly string[];
+}
 
 interface PublishedState {
   byHash: Readonly<Record<number, Entry>>;
@@ -36,6 +49,20 @@ export function publishedFor(
   const entry = byHash[hash];
   return entry?.marker === marker ? entry : undefined;
 }
+
+/** The published version of a translator's row, once it is checked against that row's facts. */
+export function publishedForLane(
+  byHash: PublishedState['byHash'],
+  lane: Lane,
+): Published | undefined {
+  const entry = publishedFor(byHash, lane.hash!, lane.marker);
+  return entry?.status === 'ready' &&
+    lane.row?.status === 'ready' &&
+    !byHash[lane.hash!]?.facts?.includes(laneFacts(lane))
+    ? unchecked
+    : entry;
+}
+const unchecked: Published = { status: 'loading' };
 
 /**
  * The text a language goes live with: a translation that falls back goes out in English (the
@@ -108,36 +135,43 @@ async function writeStored(hash: number, value: Stored) {
 // ---- loading ----
 /** Requests at once: enough to finish a typical batch quickly, few enough to stay polite. */
 const parallel = 4;
-const queued: { hash: number; marker: string }[] = [];
+const queued: Wanted[] = [];
 let running = 0;
 /** A reset (account change) frees the slots of requests still out; they finish unheard. */
 let generation = 0;
 
 function pump() {
   while (running < parallel && queued.length) {
-    const { hash, marker } = queued.shift()!;
-    if (usePublished.getState().byHash[hash]?.marker !== marker) continue;
+    const { hash, marker, matches, facts } = queued.shift()!;
+    const wanted = () => {
+      const entry = usePublished.getState().byHash[hash];
+      return entry?.marker === marker && entry.facts === facts;
+    };
+    if (!wanted()) continue;
     running++;
     const started = generation;
     void getPushedVersion(hash)
+      .then(async (result) => ({
+        ...result,
+        matched: !matches || (!!result.tooltip && (await matches(result.tooltip))),
+      }))
       .then(
         (result) => {
-          if (started !== generation || usePublished.getState().byHash[hash]?.marker !== marker)
-            return;
-          put(hash, { status: 'ready', tooltip: result.tooltip, marker });
+          if (started !== generation || !wanted()) return;
+          if (!result.matched) return put(hash, { status: 'changed', marker, facts });
+          put(hash, { status: 'ready', tooltip: result.tooltip, marker, facts });
           // Only the exact pair is immutable; a server marker newer than ours shows once, unstored.
-          if (result.pushedHash === marker && result.tooltip)
+          if (result.pushedHash === marker.split('@')[0] && result.tooltip)
             void writeStored(hash, { marker, tooltip: result.tooltip });
         },
         (reason: unknown) => {
-          if (started !== generation || usePublished.getState().byHash[hash]?.marker !== marker)
-            return;
+          if (started !== generation || !wanted()) return;
           const error = errorMessage(reason);
           put(
             hash,
             /^API HTTP 409\b/.test(error)
-              ? { status: 'missing', marker }
-              : { status: 'error', error, marker },
+              ? { status: 'missing', marker, facts }
+              : { status: 'error', error, marker, facts },
           );
         },
       )
@@ -154,19 +188,25 @@ function pump() {
  * server (a few at a time). `retry` asks again for rows whose last request failed.
  */
 export async function loadPublished(
-  rows: readonly { hash: number; marker: string | undefined }[],
+  rows: readonly (Omit<Wanted, 'marker'> & { marker: string | undefined })[],
   retry = false,
 ): Promise<void> {
   const byHash = usePublished.getState().byHash;
+  const failed = (hash: number) => {
+    const status = byHash[hash]?.status;
+    return status === 'error' || status === 'changed';
+  };
   const wanted = rows.filter(
-    (row): row is { hash: number; marker: string } =>
+    (row): row is Wanted =>
       row.marker !== undefined &&
-      (byHash[row.hash]?.marker !== row.marker || (retry && byHash[row.hash]?.status === 'error')),
+      (byHash[row.hash]?.marker !== row.marker ||
+        (retry && failed(row.hash)) ||
+        !!row.facts?.some((fact) => !byHash[row.hash]?.facts?.includes(fact))),
   );
   if (!wanted.length) return;
   usePublished.setState((state) => {
     const next = { ...state.byHash };
-    for (const { hash, marker } of wanted) next[hash] = { status: 'loading', marker };
+    for (const { hash, marker, facts } of wanted) next[hash] = { status: 'loading', marker, facts };
     return { byHash: next };
   });
   const started = generation;
@@ -177,15 +217,29 @@ export async function loadPublished(
   for (const row of wanted) {
     const value = stored.get(row.hash);
     const parsed = value?.marker === row.marker ? tooltipSchema.safeParse(value.tooltip) : null;
-    if (parsed?.success && parsed.data.hash === row.hash)
-      hits[row.hash] = { status: 'ready', tooltip: parsed.data, marker: row.marker };
+    if (
+      parsed?.success &&
+      parsed.data.hash === row.hash &&
+      (!row.matches || (await row.matches(parsed.data)))
+    )
+      hits[row.hash] = {
+        status: 'ready',
+        tooltip: parsed.data,
+        marker: row.marker,
+        facts: row.facts,
+      };
     else queued.push(row);
   }
+  if (started !== generation) return;
   if (Object.keys(hits).length)
     usePublished.setState((state) => {
       const next = { ...state.byHash };
       for (const [hash, entry] of Object.entries(hits))
-        if (next[Number(hash)]?.marker === entry.marker) next[Number(hash)] = entry;
+        if (
+          next[Number(hash)]?.marker === entry.marker &&
+          next[Number(hash)]?.facts === entry.facts
+        )
+          next[Number(hash)] = entry;
       return { byHash: next };
     });
   pump();
@@ -193,11 +247,24 @@ export async function loadPublished(
 
 /** The rows whose published text a snapshot needs: published changes (not leftovers, not new). */
 export function publishedRows(
-  entries: readonly { markerOnly: boolean; pushed?: string; tooltip: { hash: number } }[],
+  entries: readonly Pick<PendingTooltip, 'markerOnly' | 'pushed' | 'tooltip' | 'lane'>[],
 ) {
-  return entries
-    .filter(({ markerOnly, pushed }) => !markerOnly && pushed !== undefined)
-    .map(({ tooltip, pushed }) => ({ hash: tooltip.hash, marker: pushed }));
+  const rows = new Map<number, Wanted>();
+  const lanes = new Map<number, Lane[]>();
+  for (const { markerOnly, pushed, tooltip, lane } of entries) {
+    const hash = lane ? lane.hash : tooltip.hash;
+    const marker = lane ? lane.marker : pushed;
+    if (markerOnly || hash === undefined || marker === undefined) continue;
+    if (lane) lanes.set(hash, [...(lanes.get(hash) ?? []), lane]);
+    rows.set(hash, { hash, marker });
+  }
+  for (const [hash, of] of lanes) {
+    const row = rows.get(hash)!;
+    row.facts = of.map(laneFacts);
+    row.matches = async (tooltip) =>
+      (await Promise.all(of.map((lane) => matchesLane(lane, tooltip)))).every(Boolean);
+  }
+  return [...rows.values()];
 }
 
 // A failed request (signed out, 401) must not stick to the next account; the device cache stays.

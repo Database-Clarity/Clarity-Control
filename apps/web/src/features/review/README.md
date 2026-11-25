@@ -73,6 +73,28 @@ No live marker means no recorded live baseline, not proof that the legacy databa
 never contained that hash. Partial live-write failures retain the worker's explicit
 error details and must not be interpreted as "nothing was published."
 
+## Translators
+
+A translator (managers included) sees the same page with one row per tooltip or global and assigned
+language (`lanes.ts`), while the Worker offers `translationPublish` in `/me`. Without it there is no entry and
+nothing changes. A bundle without `translationPublish` is only incomplete: the page says it is checking,
+keeps every tick and published row, and asks for the next bundle. The rows, their blocked
+reasons, and the signed facts come from the bundle; only their languages are read, so a URL, a key, or
+stored state never reaches another row. A tick stands for all of a row's signed facts and belongs to
+`<account>/translations`, apart from an editor's ticks. The comparison is the saved text against the
+live snapshot: live English, live globals, and live imports.
+
+A confirmed publish is a `PublishOp` with `translations` (the strict scoped body), sent in parts of
+the Worker's `partRows`. Two rows of one language that change the same tooltip never go together
+(`independentLanes`): the second is listed as left out and reviewed again after the first. A part that
+some rows refuse is sent again without them (`resends`), once across tabs and reloads. A translator's
+tab ignores whole publishes the account stored as an editor, and an editor's tab the reverse. A removal asks once more in the dialog.
+
+Editors and maintainers fold the rows in `translationPublish.only` (nothing but translations waits)
+into one "Show" line like the leftovers; their publish is unchanged. A translation on a migration
+leftover is folded too, and returns to the list if its published text shows any other change
+(`folds.ts`).
+
 ## Publisher mode (flag `VITE_PUBLISHER_ENABLED=1`, OFF by default)
 
 With the flag off nothing below runs and `/push-live` behaves exactly as described above. The flag is
@@ -97,4 +119,5 @@ build-time; it is turned on only together with the Worker's `/publish` writes (d
   line with Retry.
 - Tooltips inside a queued operation show the word "Publishing…" and cannot be selected again. Finished operations
   stay 24 h (they rebuild the acknowledgment overlay after a reload) and can be dismissed.
-- Only editors/maintainers see any of this; the driver is inert for other roles.
+- Only editors, maintainers, and translators who publish their languages see any of this; the driver
+  is inert for other roles.

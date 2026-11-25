@@ -34,7 +34,9 @@ import {
   textLanguages,
   type Classification,
 } from './kinds';
+import { isLane } from './lanes';
 import type { PendingTooltip } from './model';
+import { LaneDetail, laneSentence } from './TranslationDetail';
 import type { Published } from './published';
 import { useDelayed } from './useDelayed';
 import styles from './Review.module.scss';
@@ -52,7 +54,7 @@ function importedName(tooltip: Tooltip, data: EditorData | null): string | undef
 }
 
 /** One sentence that answers "what will players see differently?" (spec §6). */
-function Sentence({
+export function Sentence({
   entry,
   published,
   classification,
@@ -78,6 +80,10 @@ function Sentence({
         <b>Can&apos;t be published yet.</b> {entry.unpublishable}
       </p>
     );
+  if (isLane(entry) && classification) {
+    const sentence = laneSentence(entry, classification, data, published);
+    if (sentence) return <p className={styles.sentence}>{sentence}</p>;
+  }
   switch (classification?.kind) {
     case 'Text changed': {
       const { scope, languages = [] } = classification;
@@ -179,6 +185,12 @@ function Sentence({
         </button>
       </p>
     );
+  if (published?.status === 'changed')
+    return (
+      <p className={styles.sentence} role="alert">
+        <b>Changed after this list was built.</b> Refresh to review it.
+      </p>
+    );
   if (published?.status === 'missing')
     return (
       <p className={styles.sentence}>
@@ -265,7 +277,7 @@ function UpdatedTooltips({ pending }: { pending: PendingGlobal }) {
 }
 
 /** Rendered text, plain (New, Removed, Restored), 12 lines then "Show all". */
-function PlainText({
+export function PlainText({
   text,
   lang,
   hash,
@@ -377,7 +389,7 @@ function Folded({ lines, lang }: { lines: DiffLine[]; lang: Lang }) {
 }
 
 /** A changed language: removed words struck and added words in place, sized to the change. */
-function TextChange({
+export function TextChange({
   before,
   after,
   previousLanguage,
@@ -386,6 +398,7 @@ function TextChange({
   lang,
   hash,
   classification,
+  side = 'next',
 }: {
   before: string;
   after: string;
@@ -395,11 +408,13 @@ function TextChange({
   lang: Lang;
   hash: number;
   classification: Classification | undefined;
+  /** What the new text renders with: a translation alone goes live beside the LIVE rest. */
+  side?: 'live' | 'next';
 }) {
   const data = useDataStore((state) => state.data);
   const globals = useMemo(
-    () => reviewGlobals(data, currentLanguage, hash, 'next', selected),
-    [data, currentLanguage, hash, selected],
+    () => reviewGlobals(data, currentLanguage, hash, side, selected),
+    [data, currentLanguage, hash, side, selected],
   );
   const previous = useMemo(
     () =>
@@ -458,7 +473,7 @@ function TextChange({
 }
 
 /** Source lines that changed, with one line of context, line numbers, and changed characters. */
-function RawMarkup({ before, after }: { before: string; after: string }) {
+export function RawMarkup({ before, after }: { before: string; after: string }) {
   const a = before.split('\n'),
     b = after.split('\n');
   let start = 0,
@@ -525,7 +540,12 @@ function RawMarkup({ before, after }: { before: string; after: string }) {
 }
 
 /** The open change: one sentence, who saved it, and only the evidence its kind needs. */
-export const ReviewDetail = memo(function ReviewDetail({
+export const ReviewDetail = memo(function ReviewDetail(props: Parameters<typeof WholeDetail>[0]) {
+  const { entry } = props;
+  return isLane(entry) ? <LaneDetail {...props} entry={entry} /> : <WholeDetail {...props} />;
+});
+
+function WholeDetail({
   entry,
   published,
   classification: listedClassification,
@@ -724,7 +744,7 @@ export const ReviewDetail = memo(function ReviewDetail({
       )}
     </section>
   );
-});
+}
 
 /**
  * "Restore live text as draft": loads the published text into a local draft after a confirm.

@@ -28,6 +28,15 @@
   gap: 0.25rem;
   flex: none;
 
+  // Several languages: Find has its own line, the two selects share the next.
+  &[data-languages] {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+
+    .find {
+      grid-column: 1 / -1;
+    }
+  }
+
   input,
   select {
     box-sizing: border-box;
@@ -253,6 +262,11 @@
     }
   }
 
+  // Listed, with its reason, but not publishable now.
+  &[data-blocked] a:first-of-type > span:first-child {
+    color: var(--text2);
+  }
+
   a > span:first-child {
     flex: 1 1 auto;
     min-width: 0;
@@ -271,6 +285,27 @@
 
   small {
     line-height: 1lh;
+  }
+}
+
+// A translator of several languages: the name gives way, its language shows whole.
+.row a > span[data-lane] {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25em;
+
+  > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  > small {
+    flex: none;
+
+    &::before {
+      content: '· ';
+    }
   }
 }
 
@@ -324,7 +359,8 @@
     display: none;
   }
 
-  .filters {
+  .filters,
+  .filters[data-languages] {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -341,6 +377,40 @@
 
   .row a > span:first-child {
     flex: none;
+  }
+
+  // The second line takes the language too: "Removed · German".
+  .row a:has(> span[data-lane]) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: center;
+    column-gap: 0.25em;
+  }
+
+  .row a > span[data-lane] {
+    display: contents;
+
+    > span {
+      grid-column: 1 / -1;
+      white-space: nowrap;
+    }
+
+    > small {
+      grid-area: 2 / 2;
+      line-height: 1rem;
+    }
+
+    &:last-child > small {
+      grid-column: 1 / -1;
+
+      &::before {
+        content: none;
+      }
+    }
+  }
+
+  .row a:has(> span[data-lane]) > .kind {
+    grid-area: 2 / 1;
   }
 
   .kind {

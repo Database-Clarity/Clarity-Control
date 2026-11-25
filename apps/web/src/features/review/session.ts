@@ -6,6 +6,7 @@ import {
 } from '@clarity/core';
 import { pushSelected } from '../../services/history';
 import { errorMessage } from '../../services/http';
+import { translationKey } from '../../services/translationPublish';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { canPushLive } from '../auth/permissions';
@@ -20,6 +21,8 @@ interface ReviewSession {
   acknowledgments: Record<string, Acknowledgment>;
   /** Published globals, by id: the definition digest that went live. */
   globals: Record<string, string>;
+  /** Translations this session published, by row: the saved text's digest that went live. */
+  translations: Record<string, string>;
   pushing: boolean;
   notice: string | undefined;
   error: string | undefined;
@@ -29,6 +32,7 @@ interface ReviewSession {
 export const useReviewSession = create<ReviewSession>(() => ({
   acknowledgments: {},
   globals: {},
+  translations: {},
   pushing: false,
   notice: undefined,
   error: undefined,
@@ -50,6 +54,37 @@ export function acknowledgedGlobals(data: EditorData): ReadonlySet<string> {
   if (waiting.length !== Object.keys(globals).length)
     useReviewSession.setState({ globals: Object.fromEntries(waiting) });
   return new Set(waiting.map(([id]) => id));
+}
+
+/**
+ * Rows this session published that the loaded bundle still lists with that saved text. Read while
+ * rendering, so it never updates the store: `retireTranslations` does.
+ */
+export function acknowledgedTranslations(data: EditorData): ReadonlySet<string> {
+  const { translations } = useReviewSession.getState();
+  const acknowledged = Object.entries(translations);
+  // Only a complete bundle can say that one has caught up.
+  if (!acknowledged.length || !data.bundle.translationPublish)
+    return new Set(Object.keys(translations));
+  const rows = new Map(
+    Object.values(data.bundle.translationPublish?.lanes ?? {})
+      .flat()
+      .map((row) => [translationKey(row!), row!]),
+  );
+  const waiting = acknowledged.filter(([key, expected]) => {
+    const row = rows.get(key);
+    return row?.status === 'ready' && row.expected === expected;
+  });
+  return new Set(waiting.map(([key]) => key));
+}
+
+/** Forgets the rows a complete bundle has caught up with, or lists with another text. */
+export function retireTranslations(data: EditorData) {
+  const { translations } = useReviewSession.getState();
+  const waiting = acknowledgedTranslations(data);
+  const kept = Object.entries(translations).filter(([key]) => waiting.has(key));
+  if (kept.length !== Object.keys(translations).length)
+    useReviewSession.setState({ translations: Object.fromEntries(kept) });
 }
 
 export function acknowledgedMarkers(data: EditorData): Readonly<Record<string, string>> {
