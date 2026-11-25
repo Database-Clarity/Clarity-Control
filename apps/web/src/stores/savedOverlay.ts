@@ -19,6 +19,14 @@ const entries = new Map<number, Entry>();
 const tooltipCommits = new WeakMap<Tooltip, string>();
 let version = 0;
 
+type SavedRows = { tooltips: Tooltip[]; deleted: number[] } | { global: GlobalRecord };
+const savedListeners = new Set<(rows: SavedRows) => void>();
+
+export function subscribeSavedRows(listener: (rows: SavedRows) => void) {
+  savedListeners.add(listener);
+  return () => savedListeners.delete(listener);
+}
+
 export function savedTooltipCommit(tooltip: Tooltip): string | undefined {
   return tooltipCommits.get(tooltip);
 }
@@ -32,6 +40,22 @@ export function rememberSaved(
   tooltips: Tooltip[],
   deleted: number[] = [],
   now = Date.now(),
+  serverAt?: number,
+  commit?: string,
+): void {
+  recordSaved(tooltips, deleted, now, serverAt, commit);
+  for (const listener of savedListeners) listener({ tooltips, deleted });
+}
+
+/** Recovery replays receipts before comparing the effective bundle against Review's picks. */
+export function replaySaved(tooltips: Tooltip[], at: number, serverAt?: number, commit?: string) {
+  recordSaved(tooltips, [], at, serverAt, commit);
+}
+
+function recordSaved(
+  tooltips: Tooltip[],
+  deleted: number[],
+  now: number,
   serverAt?: number,
   commit?: string,
 ): void {
@@ -58,6 +82,7 @@ const globals = new Map<string, GlobalEntry>();
 
 export function rememberSavedGlobal(entry: GlobalRecord, head: string, now = Date.now()): void {
   globals.set(entry.id, { at: now, head, entry });
+  for (const listener of savedListeners) listener({ global: entry });
 }
 
 /** Globals this tab saved that the loaded bundle does not hold yet. */

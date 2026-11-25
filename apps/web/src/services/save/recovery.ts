@@ -9,7 +9,7 @@ import {
 } from '@clarity/core';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
-import { applySavedOverlay, rememberSaved } from '../../stores/savedOverlay';
+import { applySavedOverlay, replaySaved } from '../../stores/savedOverlay';
 import {
   readSaveReceipts,
   sameDraftContent,
@@ -120,7 +120,7 @@ export function startSaveRecovery(): () => void {
     receipts = null;
     for (const receipt of records)
       if (receipt.confirmed)
-        rememberSaved(receipt.tooltips, [], receipt.at, receipt.savedAt, receipt.commit);
+        replaySaved(receipt.tooltips, receipt.at, receipt.savedAt, receipt.commit);
     const bundle = applySavedOverlay(data.bundle);
     if (bundle !== data.bundle) useDataStore.setState({ data: { ...data, bundle } });
     if (external || error) {

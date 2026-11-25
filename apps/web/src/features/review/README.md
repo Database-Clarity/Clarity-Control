@@ -30,8 +30,10 @@ moves to the next change after the Compendium's auto-advance pause (Esc stays), 
 and "Restore live text as draft" (a confirm; nothing is saved or published). Up/Down, the list's
 own keys, and the phone's ‹ › walk the shown rows without wrapping; P publishes; / finds.
 
-Selection survives navigation, but only still-pending, publishable hashes outside a running
-publish are submitted (`publishSelection`).
+Inclusions survive navigation and reloads in the same tab for the same account with publish
+access. A tick is tied to the row's saved digest and drops if that version changes or the row
+leaves the queue. Only still-pending, publishable hashes outside a running publish are submitted
+(`publishSelection`).
 Editors and maintainers may push any number at once (the Worker reads them in batches). "Publish N"
 first opens a confirmation listing every tooltip going live with its word and a count by kind (Enter confirms, Esc cancels; a held key or a
 double-click cannot confirm twice). The request includes the
@@ -52,9 +54,9 @@ is unchanged; a caught-up or different marker, or removal of the tooltip, retire
 Changed saved text is still compared by digest and becomes pending. A full page
 reload clears this memory; no cross-session persistence is promised. The latest
 success/error notice survives route remounts until the next attempt or account/role
-change. Server acknowledgments remain valid across account changes, but notices
-and selections are cleared; an outstanding request keeps its lock until settlement.
-Selection also clears when the saved snapshot changes. Hashing aborts submission
+change. Server acknowledgments remain valid across account changes. Inclusions and Undo reset
+when the account or publish access changes. An outstanding request keeps its lock until settlement.
+Hashing aborts submission
 if the page unmounts, identity changes, or saved data is replaced before the request.
 A bundle refresh error (manual refresh) is reported by the data-loading shell, separately
 from a publish failure; retrying data loading restores the acknowledged review view.

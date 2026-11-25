@@ -162,6 +162,7 @@ beforeEach(async () => {
     notice: undefined,
     error: undefined,
   });
+  useReviewQueue.getState().clearSelection();
   bundle = {
     sourceCommit: 'baseline',
     generatedAt: '2026-01-01T00:00:00Z',
@@ -427,6 +428,18 @@ it('shows stale and failed outcomes and leaves the tooltips pending', async () =
   expect(host.textContent).toContain('1 change waiting to go live');
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(false);
   expect(useReviewSession.getState().acknowledgments).toEqual({});
+});
+
+it('retains the tick on unchanged text if the Worker refuses the queued publish', async () => {
+  await mount();
+  postAnswer = () => Response.json({ error: 'Upload lock is held' }, { status: 423 });
+  await selectAll();
+  await openPublish();
+  await click('Publish 1');
+  await waitFor(() =>
+    expect(host.querySelector('[aria-label="Publish activity"]')?.textContent).toContain('HTTP 423'),
+  );
+  expect(useReviewQueue.getState().selected.has(10)).toBe(true);
 });
 
 it('keeps the operation and offers Retry once it has waited three minutes', async () => {

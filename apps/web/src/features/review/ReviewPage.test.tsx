@@ -19,7 +19,7 @@ import { useDraftStore } from '../../stores/drafts';
 import { loadGenerator } from '../../services/generator';
 import { loadBundle, type Bundle } from '../../services/bundle';
 import { useReviewSession } from './session';
-import { pendingTooltips } from './model';
+import { pendingTooltips, prepareReviewQueue } from './model';
 import { reviewRoute } from './route';
 import { ReviewSidebar } from './ReviewSidebar';
 import { useReviewQueue } from './queueStore';
@@ -162,6 +162,7 @@ beforeEach(async () => {
   resetPublished();
   useKinds.setState({ byHash: {} });
   // The list's selection, collapse state, and scroll memory live in a module store.
+  useReviewQueue.getState().clearSelection();
   useReviewQueue.setState({
     entries: null,
     selected: new Set(),
@@ -304,6 +305,7 @@ async function mountDelayedReview(review = withList()) {
   const router = createMemoryRouter(
     [
       { path: '/other', element: <p>Other workspace</p> },
+      { path: '/t/:hash', element: <p>Editor workspace</p> },
       { path: '/review', element: review, loader: reviewRoute },
     ],
     { initialEntries: ['/other'] },
@@ -540,13 +542,41 @@ it('selects pending changes from the sidebar and restores the selected item afte
     host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
   ).toContain('Tooltip 20');
 
+  await act(async () =>
+    host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
+  );
   await chooseWorkspace('/compendium');
   await chooseWorkspace('/review');
-  await waitFor(() => expect(counts()).toEqual([2, 0]));
+  await waitFor(() => expect(counts()).toEqual([2, 1]));
   expect(host.textContent).toContain('2 / 2');
   expect(
     host.querySelector('[aria-label="Pending saved changes"] a[aria-current="page"]')?.textContent,
   ).toContain('Tooltip 20');
+});
+
+it('keeps ticks, filters, and Undo on Back from the editor and drops them on an account change', async () => {
+  const { router } = await mountDelayedReview();
+  await act(async () => router.navigate('/review?hash=10&query=Abacus', { replace: true }));
+  await click('Include ⏎');
+  // Escape during the auto-advance pause leaves the included change open.
+  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+  const search = router.state.location.search;
+  const editor = host.querySelector<HTMLAnchorElement>('article a[href="/t/10"]')!;
+  await act(async () => editor.click());
+  expect(router.state.location.pathname).toBe('/t/10');
+  await act(async () => router.navigate(-1));
+  expect(router.state.location.search).toBe(search);
+  expect(counts()).toEqual([3, 1]);
+  expect(button('Undo U').disabled).toBe(false);
+  await click('Undo U');
+  expect(counts()).toEqual([3, 0]);
+
+  await click('Include ⏎');
+  await act(async () => useAuthStore.setState({ user: { ...user, role: 'editor' } }));
+  expect(counts()).toEqual([3, 1]);
+  await act(async () => useAuthStore.setState({ user: { ...user, id: 2 } }));
+  expect(counts()).toEqual([3, 0]);
+  expect(button('Undo U').disabled).toBe(true);
 });
 
 it.each(['/review', '/review?query=10'])(
@@ -706,6 +736,29 @@ it('does not reload the bundle after a push, so success is never masked by a ref
   expect(counts()).toEqual([0, 0]);
 });
 
+it('keeps matching ticks usable when the background queue is prepared after a publish', async () => {
+  await mountDelayedReview();
+  await waitForReview();
+  const tick = (hash: number) => act(async () =>
+    host.querySelector<HTMLInputElement>(`input[data-review-toggle="${hash}"]`)!.click(),
+  );
+  await tick(10);
+  await push();
+  await waitFor(() => expect(counts()).toEqual([2, 0]));
+  await tick(20);
+
+  const data = useDataStore.getState().data!;
+  // Other consumers can still compare the raw bundle without the acknowledgment.
+  await pendingTooltips(data);
+  await act(async () => {
+    useAuthStore.setState({ user: { ...user, role: 'editor' } });
+    await prepareReviewQueue(data);
+  });
+  expect(counts()).toEqual([2, 1]);
+  expect(useReviewQueue.getState().entries?.map(({ tooltip }) => tooltip.hash)).toEqual([20, 30]);
+  expect(headPublish()!.disabled).toBe(false);
+});
+
 it('keeps partial-live error details and never acknowledges a failed publish', async () => {
   await mount();
   post.mockResolvedValueOnce(
@@ -784,13 +837,16 @@ it('aborts before sending when unmounted or account changes during digest calcul
   expect(useReviewSession.getState().pushing).toBe(false);
 });
 
-it('clears reviewed selection on refresh and leaves keyboard events in controls alone', async () => {
-  await mount();
+it('drops only the changed tick on refresh and leaves keyboard events in controls alone', async () => {
+  await mountDelayedReview();
+  await waitForReview();
   await selectAll();
+  expect(counts()).toEqual([3, 3]);
   bundle.tooltips[10].text.en!.text = 'Unreviewed saved edit';
   await refresh();
-  expect(counts()).toEqual([1, 0]);
-  expect(headPublish()!.disabled).toBe(true);
+  expect(counts()).toEqual([3, 2]);
+  expect([...useReviewQueue.getState().selected]).toEqual([20, 30]);
+  expect(headPublish()!.disabled).toBe(false);
   const event = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
   button('Refresh').dispatchEvent(event);
   expect(event.defaultPrevented).toBe(false);
@@ -1216,9 +1272,8 @@ it('Refresh keeps the list, the open change, and every row word on screen while 
   await waitFor(() => expect(button('Refresh').disabled).toBe(false));
   // The reloaded snapshot (new objects, same text) keeps its word without blanking.
   expect(word()).toBe('Text changed');
-  // Its ticks start empty, and the bar no longer claims the change is included.
-  expect(counts()[1]).toBe(0);
-  expect(bar()).not.toContain('included in the publish');
+  expect(counts()[1]).toBe(1);
+  expect(bar()).toContain('included in the publish');
   expect(host.querySelector('[aria-label="Selected change"]')?.textContent).toContain(
     'Text changed',
   );
@@ -1281,9 +1336,6 @@ it('never offers a publish during a reload, and retires an open confirmation whe
   await waitForReview();
   await waitFor(() => expect(button('Refresh').disabled).toBe(false));
   // A confirmation open on one snapshot closes, out loud, when the saved data is replaced.
-  await act(async () =>
-    host.querySelector<HTMLInputElement>('input[data-review-toggle="10"]')!.click(),
-  );
   await openPublish();
   expect(host.querySelector('dialog[open]')).not.toBeNull();
   await act(async () => {

@@ -15,6 +15,7 @@ import { useDataStore, type EditorData } from '../../stores/data';
 import { useAuthStore } from '../../stores/auth';
 import { allowBackgroundCode } from '../../workspacePreload';
 import { useSidebarQueueStore, type SidebarPendingChange } from '../navigation/sidebarQueue';
+import { acknowledgedGlobals, acknowledgedMarkers, useReviewSession } from './session';
 export { canPushLive as canPush } from '../auth/permissions';
 
 import { categoryDisplay } from '../../services/categoryLabels';
@@ -39,6 +40,8 @@ export interface PendingTooltip {
   isNew: boolean;
   /** The pushed marker this row is compared with (absent when never pushed). */
   pushed?: string;
+  /** Saved version from the existing pending comparison; absent if the saved text is unavailable. */
+  savedVersion?: string;
   inactiveChange?: 'remove' | 'restore';
   inactiveAliases?: number[];
   /** The pending definition of a global row. */
@@ -186,17 +189,15 @@ async function computePending(
       ),
     ),
   );
-  for (const [index, tooltip] of tooltips.entries())
-    if (isMovedInactive(tooltip.hash, moves))
-      digests[index] = { hash: removals.get(tooltip.hash)!, bare: removals.get(tooltip.hash)! };
   const categories = new Map(data.categories.map((entry) => [entry.id, entry]));
   const entries = tooltips.map((tooltip, index) => {
     const pushedMarker = pushed[tooltip.hash];
-    if (digests[index].hash === pushedMarker) return null;
+    const removing = isMovedInactive(tooltip.hash, moves);
+    const saved = digests[index];
+    if ((removing ? removals.get(tooltip.hash) : saved.hash) === pushedMarker) return null;
     const item = data.items[tooltip.hash];
     const categoryId = item?.categoryId ?? tooltip.custom?.categoryId ?? 'other';
     const category = categories.get(categoryId);
-    const removing = isMovedInactive(tooltip.hash, moves);
     const restoring =
       !removing && removals.get(tooltip.hash) === pushedMarker && pushedMarker !== undefined;
     const inactiveAliases = Object.keys(moves)
@@ -213,8 +214,9 @@ async function computePending(
         !restoring &&
         !inactiveAliases.length &&
         pushedMarker !== undefined &&
-        digests[index].bare === pushedMarker,
+        saved.bare === pushedMarker,
       isNew: pushedMarker === undefined,
+      savedVersion: removing ? `remove:${saved.hash}` : saved.hash,
       ...(pushedMarker !== undefined ? { pushed: pushedMarker } : {}),
       ...(removing
         ? { inactiveChange: 'remove' as const }
@@ -290,6 +292,21 @@ export function stepIndex(index: number, delta: number, length: number): number 
   return Math.max(0, Math.min(Math.max(0, length - 1), index + delta));
 }
 
+/** Prepare the same acknowledged snapshot as Review before the route opens. */
+export async function prepareReviewQueue(data: EditorData) {
+  const markers = acknowledgedMarkers(data);
+  const settled = acknowledgedGlobals(data);
+  const { acknowledgments, globals } = useReviewSession.getState();
+  const entries = await pendingTooltips(data, markers, settled);
+  const current = useReviewSession.getState();
+  if (
+    useDataStore.getState().data === data &&
+    current.acknowledgments === acknowledgments &&
+    current.globals === globals
+  )
+    publishSidebar(entries);
+}
+
 // Prepare every saved snapshot equally, independent of the next workspace destination.
 if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
   const warm = () => {
@@ -302,18 +319,17 @@ if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
       return;
     }
     const data = useDataStore.getState().data;
-    if (data)
-      void pendingTooltips(data)
-        .then((entries) => {
-          if (useDataStore.getState().data === data) publishSidebar(entries);
-        })
-        .catch(() => {});
+    if (data) void prepareReviewQueue(data).catch(() => {});
   };
   useDataStore.subscribe((state, previous) => {
     if (state.data !== previous.data) warm();
   });
   useAuthStore.subscribe((state, previous) => {
     if (state.user?.role !== previous.user?.role) warm();
+  });
+  useReviewSession.subscribe((state, previous) => {
+    if (state.acknowledgments !== previous.acknowledgments || state.globals !== previous.globals)
+      warm();
   });
   warm();
 }
