@@ -87,7 +87,7 @@ A confirmed publish is a `PublishOp` with `translations` (the strict scoped body
 the Worker's `partRows`. Two rows of one language that change the same tooltip never go together
 (`independentLanes`): the second is listed as left out and reviewed again after the first. A part that
 some rows refuse is sent again without them (`resends`), once across tabs and reloads. A translator's
-tab ignores whole publishes the account stored as an editor. A removal asks once more in the dialog.
+tab ignores whole publishes the account stored as an editor, and an editor's tab the reverse. A removal asks once more in the dialog.
 
 Editors and maintainers fold the rows in `translationPublish.only` (nothing but translations waits)
 into one "Show" line like the leftovers; their publish is unchanged.

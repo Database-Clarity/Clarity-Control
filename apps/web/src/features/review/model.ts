@@ -17,7 +17,7 @@ import { useAuthStore } from '../../stores/auth';
 import { allowBackgroundCode } from '../../workspacePreload';
 import { useSidebarQueueStore, type SidebarPendingChange } from '../navigation/sidebarQueue';
 import { acknowledgedGlobals, acknowledgedMarkers, useReviewSession } from './session';
-import { foldsTranslations } from '../auth/permissions';
+import { canPushLive } from '../auth/permissions';
 export { canPushLive as canPush } from '../auth/permissions';
 
 import { categoryDisplay } from '../../services/categoryLabels';
@@ -100,7 +100,8 @@ const noGlobals: ReadonlySet<string> = new Set();
 const sameGlobals = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
   a.size === b.size && [...a].every((id) => b.has(id));
 
-const folds = () => foldsTranslations(useAuthStore.getState().user);
+/** Editors and maintainers fold the rows that translators publish. */
+const folds = () => canPushLive(useAuthStore.getState().user);
 
 /** A global's save changes no loaded data, only what its listed row is compared with. */
 const globalsAhead = ({ bundle }: EditorData) =>
@@ -349,11 +350,7 @@ if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
     if (state.data !== previous.data) warm();
   });
   useAuthStore.subscribe((state, previous) => {
-    if (
-      state.user?.role !== previous.user?.role ||
-      foldsTranslations(state.user) !== foldsTranslations(previous.user)
-    )
-      warm();
+    if (state.user?.role !== previous.user?.role) warm();
   });
   useReviewSession.subscribe((state, previous) => {
     if (state.acknowledgments !== previous.acknowledgments || state.globals !== previous.globals)

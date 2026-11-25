@@ -42,11 +42,6 @@ export function canPublishTranslations(user: Publisher | null | undefined): bool
   return publishLanguages(user).length > 0;
 }
 
-/** Editors and maintainers fold the rows that translators publish once the Worker lets them. */
-export function foldsTranslations(user: User | null | undefined): boolean {
-  return canPushLive(user) && !!user?.translationPublish && publisherEnabled();
-}
-
 export function canPushLive(user: User | null | undefined): boolean {
   return user?.role === 'maintainer' || user?.role === 'editor';
 }

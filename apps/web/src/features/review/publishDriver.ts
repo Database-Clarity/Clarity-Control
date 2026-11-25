@@ -237,8 +237,8 @@ export class PublishDriver {
   constructor(private readonly deps: DriverDeps) {}
 
   /**
-   * Switch to an account (or null). Resumes that account's stored operations; a translator's tab
-   * never touches a whole publish the account started as an editor.
+   * Switch to an account (or null). Resumes that account's stored operations: a translator's own
+   * rows, or an editor's whole publishes, never those of a role the account no longer has.
    */
   async start(userId: string | null, translationsOnly = false): Promise<void> {
     this.stopTimer();
@@ -472,7 +472,7 @@ export class PublishDriver {
 
   private async list(userId: string) {
     const stored = await this.deps.store.list(userId);
-    return this.translationsOnly ? stored.filter((op) => op.translations) : stored;
+    return stored.filter((op) => !!op.translations === this.translationsOnly);
   }
 
   private async reload(generation: number, first = false) {

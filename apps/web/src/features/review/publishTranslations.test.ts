@@ -190,6 +190,19 @@ it('a translator’s tab never resumes a whole publish of the same account', asy
   expect(store.records.size).toBe(1);
 });
 
+it('an editor’s tab never resumes translations of the same account', async () => {
+  const { driver, api } = tab();
+  await driver.start('1', true);
+  await driver.createTranslations(items(1), 12);
+  await vi.advanceTimersByTimeAsync(0);
+  const before = api.postTranslations.mock.calls.length;
+  await driver.start('1');
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(ops()).toEqual([]);
+  expect(api.postTranslations).toHaveBeenCalledTimes(before);
+  expect(api.status).not.toHaveBeenCalled();
+});
+
 it('publishes rows of one language that change the same tooltip one after the other', () => {
   const lane = (hash: number, lang: 'de' | 'fr', affectedHashes: number[]) =>
     ({

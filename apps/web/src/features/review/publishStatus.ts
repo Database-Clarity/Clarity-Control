@@ -200,18 +200,17 @@ function groupTranslations(members: PublishOp[]): ReturnType<typeof groupPublish
         .map((entry) => [translationKey(entry.row), entry]),
     ).values(),
   ];
-  const { refusedRows: _, ...op } = first;
   return {
     members,
     liveCount: members.length > 1 ? liveCount : undefined,
     checking,
     op: {
-      ...op,
+      ...first,
       groupCreatedAt: Math.min(...members.map((op) => op.groupCreatedAt ?? op.createdAt)),
       updatedAt: Math.max(...members.map((op) => op.updatedAt)),
       acceptedAt: unfinished ? (unfinished.acceptedAt ?? unfinished.createdAt) : first.acceptedAt,
       translations,
-      ...(refusedRows.length && !failed ? { refusedRows } : {}),
+      refusedRows: refusedRows.length && !failed ? refusedRows : undefined,
       status: unfinished
         ? unfinished.status
         : checking

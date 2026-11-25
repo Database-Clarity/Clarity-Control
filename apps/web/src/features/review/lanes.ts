@@ -1,6 +1,5 @@
 import {
   globalsInPlaceDefinition,
-  languages,
   refreshNumberFallbacks,
   stableStringify,
   type GlobalDefinition,

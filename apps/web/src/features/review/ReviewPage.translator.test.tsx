@@ -81,7 +81,7 @@ const translator: User = {
   languages: ['de'],
   translationPublish: capability,
 };
-const editor: User = { id: 1, login: 'editor', role: 'editor', translationPublish: capability };
+const editor: User = { id: 1, login: 'editor', role: 'editor' };
 
 /** 10: German changed. 20: English changed too, so it waits. 30: German removed. 40: French only. */
 const live: Record<number, Tooltip> = Object.fromEntries(
@@ -693,8 +693,9 @@ it.each(['editor', 'maintainer'] as const)(
   },
 );
 
-it('folds nothing without the capability', async () => {
-  await signIn({ ...editor, translationPublish: undefined });
+it('folds nothing when the bundle names no such rows', async () => {
+  delete bundle.translationPublish!.only;
+  await signIn(editor);
   await mount();
   expect(rowKeys()).toEqual(['10', '20', '30', '40']);
   expect(host.textContent).not.toContain('translators publish');
