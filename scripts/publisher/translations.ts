@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import {
+  activeAliases,
   composeGlobalTranslation,
   composeTooltipTranslation,
   exportLegacy,
   globalAggregateKind,
   globalPublishedSchema,
   globalsReleasePaths,
-  inactivePublishableHash,
+  isMovedInactive,
   inactiveRemovalHash,
   incomingAliases,
   isHeldSetBonus,
@@ -53,7 +54,7 @@ import { unloweredEntry } from './consumerOutput.js';
 import type { Tree } from './git.js';
 import {
   assertInPlaceDocuments,
-  affectedRows,
+  publicationReaders,
   assertHistoricalSecondaries,
   authoredInPlaceOptions,
   inPlaceStores,
@@ -134,8 +135,12 @@ function activeSource(
     const raw = pub.read<Tooltip>(tree, path);
     const { data } = tooltipSchema.safeParse(raw);
     if (!data || data.hash !== hash || !data.text.en?.text.trim()) return;
-    const digest = createHash('sha256').update(publishableHashInput(data, aliases)).digest('hex');
-    if (digest === pushed[hash]) return raw;
+    // Historical snapshots can predate the incoming-alias marker. The LIVE row and
+    // actual stubs still determine root identity and all effects.
+    for (const context of [aliases, {}]) {
+      const digest = createHash('sha256').update(publishableHashInput(data, context)).digest('hex');
+      if (digest === pushed[hash]) return raw;
+    }
   };
 }
 
@@ -315,6 +320,8 @@ function context(pub: Publisher, tree: Tree, live: string) {
   const savedGlobals = new Map(saved.entries.map((entry) => [entry.id, entry]));
   const liveGlobals = new Map(published.store.entries.map((entry) => [entry.id, entry]));
   const beforeOptions = releaseOptions(published.store, saved);
+  let priorLookup: ReturnType<typeof expandAliases> | undefined;
+  let readers: ReturnType<typeof publicationReaders> | undefined;
   const document = (hash: number) => pub.read<Tooltip>(tree, snapshotPath(hash));
   const optionsFor = (options = beforeOptions, drafts: readonly Tooltip[] = []) =>
     authoredInPlaceOptions(pub, tree, input, { options, rewritten: new Map() }, drafts, aliases);
@@ -380,6 +387,11 @@ function context(pub: Publisher, tree: Tree, live: string) {
         ? { kind: row.kind, hash: row.hash, lang }
         : { kind: row.kind, id: row.id, lang };
     const next: LegacyInput = { ...input, perks: { ...input.perks } };
+    const changed: number[] = [];
+    const refill = (rows: ReturnType<typeof refillPublishedDocuments>) => {
+      Object.assign(next.perks, rows);
+      changed.push(...Object.keys(rows).map(Number));
+    };
     let tooltip: Awaited<ReturnType<typeof composeTooltipTranslation>> | undefined;
     let global: ReturnType<typeof composeGlobalTranslation> | undefined;
     let expected: string;
@@ -447,12 +459,12 @@ function context(pub: Publisher, tree: Tree, live: string) {
             value: entry ? filled.updateTracker?.descriptions[lang] : undefined,
           },
         );
+        changed.push(hash);
         if (
           Boolean(current.editor[lang]?.englishFallback) !==
           Boolean(filled.editor[lang]?.englishFallback)
         ) {
-          Object.assign(
-            next.perks,
+          refill(
             refillPublishedDocuments(
               input,
               next,
@@ -505,8 +517,7 @@ function context(pub: Publisher, tree: Tree, live: string) {
             globalFallback = true;
           }
         }
-        Object.assign(
-          next.perks,
+        refill(
           refillPublishedDocuments(
             input,
             next,
@@ -518,20 +529,28 @@ function context(pub: Publisher, tree: Tree, live: string) {
         );
       }
     }
-    const refilled = Object.keys(next.perks).flatMap((key) => {
-      const hash = Number(key);
-      return next.perks[key] !== input.perks[key] && (row.kind !== 'tooltip' || hash !== row.hash)
-        ? [hash]
-        : [];
-    });
-    const changed = row.kind === 'tooltip' && tooltip ? [row.hash, ...refilled] : refilled;
-    const lookup = expandAliases(next.perks);
+    const beforeLookup = (priorLookup ??= expandAliases(input.perks));
+    const lookup: typeof beforeLookup = Object.create(beforeLookup);
+    for (const hash of changed) {
+      const updated = liveEntry(next, hash);
+      lookup[hash] = updated;
+      for (const [alias] of incomingAliases(hash, aliases)) {
+        const prior = beforeLookup[alias];
+        if (prior)
+          lookup[alias] = {
+            ...prior,
+            editor: updated.editor,
+            updateTracker: updated.updateTracker,
+          };
+      }
+    }
     const fact = (data: LegacyInput, hash: number, expanded: ReturnType<typeof expandAliases>) =>
       effectFacts(data, hash, lang, aliases, pub.options.facts, expanded);
     const facts = changed.map((hash) => [hash, fact(next, hash, lookup)] as const);
     if (changed.length) {
-      const beforeLookup = expandAliases(input.perks);
-      for (const key of affectedRows(input, next, changed)) {
+      // Outgoing reads introduced by a changed row already start from an affected root.
+      // Every edge to it from an unchanged reader is present in the LIVE graph.
+      for (const key of (readers ??= publicationReaders(input))(changed)) {
         const hash = Number(key);
         if (changed.includes(hash) || (!beforeLookup[hash] && !lookup[hash])) continue;
         const before = beforeLookup[hash] && fact(input, hash, beforeLookup);
@@ -772,7 +791,7 @@ export async function bundleTranslations(
   } catch {
     // A malformed pending config can't prove that a row belongs in the translation-only fold.
   }
-  const pushed = pushedSchema.parse(pub.read(tree, 'live/pushed.json'));
+  const reviewAliases = currentAliases && moves && activeAliases(currentAliases, moves);
   for (const [key, tooltip] of Object.entries(tooltips)) {
     const hash = Number(key);
     if ((hash >= 1 && hash <= 3) || Object.hasOwn(ctx.aliases, hash)) continue;
@@ -794,17 +813,13 @@ export async function bundleTranslations(
     if (
       !verified ||
       !tooltip.text.en ||
-      !currentAliases ||
+      !reviewAliases ||
       !moves ||
-      Object.hasOwn(currentAliases, hash)
+      Object.hasOwn(reviewAliases, hash) ||
+      isMovedInactive(hash, moves)
     )
       continue;
     let neutral = tooltip;
-    const { text: _savedText, ...savedFields } = tooltip;
-    const { text: _liveText, ...liveFields } = verified;
-    void _savedText;
-    void _liveText;
-    if (!same(savedFields, liveFields)) continue;
     for (const lang of languages) {
       if (lang === 'en') continue;
       const fallback = translationFallbackIds(verified.text.en, lang).filter(
@@ -813,19 +828,19 @@ export async function bundleTranslations(
           tooltip.text.en.numbers.retired[id] !== null,
       );
       neutral = (
-        await composeTooltipTranslation(
-          neutral,
-          lang,
-          verified.text[lang],
-          fallback,
-          currentAliases,
-        )
+        await composeTooltipTranslation(neutral, lang, verified.text[lang], fallback, reviewAliases)
       ).tooltip;
     }
     if (
-      (await inactivePublishableHash(neutral, currentAliases, moves)) === pushed[hash] &&
-      (await translationEnglishDigest(tooltip.text.en!)) ===
-        (await translationEnglishDigest(verified.text.en!))
+      publishableHashInput(neutral, reviewAliases) ===
+        publishableHashInput(verified, ctx.aliases) &&
+      translationEnglishGate({
+        kind: 'tooltip',
+        hash,
+        saved: tooltip,
+        live: { status: 'active', entry: verified },
+        liveAliases: ctx.aliases,
+      }).status === 'ready'
     )
       only.tooltips.push(hash);
   }

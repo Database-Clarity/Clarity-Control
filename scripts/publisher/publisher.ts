@@ -1409,33 +1409,35 @@ export class Publisher {
           );
         const liveMoved = i > 0 && this.head(this.options.liveBranch) !== atomicLive.parent;
         if (source !== h || liveMoved) {
+          const advance = this.sourceAdvance(source, h, tree, opId, signed.kind === 'batch');
           if (isTranslationPublishPayload(signed)) {
             if (!this.git.ancestor(source, h))
               throw new RefRace('Translation publish source diverged');
-            throw new SourceAdvanced(
-              atomicLive.candidate,
-              receipt.requestBlob,
-              source,
-              h,
-              [],
-              false,
-              true,
-            );
+            if (advance !== 'bookkeeping' || liveMoved)
+              throw new SourceAdvanced(
+                atomicLive.candidate,
+                receipt.requestBlob,
+                source,
+                h,
+                [],
+                false,
+                true,
+              );
+          } else {
+            if (advance === 'blocked' && signed.kind === 'batch')
+              throw new RefRace('Claimed batch source no longer matches its publication fence');
+            if (advance === 'blocked')
+              throw new ConsumerOutputRejected('Global receipt identity mismatch');
+            if (advance === 'rebuild' || liveMoved)
+              throw new SourceAdvanced(
+                atomicLive.candidate,
+                receipt.requestBlob,
+                source,
+                h,
+                signed.hashes,
+                signed.kind === 'batch',
+              );
           }
-          const advance = this.sourceAdvance(source, h, tree, opId, signed.kind === 'batch');
-          if (advance === 'blocked' && signed.kind === 'batch')
-            throw new RefRace('Claimed batch source no longer matches its publication fence');
-          if (advance === 'blocked')
-            throw new ConsumerOutputRejected('Global receipt identity mismatch');
-          if (advance === 'rebuild' || liveMoved)
-            throw new SourceAdvanced(
-              atomicLive.candidate,
-              receipt.requestBlob,
-              source,
-              h,
-              signed.hashes,
-              signed.kind === 'batch',
-            );
         }
       }
       const blob = receipt?.requestBlob ?? requestBlob ?? tree[p.request];
@@ -1722,32 +1724,38 @@ export class Publisher {
             cause: error,
           });
         // A terminal content refusal closes the signed request without changing LIVE.
-        await this.record(
-          opId,
-          undefined,
-          undefined,
-          error instanceof TranslationPartRefusal
-            ? {
-                status: 'rejected',
-                code: 'selected-rows-changed',
-                error: error.message,
-                rows: error.rows,
-              }
-            : error instanceof NamedPartRefusal
+        try {
+          await this.record(
+            opId,
+            undefined,
+            undefined,
+            error instanceof TranslationPartRefusal
               ? {
                   status: 'rejected',
                   code: 'selected-rows-changed',
                   error: error.message,
-                  outcomes: error.outcomes,
+                  rows: error.rows,
                 }
-              : { status: 'rejected', error: String(error) },
-          tree[p.request],
-          undefined,
-          undefined,
-          rebuilding?.batch || rebuilding?.scoped || error instanceof TranslationPartRefusal
-            ? s
-            : undefined,
-        );
+              : error instanceof NamedPartRefusal
+                ? {
+                    status: 'rejected',
+                    code: 'selected-rows-changed',
+                    error: error.message,
+                    outcomes: error.outcomes,
+                  }
+                : { status: 'rejected', error: String(error) },
+            tree[p.request],
+            undefined,
+            undefined,
+            rebuilding?.batch || rebuilding?.scoped || error instanceof TranslationPartRefusal
+              ? s
+              : undefined,
+          );
+        } catch (race) {
+          if (race instanceof RefRace && error instanceof TranslationPartRefusal && attempt < 4)
+            continue;
+          throw race;
+        }
         try {
           if (pending) this.git.cas(p.candidate, pending, undefined);
         } catch {
@@ -2886,6 +2894,19 @@ export class Publisher {
           this.git.cas(dataRef(this.options.dataBranch), sourceCommit, next);
           continue;
         }
+        const bundle = this.git.head(dataRef('editor-data-bundle'));
+        const prior =
+          bundle &&
+          this.read<{ sourceCommit: string; translationPublish?: { liveCommit: string } }>(
+            this.git.tree(bundle),
+            'bundle.json',
+          );
+        if (
+          prior &&
+          prior.sourceCommit === sourceCommit &&
+          prior.translationPublish?.liveCommit === live
+        )
+          return;
         const docs = new GlobalsPublisher(this).documents(tree, 'tooltips');
         const value = await bundleTranslations(this, tree, live, docs);
         return this.bundle({ sourceCommit, value });

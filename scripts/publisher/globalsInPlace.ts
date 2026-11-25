@@ -209,14 +209,13 @@ function proofLibraries(live: LegacyInput, options: GlobalsInPlaceOptions, engli
   return rows;
 }
 
-export function affectedRows(before: LegacyInput, after: LegacyInput, roots: readonly number[]) {
-  const affected = new Set(roots.map(String));
+export function publicationReaders(...inputs: LegacyInput[]) {
   const parents = new Map<string, Set<string>>();
   const link = (from: string, to: string) => {
     if (!parents.has(to)) parents.set(to, new Set());
     parents.get(to)!.add(from);
   };
-  for (const { perks } of [before, after])
+  for (const { perks } of inputs)
     for (const [hash, row] of Object.entries(perks)) {
       if ('aliasOf' in row) link(hash, String(row.aliasOf));
       else
@@ -227,8 +226,15 @@ export function affectedRows(before: LegacyInput, after: LegacyInput, roots: rea
               link(hash, String(Number(match[1])));
           }
     }
-  for (const root of affected) for (const parent of parents.get(root) ?? []) affected.add(parent);
-  return affected;
+  return (roots: readonly number[]) => {
+    const affected = new Set(roots.map(String));
+    for (const root of affected) for (const parent of parents.get(root) ?? []) affected.add(parent);
+    return affected;
+  };
+}
+
+function affectedRows(before: LegacyInput, after: LegacyInput, roots: readonly number[]) {
+  return publicationReaders(before, after)(roots);
 }
 
 /** One prospective LIVE merge per representation, with identical non-global inputs. */

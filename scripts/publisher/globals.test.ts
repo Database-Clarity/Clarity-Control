@@ -377,6 +377,43 @@ describe('in-place shared text publication', () => {
   const selection = (row: GlobalsPending[number]) => [{ id: row.id, expected: row.digest }];
   const live = (f: Awaited<ReturnType<typeof inPlaceFixture>>) =>
     f.pub.read<LegacyInput>(f.git.tree(f.pub.head(f.options.liveBranch)), 'liveDescriptions.json')!;
+  it('reviews a historical alias marker and folds rows with only translation changes', async () => {
+    const f = await inPlaceFixture();
+    const hash = 141;
+    const previous = f.read(`live/tooltips/${hash}.json`) as Tooltip;
+    f.options.aliases = { 999: { to: hash, kind: 'frame' } };
+    const parent = f.git.head(L)!;
+    const input = live(f);
+    input.perks[999] = { hash: 999, aliasOf: hash, aliasKind: 'frame' };
+    const candidate = f.git.commit(parent, {
+      ...f.git.tree(parent),
+      'liveDescriptions.json': f.git.writeBlob(encode(input)),
+    });
+    f.git.cas(L, parent, candidate);
+    const marker = await inactivePublishableHash(previous, {});
+    expect(await inactivePublishableHash(previous, f.options.aliases)).not.toBe(marker);
+    const saved = {
+      ...previous,
+      text: { ...previous.text, de: cell('Neue Übersetzung') },
+      legacy: { ...previous.legacy, lastUpload: 100, uploadedBy: 'editor' },
+    };
+    f.change({ 'live/pushed.json': { [hash]: marker }, [`tooltips/${hash}.json`]: saved });
+    const preview = await bundleTranslations(f.pub, f.current(), candidate, { [hash]: saved });
+    expect(preview.lanes.de).toContainEqual(expect.objectContaining({ hash, status: 'ready' }));
+    expect(preview.only.tooltips).toEqual([hash]);
+    f.options.aliases = {};
+    const pendingAlias = await bundleTranslations(f.pub, f.current(), candidate, { [hash]: saved });
+    expect(pendingAlias.only.tooltips).toEqual([]);
+    f.change({ 'live/pushed.json': {} });
+    const unverified = await bundleTranslations(f.pub, f.current(), candidate, { [hash]: saved });
+    expect(unverified.lanes.de).toContainEqual(
+      expect.objectContaining({
+        hash,
+        status: 'waiting',
+        reason: expect.stringContaining('could not be verified'),
+      }),
+    );
+  });
   it('binds alias copies and their LIVE facts to the scoped global preview', async () => {
     const f = await inPlaceFixture();
     const source = f
@@ -548,7 +585,14 @@ describe('in-place shared text publication', () => {
       ...source,
       definitions: { ...source.definitions, de: { ...definition, body: '35' } },
     };
+    let kicks = 0;
+    const queueMovement = () => {
+      f.change({ [`publish/kicks/${A}-${++kicks}.json`]: {} });
+      if (kicks < 3) f.git.beforeAtomic = queueMovement;
+    };
+    f.git.beforeAtomic = queueMovement;
     await publish(A, selected);
+    expect(kicks).toBe(3);
     const landed = f.git.head(L)!;
     const receipt = f.pub.receipt(landed, A)!;
     const frozen = receipt.sourceCommit;
@@ -583,6 +627,34 @@ describe('in-place shared text publication', () => {
     expect(withdrawal).toMatchObject({ removed: true, englishFallback: true });
     expect(live(f).perks[141]).toMatchObject({
       editor: { en: { main: '20' }, de: { main: '20', englishFallback: true } },
+    });
+    const staleId = A.slice(0, -1) + '4';
+    const stale: TranslationPublishPayload = JSON.parse(f.read(paths(A).log).request.payload);
+    stale.opId = staleId;
+    stale.intentDigest = await translationPublishIntentDigest(stale);
+    const staleBytes = stableStringify(stale);
+    const movedEnglish = {
+      ...selected,
+      definitions: {
+        ...selected.definitions,
+        en: { ...source.definitions.en, updatedAt: '2026-11-01T00:00:00Z' },
+      },
+    };
+    f.change({
+      [f.entryPath]: movedEnglish,
+      [paths(staleId).request]: { payload: staleBytes, sig: f.sign(staleBytes) },
+    });
+    const record = f.pub.record.bind(f.pub);
+    const kick = `publish/kicks/${staleId}-1.json`;
+    vi.spyOn(f.pub, 'record').mockImplementationOnce(async (...args) => {
+      f.change({ [kick]: {} });
+      return record(...args);
+    });
+    await f.pub.operation(staleId);
+    expect(f.current()[kick]).toBeDefined();
+    expect(f.read(paths(staleId).log).result).toMatchObject({
+      status: 'rejected',
+      rows: [{ id, lang: 'de', reason: 'english-pending' }],
     });
     const beforeRevoked = f.git.head(L);
     await publish(A.slice(0, -1) + '3', selected, true);
