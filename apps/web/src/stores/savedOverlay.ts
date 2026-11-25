@@ -43,6 +43,22 @@ export function rememberSaved(
   serverAt?: number,
   commit?: string,
 ): void {
+  recordSaved(tooltips, deleted, now, serverAt, commit);
+  for (const listener of savedListeners) listener({ tooltips, deleted });
+}
+
+/** Recovery replays receipts before comparing the effective bundle against Review's picks. */
+export function replaySaved(tooltips: Tooltip[], at: number, serverAt?: number, commit?: string) {
+  recordSaved(tooltips, [], at, serverAt, commit);
+}
+
+function recordSaved(
+  tooltips: Tooltip[],
+  deleted: number[],
+  now: number,
+  serverAt?: number,
+  commit?: string,
+): void {
   // Broken epoch/ancient timestamps must not retire a fresh save immediately. A day allows
   // substantial browser skew; unusable server times retain the legacy browser-clock fallback.
   serverAt =
@@ -58,7 +74,6 @@ export function rememberSaved(
   }
   for (const hash of deleted) entries.set(hash, { at: now, serverAt, tooltip: null });
   version++;
-  for (const listener of savedListeners) listener({ tooltips, deleted });
 }
 
 /** Global entries this tab saved, with the data head each save produced. */

@@ -1,5 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { carryNumberTranslations, reconcileNumberMap } from '@clarity/core';
+import { pendingTooltips } from '../../features/review/model';
+import { useReviewQueue } from '../../features/review/queueStore';
+import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { useDraftStore } from '../../stores/drafts';
 import { clearSavedOverlay } from '../../stores/savedOverlay';
@@ -36,6 +39,9 @@ const records = (): SaveReceipt[] => [
 let stop: (() => void) | undefined;
 afterEach(() => {
   stop?.();
+  useReviewQueue.getState().clearSelection();
+  useReviewQueue.setState({ entries: null });
+  useAuthStore.setState({ user: null, loading: false });
   clearSavedOverlay();
   vi.unstubAllGlobals();
   read.mockReset();
@@ -141,4 +147,39 @@ it('retains an edited draft even when its previously submitted content arrives',
     },
   });
   expect(useDraftStore.getState().drafts[400]?.next).toEqual(editedLater);
+});
+
+it('keeps a Review tick when recovery replays an obsolete acknowledged save', async () => {
+  const storage = new Map<string, string>();
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+  });
+  const user = { id: 1, login: 'fixture', role: 'editor' as const };
+  const latest = { ...tooltip, associated: [1234] };
+  const first = records();
+  // Save 1's receipt remains in IndexedDB for 24 hours after save 2 catches up in the bundle.
+  first[0] = { ...first[0], at: Date.now() - 16 * 60 * 1000 };
+  const data = start(first);
+  const latestData = {
+    ...data,
+    bundle: { ...data.bundle, tooltips: { ...data.bundle.tooltips, 123: latest } },
+  };
+  stop?.();
+  read.mockResolvedValueOnce(first);
+  useDataStore.setState({ data: latestData });
+  useAuthStore.setState({ user, loading: false });
+  const queue = useReviewQueue.getState();
+  const entries = await pendingTooltips(latestData);
+  expect(entries.find(({ tooltip }) => tooltip.hash === 123)?.tooltip).toEqual(latest);
+  queue.setEntries(entries);
+  queue.toggle(123);
+  expect(useReviewQueue.getState().selected.has(123)).toBe(true);
+  expect(storage.size).toBe(1);
+  stop = startSaveRecovery();
+  await Promise.resolve();
+  expect(useDataStore.getState().data!.bundle.tooltips[123]).toEqual(latest);
+  expect(storage.size).toBe(1);
+  expect(useReviewQueue.getState().selected.has(123)).toBe(true);
 });
