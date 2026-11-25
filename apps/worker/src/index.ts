@@ -1,4 +1,5 @@
 import publisherConfig from '../../../config/publisher.json';
+import { permissionsSchema, translationPublishContract } from '@clarity/core';
 import { ZodError } from 'zod';
 import { agentGuidance } from './agentGuidance.js';
 import { callback, identity, login, siteOrigins } from './auth.js';
@@ -11,6 +12,13 @@ import { HttpError, json } from './http.js';
 import { managedLanguages, partnerProjects, permissions, roleOf } from './permissions.js';
 import { rollbackUpload, translatorsRoute } from './managers.js';
 import { publish, publishKey, publishStatus, publishKick } from './publish.js';
+import {
+  translationPartRows,
+  translationPublishEnabled,
+  translationReadinessPaths,
+  translationRoots,
+  wantsTranslationContract,
+} from './translationPublish.js';
 import { pushLive } from './push.js';
 import { sandboxPointersRoute } from './sandboxPointers.js';
 import { inactiveMovesRoute } from './inactiveMoves.js';
@@ -64,18 +72,37 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (['GET', 'POST'].includes(request.method) && path === '/compendium/agent-guidance')
     return agentGuidance(request, github, user);
   if (request.method === 'GET' && path === '/me') {
-    const config = await permissions(github, await github.head());
+    const scoped =
+      publisherConfig.enabled && translationPublishEnabled(env) && wantsTranslationContract(url)
+        ? await github.publishSnapshot(['config/permissions.json', ...translationReadinessPaths])
+        : undefined;
+    const config = scoped
+      ? permissionsSchema.parse(scoped.files[0]?.value)
+      : await permissions(github, await github.head());
     const projects = partnerProjects(config, user);
     const manages = managedLanguages(config.users[String(user.id)]);
+    const role = roleOf(config, user);
+    const ready =
+      scoped &&
+      (role === 'maintainer' || role === 'editor' || role === 'translator') &&
+      translationRoots(scoped.files.slice(1), env.LIVE_BRANCH);
     return json({
       id: user.id,
       login: user.login,
-      role: roleOf(config, user),
+      role,
       schedulePreparation: switches.preparation(),
       ...(github.env.COMPENDIUM_DECISION_WRITES === '1' ? { compendiumDecisions: true } : {}),
       languages: config.users[String(user.id)]?.languages ?? [],
       ...(manages.length ? { manages } : {}),
       ...(projects.length ? { projects } : {}),
+      ...(ready
+        ? {
+            translationPublish: {
+              version: translationPublishContract,
+              partRows: translationPartRows,
+            },
+          }
+        : {}),
     });
   }
   if (path === '/exports/projects' || path.startsWith('/exports/projects/')) {
