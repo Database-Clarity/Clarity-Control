@@ -1,8 +1,11 @@
 import { isTerminal, type PublishOp } from '../../services/publisher/opStore';
+import { languageLabel } from '../../languageLabels';
+import { translationKey } from '../../services/translationPublish';
 import {
   needsPublishReceipt,
   publishTiming,
   regroupRefusals,
+  remainder,
 } from './publishDriver';
 
 export type Tone = 'busy' | 'ok' | 'warn' | 'bad';
@@ -29,10 +32,24 @@ function elapsed(start: number, end: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-const changeCount = (op: PublishOp) => op.hashes.length + (op.globals?.length ?? 0);
+const changeCount = (op: PublishOp) =>
+  op.translations?.length ?? op.hashes.length + (op.globals?.length ?? 0);
+
+const changeNoun = (op: PublishOp) =>
+  op.translations ? 'translations' : op.globals ? 'changes' : 'tooltips';
+
+/** "3 German translations", or "3 translations" of several languages. */
+function translationNames(op: PublishOp): string {
+  const n = changeCount(op);
+  const langs = new Set(op.translations!.map(({ row }) => row.lang));
+  const language = langs.size === 1 ? `${languageLabel([...langs][0]!)} ` : '';
+  return `${n} ${language}translation${n === 1 ? '' : 's'}`;
+}
 
 /** "3 tooltips", with the globals by name ("G_refill and 3 tooltips"; four or more are counted). */
-function changeNames({ hashes, globals = [] }: PublishOp): string {
+function changeNames(op: PublishOp): string {
+  if (op.translations) return translationNames(op);
+  const { hashes, globals = [] } = op;
   const tooltips = `${hashes.length} tooltip${hashes.length === 1 ? '' : 's'}`;
   return new Intl.ListFormat('en').format([
     ...(globals.length > 3 ? [`${globals.length} globals`] : globals.map(({ name }) => name)),
@@ -40,8 +57,8 @@ function changeNames({ hashes, globals = [] }: PublishOp): string {
   ]);
 }
 
-const notPublished = (globals: NonNullable<PublishOp['refusedGlobals']>) =>
-  `Not published: ${globals.map(({ name, error }) => `${name} (${error.replace(/[.]$/, '')})`).join('; ')}.`;
+const notPublished = (refused: readonly { name: string; error: string }[]) =>
+  `Not published: ${refused.map(({ name, error }) => `${name} (${error.replace(/[.]$/, '')})`).join('; ')}.`;
 
 /**
  * The one place statuses become words. Wording keeps "nothing went live" explicit when true.
@@ -61,7 +78,7 @@ export function describeOp(
   const tooltipCount = changeNames(op);
   const lead =
     liveCount !== undefined && !isTerminal(op.status)
-      ? `${liveCount} of ${count} ${op.globals ? 'changes' : 'tooltips'} live.`
+      ? `${liveCount} of ${count} ${changeNoun(op)} live.`
       : op.status === 'done' || op.status === 'pending'
         ? tooltipCount
         : `${tooltipCount} · ${when(startedAt)}`;
@@ -69,6 +86,10 @@ export function describeOp(
   // What a finished request left out waits in Review; the rest is live.
   if (op.refusedGlobals?.length && (op.status === 'done' || op.status === 'unchanged'))
     return { ...base, tone: 'warn', chip: 'Partly live', detail: notPublished(op.refusedGlobals) };
+  if (op.refusedRows?.length && isTerminal(op.status))
+    return op.status === 'done' || op.status === 'unchanged'
+      ? { ...base, tone: 'warn', chip: 'Partly live', detail: notPublished(op.refusedRows) }
+      : { ...base, tone: 'bad', chip: 'Refused', detail: notPublished(op.refusedRows) };
   switch (op.status) {
     case 'created':
       return {
@@ -109,7 +130,7 @@ export function describeOp(
         ...base,
         tone: 'ok',
         chip: 'Already live',
-        detail: `Live already matched these ${op.globals ? 'changes' : 'tooltips'}.`,
+        detail: `Live already matched these ${changeNoun(op)}.`,
       };
     case 'stale':
       return {
@@ -126,7 +147,8 @@ export function describeOp(
         tone: 'bad',
         chip: 'Rejected',
         detail:
-          op.error ?? 'The publisher refused this request. Nothing went live; check the tooltips.',
+          op.error ??
+          `The publisher refused this request. Nothing went live; check the ${op.translations ? 'translations' : 'tooltips'}.`,
       };
     case 'failed':
       return {
@@ -157,6 +179,60 @@ export function foreignWaiting(
     : undefined;
 }
 
+/** A translator's publish as one action: the parts it went out in stay invisible. */
+function groupTranslations(members: PublishOp[]): ReturnType<typeof groupPublishes>[number] {
+  const first = members[0]!;
+  const owed = members.some((op) => remainder(op, members).length > 0);
+  const unfinished =
+    members.find((op) => op.status === 'pending') ?? members.find((op) => !isTerminal(op.status));
+  const checking = !unfinished && (owed || members.some(needsPublishReceipt));
+  const refusedRows = members.flatMap((op) => op.refusedRows ?? []);
+  const live = members.filter((op) => op.status === 'done' || op.status === 'unchanged');
+  const failed = members.find(
+    (op) => isTerminal(op.status) && !live.includes(op) && !op.refusedRows?.length,
+  );
+  const liveCount = live.reduce((total, op) => total + changeCount(op), 0);
+  // Every row once: a resent row belongs to the request it was last sent with.
+  const translations = [
+    ...new Map(
+      members
+        .flatMap((op) => op.translations ?? [])
+        .map((entry) => [translationKey(entry.row), entry]),
+    ).values(),
+  ];
+  const { refusedRows: _, ...op } = first;
+  return {
+    members,
+    liveCount: members.length > 1 ? liveCount : undefined,
+    checking,
+    op: {
+      ...op,
+      groupCreatedAt: Math.min(...members.map((op) => op.groupCreatedAt ?? op.createdAt)),
+      updatedAt: Math.max(...members.map((op) => op.updatedAt)),
+      acceptedAt: unfinished ? (unfinished.acceptedAt ?? unfinished.createdAt) : first.acceptedAt,
+      translations,
+      ...(refusedRows.length && !failed ? { refusedRows } : {}),
+      status: unfinished
+        ? unfinished.status
+        : checking
+          ? 'pending'
+          : failed
+            ? failed.status
+            : live.length
+              ? live.every((op) => op.status === 'unchanged') && !refusedRows.length
+                ? 'unchanged'
+                : 'done'
+              : 'rejected',
+      error:
+        failed && (live.length || refusedRows.length)
+          ? `${liveCount} of ${translations.length} translations confirmed live. ${
+              refusedRows.length ? `${notPublished(refusedRows)} ` : ''
+            }${failed.error ?? 'Check the live text before publishing the rest again.'}`
+          : failed?.error,
+    },
+  };
+}
+
 /**
  * Present one confirmed action; a queued part wins over one still sending, and both win over
  * partial success or failure. `checking`: combining with every part finished (nothing to kick).
@@ -172,6 +248,7 @@ export function groupPublishes(
     groups.set(id, members);
   }
   return [...groups.values()].map((members) => {
+    if (members.some((op) => op.translations)) return groupTranslations(members);
     const first = members[0]!;
     const tooltips = members.reduce((total, op) => total + op.hashes.length, 0);
     const count = members.reduce((total, op) => total + changeCount(op), 0);

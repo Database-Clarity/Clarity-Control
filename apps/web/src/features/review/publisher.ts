@@ -1,10 +1,16 @@
 import { apiUrl } from '../../services/api';
-import { kickPublish, getPublishStatus, postPublish } from '../../services/publisher/api';
+import {
+  getPublishStatus,
+  kickPublish,
+  postPublish,
+  postTranslations,
+} from '../../services/publisher/api';
 import { publisherEnabled } from '../../services/publisher/flag';
 import { createIndexedDbOpStore } from '../../services/publisher/opStore';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
-import { canPush } from './model';
+import { translationKey } from '../../services/translationPublish';
+import { canPublishTranslations, canPushLive as canPush } from '../auth/permissions';
 import { PublishDriver } from './publishDriver';
 import { useReviewSession } from './session';
 
@@ -14,7 +20,7 @@ const store = createIndexedDbOpStore();
 /** The tab's publisher. Inert (never touches storage or the network) unless the flag is on. */
 export const publishDriver = new PublishDriver({
   store,
-  api: { post: postPublish, status: getPublishStatus, kick: kickPublish },
+  api: { post: postPublish, postTranslations, status: getPublishStatus, kick: kickPublish },
   now: () => Date.now(),
   setTimer: (run, ms) => setTimeout(run, ms),
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
@@ -22,6 +28,16 @@ export const publishDriver = new PublishDriver({
   broadcast: () => channel?.postMessage('changed'),
   acknowledge(op) {
     useReviewSession.setState((state) => ({
+      ...(op.translations
+        ? {
+            translations: {
+              ...state.translations,
+              ...Object.fromEntries(
+                op.translations.map(({ row }) => [translationKey(row), row.expected]),
+              ),
+            },
+          }
+        : {}),
       ...(op.globals
         ? {
             globals: {
@@ -69,19 +85,27 @@ export function startPublisher(): void {
       : undefined;
   useDataStore.subscribe((state, previous) => {
     const generatedAt = state.data?.bundle.generatedAt;
-    if (generatedAt !== previous.data?.bundle.generatedAt && canPush(useAuthStore.getState().user))
+    const { user } = useAuthStore.getState();
+    if (
+      generatedAt !== previous.data?.bundle.generatedAt &&
+      (canPush(user) || canPublishTranslations(user))
+    )
       void observeBundle(generatedAt);
   });
   let key: string | null | undefined;
   const sync = () => {
     const { user, token } = useAuthStore.getState();
     // A new session token for the same account also restarts: paused (signed-out) sends resume.
-    const next = canPush(user) ? `${String(user!.id)}|${token ?? ''}` : null;
+    const translator = canPublishTranslations(user);
+    const next =
+      canPush(user) || translator
+        ? `${String(user!.id)}|${token ?? ''}${translator ? '|translations' : ''}`
+        : null;
     if (next === key) return;
     key = next;
     if (next) {
       void observeBundle(useDataStore.getState().data?.bundle.generatedAt);
-      void publishDriver.start(String(user!.id));
+      void publishDriver.start(String(user!.id), translator);
     } else publishDriver.stop();
   };
   useAuthStore.subscribe(sync);

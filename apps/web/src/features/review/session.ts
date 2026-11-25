@@ -6,6 +6,7 @@ import {
 } from '@clarity/core';
 import { pushSelected } from '../../services/history';
 import { errorMessage } from '../../services/http';
+import { translationKey } from '../../services/translationPublish';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
 import { canPushLive } from '../auth/permissions';
@@ -20,6 +21,8 @@ interface ReviewSession {
   acknowledgments: Record<string, Acknowledgment>;
   /** Published globals, by id: the definition digest that went live. */
   globals: Record<string, string>;
+  /** Translations this session published, by row: the saved text's digest that went live. */
+  translations: Record<string, string>;
   pushing: boolean;
   notice: string | undefined;
   error: string | undefined;
@@ -29,6 +32,7 @@ interface ReviewSession {
 export const useReviewSession = create<ReviewSession>(() => ({
   acknowledgments: {},
   globals: {},
+  translations: {},
   pushing: false,
   notice: undefined,
   error: undefined,
@@ -51,6 +55,26 @@ export function acknowledgedGlobals(data: EditorData): ReadonlySet<string> {
     useReviewSession.setState({ globals: Object.fromEntries(waiting) });
   return new Set(waiting.map(([id]) => id));
 }
+
+/** Rows this session published that the loaded bundle still lists with that saved text. */
+export function acknowledgedTranslations(data: EditorData): ReadonlySet<string> {
+  const { translations } = useReviewSession.getState();
+  const acknowledged = Object.entries(translations);
+  if (!acknowledged.length) return none;
+  const rows = new Map(
+    Object.values(data.bundle.translationPublish?.lanes ?? {})
+      .flat()
+      .map((row) => [translationKey(row!), row!]),
+  );
+  const waiting = acknowledged.filter(([key, expected]) => {
+    const row = rows.get(key);
+    return row?.status === 'ready' && row.expected === expected;
+  });
+  if (waiting.length !== acknowledged.length)
+    useReviewSession.setState({ translations: Object.fromEntries(waiting) });
+  return new Set(waiting.map(([key]) => key));
+}
+const none: ReadonlySet<string> = new Set();
 
 export function acknowledgedMarkers(data: EditorData): Readonly<Record<string, string>> {
   const { acknowledgments } = useReviewSession.getState();

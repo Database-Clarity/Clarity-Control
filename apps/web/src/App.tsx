@@ -82,17 +82,17 @@ const workspaceLoaders: Record<string, () => Promise<unknown>> = {
 };
 
 function WorkspaceRouteLayer() {
-  const role = useAuthStore((state) => state.user?.role);
+  const user = useAuthStore((state) => state.user);
   const loading = useAuthStore((state) => state.loading);
   const ready = useDataStore((state) => state.status === 'ready');
   useEffect(() => {
     if (!ready || loading) return;
     return preloadWorkspaces(
-      visibleLinks(role ? { role } : null)
+      visibleLinks(user?.role ? user : null)
         .map(({ to }) => workspaceLoaders[to])
         .filter((load) => load !== undefined),
     );
-  }, [role, ready, loading]);
+  }, [user, ready, loading]);
   return <Layout />;
 }
 // Per-entry globals (stable IDs) replace the aggregate list and the /t/1–/t/3 editors only when

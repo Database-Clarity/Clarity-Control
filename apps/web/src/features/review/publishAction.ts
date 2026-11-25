@@ -1,8 +1,12 @@
 import { inactivePublishableHash, isMovedInactive, type Tooltip } from '@clarity/core';
+import { languageLabel } from '../../languageLabels';
 import { errorMessage } from '../../services/http';
+import { translationRequestRow } from '../../services/translationPublish';
 import { sameUser, useAuthStore } from '../../stores/auth';
 import { useDataStore, type EditorData } from '../../stores/data';
+import { publishLanguages } from '../auth/permissions';
 import { neededGlobals } from './globalsPending';
+import type { LaneEntry } from './lanes';
 import { canPush, type PendingTooltip } from './model';
 import { publishDependencies } from './publishDependencies';
 import {
@@ -120,6 +124,44 @@ export function planReviewedPublish(
     throw reason;
   }
   return planned;
+}
+
+/**
+ * A translator's publish: the confirmed rows as scoped requests of their languages only. The rows
+ * and their reviewed facts come from the bundle; the Worker and the publisher check them again.
+ */
+export async function queueTranslations(
+  chosen: readonly LaneEntry[],
+  data: EditorData,
+): Promise<boolean> {
+  const { user } = useAuthStore.getState();
+  const languages = publishLanguages(user);
+  if (!chosen.length || useReviewSession.getState().pushing) return false;
+  useReviewSession.setState({ pushing: true, notice: undefined, error: undefined });
+  try {
+    if (
+      useDataStore.getState().data !== data ||
+      chosen.some(({ lane }) => !languages.includes(lane.lang))
+    )
+      throw new Error('The list changed. Review it and publish again');
+    const rows = chosen.flatMap(({ lane, name }) =>
+      lane.row?.status === 'ready'
+        ? [
+            {
+              row: translationRequestRow(lane.row),
+              name: languages.length > 1 ? `${name} (${languageLabel(lane.lang)})` : name,
+            },
+          ]
+        : [],
+    );
+    await publishDriver.createTranslations(rows, user!.translationPublish!.partRows);
+    return true;
+  } catch (reason) {
+    useReviewSession.setState({ error: `${errorMessage(reason).replace(/[.!?]*$/, '.')}` });
+    return false;
+  } finally {
+    useReviewSession.setState({ pushing: false });
+  }
 }
 
 /**

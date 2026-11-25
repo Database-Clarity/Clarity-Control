@@ -6,10 +6,13 @@ import { create } from 'zustand';
  */
 export const useSaveNotice = create<{
   notice: string | null;
-  show(message: string): void;
+  /** Where the saved translation waits in Review, for an account that publishes it there. */
+  review: string | null;
+  show(message: string, review?: string): void;
   dismiss(): void;
 }>((set) => ({
   notice: null,
-  show: (notice) => set({ notice }),
-  dismiss: () => set({ notice: null }),
+  review: null,
+  show: (notice, review = undefined) => set({ notice, review: review ?? null }),
+  dismiss: () => set({ notice: null, review: null }),
 }));

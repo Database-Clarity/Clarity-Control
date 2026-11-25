@@ -18,6 +18,7 @@ import {
   type Tooltip,
 } from '@clarity/core';
 import type { Bundle } from '../../services/bundle';
+import { categoryDisplay } from '../../services/categoryLabels';
 import type { EditorData } from '../../stores/data';
 import { globalTypes, type GlobalKind } from '../globals/model';
 import type { PendingTooltip } from './model';
@@ -36,19 +37,31 @@ export function globalKey(id: string): number {
   return key;
 }
 
-const noun = { variables: 'variable', titles: 'title', exports: 'export' } as const;
+export const globalNoun = { variables: 'variable', titles: 'title', exports: 'export' } as const;
 /** What a row shows where a tooltip shows its hash. */
-export const rowIdentity = ({ tooltip, part }: PendingTooltip): string =>
-  part?.pending ? noun[part.kind] : String(tooltip.hash);
+export const rowIdentity = ({ tooltip, part, lane }: PendingTooltip): string =>
+  lane ? lane.identity : part?.pending ? globalNoun[part.kind] : String(tooltip.hash);
+
+/** Globals are listed with the items that have no category of their own. */
+export const globalCategory = ({ categories }: EditorData) => ({
+  category: 'Globals',
+  categoryId: '~globals',
+  categoryOrder: (categories.find(({ id }) => id === 'none') ?? categoryDisplay('none')).order,
+});
 
 /** One ordinary row per global whose saved definition is not the published one. */
 export function globalEntries(
   data: EditorData,
   {
-    order,
     settled,
     ahead,
-  }: { order: number; settled: ReadonlySet<string>; ahead: ReadonlySet<string> },
+    only,
+  }: {
+    settled: ReadonlySet<string>;
+    ahead: ReadonlySet<string>;
+    /** Globals where only translations wait. */
+    only: ReadonlySet<string>;
+  },
 ): PendingTooltip[] {
   return (data.bundle.globalsPending ?? []).flatMap((pending) => {
     if (settled.has(pending.id)) return [];
@@ -74,10 +87,9 @@ export function globalEntries(
     const entry: PendingTooltip = {
       tooltip: after.tooltip,
       name: pending.name,
-      category: 'Globals',
-      categoryId: '~globals',
-      categoryOrder: order,
+      ...globalCategory(data),
       markerOnly: false,
+      ...(only.has(pending.id) && unpublishable === undefined ? { translationOnly: true } : {}),
       isNew: pending.change === 'new',
       ...(ahead.has(pending.id) ? {} : { savedVersion: pending.digest }),
       ...(unpublishable === undefined ? {} : { unpublishable }),

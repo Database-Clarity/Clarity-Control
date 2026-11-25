@@ -1,7 +1,7 @@
-import { globalsInPlacePublishContract } from '@clarity/core';
+import { globalsInPlacePublishContract, translationPublishReasons } from '@clarity/core';
 import { expect, it, vi } from 'vitest';
 import { apiRequest } from '../api';
-import { postPublish } from './api';
+import { getPublishStatus, postPublish, postTranslations } from './api';
 
 vi.mock('../api', () => ({ apiRequest: vi.fn() }));
 
@@ -57,6 +57,52 @@ it('returns the named terminal reason for a changed selection', async () => {
     refusal: reason,
     regroupable: false,
   });
+});
+
+const translations = {
+  opId: 'op',
+  scope: 'translations' as const,
+  rows: [],
+};
+it('reads a translators’ refusal by row, in the shared reason text only', async () => {
+  const rows = [
+    { kind: 'tooltip', hash: 10, lang: 'de', reason: 'english-pending', message: 'internal' },
+    { kind: 'global', id: 'g_refill-0001', lang: 'de', reason: 'unknown-code' },
+  ];
+  const refused = [{ key: '10:de', error: translationPublishReasons['english-pending'] }];
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ opId: 'op', result: { status: 'rejected', rows } }),
+  );
+  await expect(postTranslations(translations)).resolves.toEqual({
+    status: 'rejected',
+    rows: refused,
+  });
+  expect(apiRequest).toHaveBeenLastCalledWith(
+    '/publish?contract=translation-publish-v1',
+    expect.objectContaining({ body: JSON.stringify(translations) }),
+  );
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ error: 'Refused', details: { rows } }, { status: 409 }),
+  );
+  await expect(postTranslations(translations)).rejects.toMatchObject({
+    status: 409,
+    rows: refused,
+  });
+});
+
+it('asks for a translators’ operation with its contract, and never adopts another one', async () => {
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ operations: [{ opId: 'op', status: 'unknown' }] }),
+  );
+  await expect(getPublishStatus('op', true)).resolves.toBe('unknown');
+  expect(apiRequest).toHaveBeenLastCalledWith(
+    '/publish/status?opId=op&contract=translation-publish-v1',
+    expect.anything(),
+  );
+  vi.mocked(apiRequest).mockResolvedValueOnce(
+    Response.json({ opId: 'other', status: 'pending' }, { status: 202 }),
+  );
+  await expect(postTranslations(translations)).rejects.toMatchObject({ status: 502 });
 });
 
 it.each([

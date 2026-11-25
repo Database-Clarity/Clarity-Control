@@ -42,6 +42,7 @@ export {
   subscribeSession,
   rememberSignIn,
   consumePendingSignIn,
+  translationContract,
   type User,
   type Me,
 } from './apiAuth';

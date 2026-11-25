@@ -21,7 +21,18 @@ import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { useAdvanceSetting } from '../compendium/advanceSetting';
 import { useRawDiff } from '../history/diffPreference';
 import { useLeftQueue } from '../queue/useQueue';
-import { editorLabel, editorPath, publishedOf, routedRow, rowKey, type RowKey } from './globalRows';
+import { publishLanguages } from '../auth/permissions';
+import { languageLabel } from '../../languageLabels';
+import {
+  editorLabel,
+  editorPath,
+  isFolded,
+  publishedOf,
+  routedRow,
+  rowKey,
+  type RowKey,
+} from './globalRows';
+import { independentLanes, inLanguage, isLane, laneEntries, type LaneEntry } from './lanes';
 import { neededGlobals, rowIdentity } from './globalsPending';
 import { classifyRows, classifyTooltip, kindOf, localKind, useKinds, useRowKinds } from './kinds';
 import {
@@ -34,16 +45,22 @@ import {
 } from './model';
 import { loadPublished, publishedFor, publishedRows, usePublished } from './published';
 import { PublishActivity } from './PublishActivity';
-import { planReviewedPublish, queuePublish, withNeededGlobals } from './publishAction';
+import {
+  planReviewedPublish,
+  queuePublish,
+  queueTranslations,
+  withNeededGlobals,
+} from './publishAction';
 import { publishDriver } from './publisher';
 import { PushConfirm } from './PushConfirm';
 import { queueView, stepRow, type RowKinds } from './queueModel';
 import { useReviewQueue } from './queueStore';
 import { ReviewDetail, RestoreLive } from './ReviewDetail';
-import { filterParams, SelectionCounts, useInFlight } from './ReviewSidebar';
+import { filterParams, readyCount, SelectionCounts, useInFlight } from './ReviewSidebar';
 import {
   acknowledgedGlobals,
   acknowledgedMarkers,
+  acknowledgedTranslations,
   publishReviewed,
   useReviewSession,
 } from './session';
@@ -130,17 +147,37 @@ export function ReviewPage() {
     error: pushError,
     acknowledgments,
     globals: publishedGlobals,
+    translations: publishedTranslations,
   } = useReviewSession();
+  // A translator reviews their own languages: one row per entry and language, from the bundle.
+  const languages = useMemo(() => publishLanguages(user), [user]);
+  const translator = languages.length > 0;
+  const mayPublish = canPush(user) || translator;
+  const lanes = useMemo(
+    () =>
+      translator && data
+        ? { entries: laneEntries(data, languages, acknowledgedTranslations(data)), data }
+        : undefined,
+    // The session's published rows leave the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [translator, data, languages, publishedTranslations],
+  );
   const prepared = useMemo(
     () =>
-      data && !Object.keys(acknowledgments).length && !Object.keys(publishedGlobals).length
+      !translator &&
+      data &&
+      !Object.keys(acknowledgments).length &&
+      !Object.keys(publishedGlobals).length
         ? preparedPending(data)
         : undefined,
-    [data, acknowledgments, publishedGlobals],
+    // The account decides if rows where only translations wait are folded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, acknowledgments, publishedGlobals, translator, user],
   );
-  const [comparison, setComparison] = useState(() =>
+  const [compared, setComparison] = useState(() =>
     prepared && data ? { entries: prepared, data } : undefined,
   );
+  const comparison = translator ? lanes : compared;
   const entries = comparison?.entries;
   const selected = useReviewQueue((state) => state.selected);
   const versions = useReviewQueue((state) => state.versions);
@@ -149,6 +186,7 @@ export function ReviewPage() {
   const message = useReviewQueue((state) => state.message);
   const collapsed = useReviewQueue((state) => state.collapsed);
   const leftovers = useReviewQueue((state) => state.leftovers);
+  const translations = useReviewQueue((state) => state.translations);
   // What the confirm dialog lists is exactly what gets pushed, from the snapshot it was opened on.
   const [confirming, setConfirming] = useState<{
     entries: PendingTooltip[];
@@ -156,9 +194,13 @@ export function ReviewPage() {
     account: string;
     inputs?: ReturnType<typeof planReviewedPublish>;
     needed?: ReadonlyMap<PendingTooltip, string>;
+    /** A translator's publish, and the ticked rows that wait for another of them. */
+    lanes?: LaneEntry[];
+    held?: ReadonlyMap<PendingTooltip, PendingTooltip>;
   }>();
   // A newer snapshot is being compared; the old list and open change stay on screen meanwhile.
-  const [comparing, setComparing] = useState(!prepared);
+  const [checking, setComparing] = useState(!prepared);
+  const comparing = !translator && checking;
   const query = searchParams.get('query') ?? '';
   const kindFilter = searchParams.get('kind') ?? '';
   const publisher = publisherEnabled();
@@ -178,7 +220,7 @@ export function ReviewPage() {
   const [error, setError] = useState<string>();
   useEffect(() => {
     let active = true;
-    if (!data) return;
+    if (!data || translator) return;
     const install = (entries: PendingTooltip[]) => {
       setComparison((previous) =>
         previous?.entries === entries && previous.data === data ? previous : { entries, data },
@@ -212,10 +254,10 @@ export function ReviewPage() {
     return () => {
       active = false;
     };
-  }, [data, acknowledgments, publishedGlobals, prepared]);
+  }, [data, acknowledgments, publishedGlobals, prepared, translator]);
   const list = entries ?? noEntries;
   // What the list shows; what is ticked and published is always an entry of `list`.
-  const rows = list;
+  const rows = inLanguage(list, searchParams.get('lang'));
   // The published text of every waiting change, once, in the background; then the row words.
   const published = usePublished((state) => state.byHash);
   const classified = useKinds((state) => state.byHash);
@@ -232,11 +274,12 @@ export function ReviewPage() {
   }, [entries, rows, published, data]);
   const kinds = useRowKinds(rows);
   const view = useMemo(
-    () => queueView(rows, query, kindFilter, collapsed, leftovers, kinds),
-    [rows, query, kindFilter, collapsed, leftovers, kinds],
+    () => queueView(rows, query, kindFilter, collapsed, leftovers, kinds, translations),
+    [rows, query, kindFilter, collapsed, leftovers, kinds, translations],
   );
   const { ordered } = view;
-  const changeCount = useMemo(() => list.filter(({ markerOnly }) => !markerOnly).length, [list]);
+  const changes = useMemo(() => list.filter((entry) => !isFolded(entry)), [list]);
+  const changeCount = changes.length;
   const routedHash = searchParams.get('hash');
   const routed = routedHash === null ? undefined : routedRow(ordered, routedHash);
   const routedIndex = routed ? ordered.indexOf(routed) : -1;
@@ -318,7 +361,8 @@ export function ReviewPage() {
     [selected, versions, list, inFlight],
   );
   const previewSelection = useMemo(() => {
-    if (!current || current.part || !data?.bundle.globalsPending || !entries) return undefined;
+    if (!current || current.part || current.lane || !data?.bundle.globalsPending || !entries)
+      return undefined;
     const hashes = new Set(chosen.map(({ tooltip }) => tooltip.hash));
     const preview = hashes.has(current.tooltip.hash) ? chosen : [...chosen, current];
     for (const { global } of neededGlobals(preview, entries, data))
@@ -341,7 +385,7 @@ export function ReviewPage() {
     selected.has(current.tooltip.hash) &&
     versions.get(rowKey(current)) === current.savedVersion;
   const locked = current
-    ? pushing || !canPush(user) || !!current.unpublishable || inFlight.has(current.tooltip.hash)
+    ? pushing || !mayPublish || !!current.unpublishable || inFlight.has(current.tooltip.hash)
     : true;
 
   // ---- Include / Skip / Undo, with the Compendium's auto-advance pause ----
@@ -406,7 +450,7 @@ export function ReviewPage() {
     // Only a role that can publish, and never while a reload may replace the reviewed snapshot.
     if (
       account === null ||
-      !canPush(user) ||
+      !mayPublish ||
       !data ||
       !entries ||
       comparison.data !== data ||
@@ -417,6 +461,11 @@ export function ReviewPage() {
       return;
     if (!chosen.length) return;
     setError(undefined);
+    if (translator) {
+      const { sending, held } = independentLanes(chosen.filter(isLane));
+      setConfirming({ entries: sending, data, account, lanes: sending, held });
+      return;
+    }
     try {
       const { picked, needed } = withNeededGlobals(chosen, entries, inFlight, data);
       const inputs = publisher ? planReviewedPublish(picked, entries, data) : undefined;
@@ -427,12 +476,19 @@ export function ReviewPage() {
   }
   // A confirmation belongs to the saved snapshot and account that opened it.
   useEffect(() => {
-    if (!confirming || (confirming.data === data && confirming.account === account)) return;
+    if (
+      !confirming ||
+      (confirming.data === data &&
+        confirming.account === account &&
+        // Every confirmed translation is still one of this account's rows.
+        (confirming.lanes ?? []).every((entry) => list.includes(entry)))
+    )
+      return;
     setConfirming(undefined);
     setError(
       'The list changed while the publish was being confirmed. Review it and publish again.',
     );
-  }, [confirming, data, account]);
+  }, [confirming, data, account, list]);
 
   const confirmedComparison = useMemo(() => {
     if (!confirming?.entries.some(({ part }) => part?.pending)) return undefined;
@@ -567,6 +623,7 @@ export function ReviewPage() {
     account: reviewingAccount,
     inputs,
     needed,
+    lanes: confirmedLanes,
   }: NonNullable<typeof confirming>) {
     setConfirming(undefined);
     const { account, versions } = useReviewQueue.getState();
@@ -579,26 +636,32 @@ export function ReviewPage() {
       return;
     setError(undefined);
     const isMounted = () => mounted.current;
-    if (inputs) {
+    if (confirmedLanes) {
+      await queueTranslations(confirmedLanes, reviewed);
+    } else if (inputs) {
       await queuePublish(inputs, picked, reviewed, isMounted);
     } else {
       await publishReviewed(picked, reviewed, isMounted);
     }
   }
 
-  const leftoverView = !!current?.markerOnly;
   const position = useMemo(() => {
     if (index < 0) return '';
-    const from = index < view.contentCount ? 0 : view.contentCount;
-    const total = from ? ordered.length - from : view.contentCount;
-    return `${count.format(index - from + 1)} / ${count.format(total)}`;
-  }, [index, ordered, view.contentCount]);
+    const { contentCount, translationCount, markerCount } = view;
+    const at = (from: number, total: number, words = '') =>
+      `${count.format(index - from + 1)} / ${count.format(total)}${words}`;
+    if (index < contentCount) return at(0, contentCount);
+    const leftoversFrom = contentCount + translationCount;
+    return index < leftoversFrom
+      ? at(contentCount, translationCount, ' translations')
+      : at(leftoversFrom, markerCount, ' leftovers');
+  }, [index, view]);
   const previous = current ? stepRow(view, index, -1) : -1;
   const next = current ? stepRow(view, index, 1) : -1;
   const currentPublished = current && publishedOf(current, published);
   const classification = current ? kindOf(current, currentPublished, classified) : undefined;
   const retry = useCallback(() => {
-    if (current) void loadPublished([{ hash: current.tooltip.hash, marker: current.pushed }], true);
+    if (current) void loadPublished(publishedRows([{ ...current, markerOnly: false }]), true);
   }, [current]);
   const refreshing = reloading || comparing;
   const globalsAhead = useMemo(
@@ -629,7 +692,7 @@ export function ReviewPage() {
     );
 
   // A global's earlier text is restored from its own page's History.
-  const restore = current && !current.part?.pending && (
+  const restore = current && !current.part?.pending && !current.lane && (
     <RestoreLive
       entry={current}
       name={current.name}
@@ -644,7 +707,7 @@ export function ReviewPage() {
         {switcher}
         <p className={styles.counts}>
           {entries ? (
-            <SelectionCounts changes={changeCount} />
+            <SelectionCounts changes={readyCount(changes)} />
           ) : (
             'Checking what is waiting to go live…'
           )}
@@ -657,7 +720,7 @@ export function ReviewPage() {
           >
             {refreshing && entries ? 'Refreshing…' : 'Refresh'}
           </button>
-          {canPush(user) && (
+          {mayPublish && (
             <button
               type="button"
               className={styles.primary}
@@ -677,7 +740,12 @@ export function ReviewPage() {
           )}
         </span>
       </header>
-      {!canPush(user) && (
+      {translator && data && !data.bundle.translationPublish && (
+        <p className={styles.notice} role="note">
+          The list of translations to publish is not ready. Refresh to check again.
+        </p>
+      )}
+      {!mayPublish && (
         <p className={styles.notice} role="note">
           {apiUrl
             ? 'Sign in as an editor or maintainer to publish.'
@@ -689,6 +757,7 @@ export function ReviewPage() {
           entries={confirming.entries}
           kinds={confirmationKinds}
           needed={confirming.needed}
+          held={confirming.held}
           background={publisher}
           onConfirm={() => void publish(confirming)}
           onCancel={() => setConfirming(undefined)}
@@ -700,7 +769,9 @@ export function ReviewPage() {
       {globalsAhead && (
         <p role="status">A global you saved is not in this list yet. Refresh to check again.</p>
       )}
-      {publisher && canPush(user) && <PublishActivity queue={data?.bundle.publishQueue} />}
+      {publisher && mayPublish && (
+        <PublishActivity queue={translator ? undefined : data?.bundle.publishQueue} />
+      )}
       {!entries ? null : !changeCount && !current ? (
         <section className={styles.empty}>
           <p>
@@ -757,13 +828,14 @@ export function ReviewPage() {
                 ·
               </span>
               <h2 title={current.name}>{current.name}</h2>
-              <span className={`${styles.muted} ${styles.hash}`}>{rowIdentity(current)}</span>
+              <span className={`${styles.muted} ${styles.hash}`}>
+                {rowIdentity(current)}
+                {current.lane && languages.length > 1 && ` · ${languageLabel(current.lane.lang)}`}
+              </span>
             </span>
             <span className={styles.identityEnd}>
               {included && <span className={styles.included}>Included</span>}
-              <span className={styles.muted}>
-                {leftoverView ? `${position} leftovers` : position}
-              </span>
+              <span className={styles.muted}>{position}</span>
               <Link to={editorPath(current)}>{editorLabel(current)} ↗</Link>
             </span>
             {phone && (
@@ -809,7 +881,7 @@ export function ReviewPage() {
                 aria-hidden="true"
               />
             )}
-            {canPush(user) && (
+            {mayPublish && (
               <button
                 type="button"
                 className={styles.include}
@@ -829,7 +901,7 @@ export function ReviewPage() {
                   Raw
                 </button>
                 <More>
-                  {canPush(user) && (
+                  {mayPublish && (
                     <button type="button" disabled={!decisions.length || pushing} onClick={undo}>
                       Undo
                     </button>
@@ -838,7 +910,7 @@ export function ReviewPage() {
                 </More>
               </>
             ) : (
-              canPush(user) && (
+              mayPublish && (
                 <button type="button" disabled={!decisions.length || pushing} onClick={undo}>
                   Undo <kbd>U</kbd>
                 </button>

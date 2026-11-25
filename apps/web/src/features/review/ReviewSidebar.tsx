@@ -5,11 +5,14 @@ import { useAuthStore } from '../../stores/auth';
 import { FinderSheetCloseContext, FinderSheetContext } from '../navigation/FinderSheetContext';
 import { useDraftStore } from '../../stores/drafts';
 import { SkeletonRows } from '../../ui/Skeleton';
-import { rowKey } from './globalRows';
+import { languageLabel } from '../../languageLabels';
+import { canPublishTranslations, publishLanguages } from '../auth/permissions';
+import { isFolded, rowKey } from './globalRows';
 import { kindWords, useRowKinds, type Kind } from './kinds';
 import { canPush, publishableHashes, type PendingTooltip } from './model';
 import { globalKey } from './globalsPending';
-import { activeGlobals, activeHashes, usePublishState } from './publishDriver';
+import { inLanguage } from './lanes';
+import { activeGlobals, activeHashes, activeTranslations, usePublishState } from './publishDriver';
 import { matchesFilter, queueView, type RowKinds } from './queueModel';
 import { useReviewQueue } from './queueStore';
 import { ReviewQueue } from './ReviewQueue';
@@ -28,7 +31,10 @@ export function useInFlight(): ReadonlySet<number> {
   return useMemo(
     () =>
       publisher
-        ? new Set([...activeHashes(ops), ...[...activeGlobals(ops)].map(globalKey)])
+        ? new Set([
+            ...activeHashes(ops),
+            ...[...activeGlobals(ops), ...activeTranslations(ops)].map(globalKey),
+          ])
         : new Set<number>(),
     [ops, publisher],
   );
@@ -49,7 +55,7 @@ export function filterParams(
   else next.delete('kind');
   const open = next.get('hash');
   const matching = entries.filter(
-    (entry) => !entry.markerOnly && matchesFilter(entry, query, kind, kinds),
+    (entry) => !isFolded(entry) && matchesFilter(entry, query, kind, kinds),
   );
   if (!matching.some((entry) => String(rowKey(entry)) === open)) {
     const first = matching[0];
@@ -58,6 +64,10 @@ export function filterParams(
   }
   return next;
 }
+
+/** What the counts say: a translator's blocked rows are listed, but not ready. */
+export const readyCount = (changes: readonly PendingTooltip[]) =>
+  changes.filter(({ lane, unpublishable }) => !lane || !unpublishable).length;
 
 /**
  * "25 changes waiting to go live · 6 included · Clear" (a phone says "25 waiting"): the page's
@@ -69,6 +79,7 @@ export function SelectionCounts({ changes }: { changes: number }) {
   const pushing = useReviewSession((state) => state.pushing);
   const entries = useReviewQueue((state) => state.entries);
   const inFlight = useInFlight();
+  const translator = useAuthStore((state) => canPublishTranslations(state.user));
   const included = useMemo(
     () =>
       entries
@@ -82,7 +93,8 @@ export function SelectionCounts({ changes }: { changes: number }) {
       <span className={styles.segment}>
         <b>{count.format(changes)}</b>{' '}
         <span className={styles.wideOnly}>{changes === 1 ? 'change ' : 'changes '}</span>
-        waiting<span className={styles.wideOnly}> to go live</span>
+        {translator ? 'ready' : 'waiting'}
+        <span className={styles.wideOnly}> to go live</span>
       </span>
       {/* Each "·" stays with the segment after it, so a wrapped line never ends in one. */}
       {included > 0 && (
@@ -131,56 +143,76 @@ function SavedSidebar() {
   const collapsed = useReviewQueue((state) => state.collapsed);
   const leftovers = useReviewQueue((state) => state.leftovers);
   const showLeftovers = useReviewQueue((state) => state.showLeftovers);
+  const translations = useReviewQueue((state) => state.translations);
+  const showTranslations = useReviewQueue((state) => state.showTranslations);
   const includeAll = useReviewQueue((state) => state.includeAll);
   const selected = useReviewQueue((state) => state.selected);
   const pushing = useReviewSession((state) => state.pushing);
   const drafts = useDraftStore((state) => Object.keys(state.drafts).length);
   const inFlight = useInFlight();
-  const rows = entries ?? noEntries;
-  const kinds = useRowKinds(rows);
   const [searchParams, setSearchParams] = useSearchParams();
+  const rows = inLanguage(entries ?? noEntries, searchParams.get('lang'));
+  const kinds = useRowKinds(rows);
+  const allKinds = useRowKinds(entries);
   const query = searchParams.get('query') ?? '';
   const kind = searchParams.get('kind') ?? '';
   const view = useMemo(
-    () => entries && queueView(rows, query, kind, collapsed, leftovers, kinds),
-    [entries, rows, query, kind, collapsed, leftovers, kinds],
+    () => entries && queueView(rows, query, kind, collapsed, leftovers, kinds, translations),
+    [entries, rows, query, kind, collapsed, leftovers, kinds, translations],
   );
   // Each word present among the changes, with its count (leftovers are not changes).
   const present = useMemo(() => {
     const files = new Map<Kind, Set<number>>();
     for (const entry of rows) {
       const word = kinds.get(rowKey(entry));
-      if (entry.markerOnly || !word) continue;
+      if (isFolded(entry) || !word) continue;
       const hashes = files.get(word);
       if (hashes) hashes.add(entry.tooltip.hash);
       else files.set(word, new Set([entry.tooltip.hash]));
     }
     return kindWords.filter((word) => files.has(word)).map((word) => [word, files.get(word)!.size]);
   }, [rows, kinds]);
-  const changes = useMemo(() => entries?.filter((entry) => !entry.markerOnly) ?? [], [entries]);
-  const leftoverCount = (entries?.length ?? 0) - changes.length;
-  const filtered = !!(query || kind);
+  const changes = useMemo(() => entries?.filter((entry) => !isFolded(entry)) ?? [], [entries]);
+  const leftoverCount = useMemo(
+    () => entries?.filter(({ markerOnly }) => markerOnly).length ?? 0,
+    [entries],
+  );
+  const translationCount = (entries?.length ?? 0) - changes.length - leftoverCount;
+  const hiddenLeftovers = leftovers === 'hidden' ? leftoverCount : 0;
+  const hiddenTranslations = translations === 'hidden' ? translationCount : 0;
+  // A translator of several languages filters by language; the rows then name theirs.
+  const user = useAuthStore((state) => state.user);
+  const languages = publishLanguages(user);
+  const language = rows === entries ? '' : (searchParams.get('lang') ?? '');
+  const filtered = !!(query || kind || language);
   // The changes on screen: the filters' rows outside collapsed groups (never leftovers).
   const shownChanges = useMemo(
     () =>
       view && filtered
-        ? view.ordered.filter((entry) => !entry.markerOnly && view.shown.has(rowKey(entry)))
+        ? view.ordered.filter((entry) => !isFolded(entry) && view.shown.has(rowKey(entry)))
         : [],
     [view, filtered],
   );
   // "Include all N": exactly the publishable changes shown, never running ones; only for a role
   // that can publish.
-  const user = useAuthStore((state) => state.user);
   const shownPublishable = useMemo(
     () =>
-      canPush(user) ? publishableHashes(shownChanges).filter((hash) => !inFlight.has(hash)) : [],
+      canPush(user) || canPublishTranslations(user)
+        ? publishableHashes(shownChanges).filter((hash) => !inFlight.has(hash))
+        : [],
     [shownChanges, inFlight, user],
   );
   const allIncluded = shownPublishable.every((hash) => selected.has(hash));
-  const update = (nextQuery: string, nextKind: string) =>
-    setSearchParams(filterParams(searchParams, rows, kinds, nextQuery, nextKind), {
-      replace: true,
-    });
+  const update = (nextQuery: string, nextKind: string, nextLanguage = language) => {
+    const params = new URLSearchParams(searchParams);
+    if (nextLanguage) params.set('lang', nextLanguage);
+    else params.delete('lang');
+    const shown = inLanguage(entries ?? noEntries, nextLanguage);
+    setSearchParams(
+      filterParams(params, shown, shown === rows ? kinds : allKinds, nextQuery, nextKind),
+      { replace: true },
+    );
+  };
   const skeleton = useDelayed(entries === null);
   if (entries === null)
     return (
@@ -191,13 +223,13 @@ function SavedSidebar() {
   return (
     <div className={styles.queue}>
       <p className={styles.sheetCounts}>
-        <SelectionCounts changes={changes.length} />
+        <SelectionCounts changes={readyCount(changes)} />
       </p>
-      {!changes.length && leftovers === 'hidden' ? (
+      {!changes.length && !view?.items.length && !filtered ? (
         <p>Nothing is waiting to go live.</p>
       ) : (
         <>
-          <div className={styles.filters}>
+          <div className={styles.filters} data-languages={languages.length > 1 || undefined}>
             <span className={styles.find}>
               <input
                 type="search"
@@ -220,6 +252,22 @@ function SavedSidebar() {
                 </kbd>
               )}
             </span>
+            {languages.length > 1 && (
+              <select
+                data-perf-navigation="true"
+                aria-label="Language"
+                value={language}
+                onChange={(event) => update(query, kind, event.target.value)}
+              >
+                <option value="">All languages</option>
+                {languages.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {languageLabel(lang)} (
+                    {count.format(readyCount(changes.filter(({ lane }) => lane?.lang === lang)))})
+                  </option>
+                ))}
+              </select>
+            )}
             <select
               data-perf-navigation="true"
               aria-label="Kind of change"
@@ -261,20 +309,38 @@ function SavedSidebar() {
               selectedHash={searchParams.get('hash')}
               locked={pushing}
               inFlight={inFlight}
+              languages={languages.length > 1}
             />
           ) : (
             <p className={styles.empty}>
               No change matches.
-              <button type="button" data-perf-navigation="true" onClick={() => update('', '')}>
+              <button type="button" data-perf-navigation="true" onClick={() => update('', '', '')}>
                 Clear filters
               </button>
             </p>
           )}
         </>
       )}
-      {((leftoverCount > 0 && leftovers === 'hidden') || drafts > 0) && (
+      {(hiddenLeftovers > 0 || hiddenTranslations > 0 || drafts > 0) && (
         <div className={styles.footer}>
-          {leftoverCount > 0 && leftovers === 'hidden' && (
+          {hiddenTranslations > 0 && (
+            <p>
+              {count.format(hiddenTranslations)}{' '}
+              {hiddenTranslations === 1 ? 'translation' : 'translations'} hidden: translators
+              publish {hiddenTranslations === 1 ? 'it' : 'them'}.{' '}
+              <button
+                type="button"
+                className={styles.textButton}
+                onClick={() => {
+                  showTranslations();
+                  if (kind) update(query, '');
+                }}
+              >
+                Show
+              </button>
+            </p>
+          )}
+          {hiddenLeftovers > 0 && (
             <p>
               {count.format(leftoverCount)} migration{' '}
               {leftoverCount === 1 ? 'leftover' : 'leftovers'} hidden: their text already matches

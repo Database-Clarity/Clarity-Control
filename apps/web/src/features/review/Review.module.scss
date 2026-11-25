@@ -91,6 +91,18 @@
   }
 }
 
+// A removal's second step reads on its own line, above the buttons it belongs to.
+.confirmRemoval {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
+.confirmUpdates {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
 .confirmName {
   font-weight: 600;
 

@@ -3,11 +3,12 @@ import { create } from 'zustand';
 import { getPushedVersion } from '../../services/history';
 import { errorMessage } from '../../services/http';
 import { sameUser, useAuthStore } from '../../stores/auth';
+import type { PendingTooltip } from './model';
 
 /**
  * The published text of every waiting change, loaded once in the background (spec "Review changes
  * redesign" §11). A pushed marker never changes what it points at, so a result is kept per hash and
- * marker: in memory, and on this device in IndexedDB (one record per hash, the newest marker), so a
+ * marker (and its exact snapshot where known): in memory, and on this device in IndexedDB (one record per hash, the newest marker), so a
  * later visit needs no request at all. Never-published rows have no marker and send no request.
  */
 export type Published =
@@ -126,7 +127,7 @@ function pump() {
             return;
           put(hash, { status: 'ready', tooltip: result.tooltip, marker });
           // Only the exact pair is immutable; a server marker newer than ours shows once, unstored.
-          if (result.pushedHash === marker && result.tooltip)
+          if (result.pushedHash === marker.split('@')[0] && result.tooltip)
             void writeStored(hash, { marker, tooltip: result.tooltip });
         },
         (reason: unknown) => {
@@ -193,11 +194,15 @@ export async function loadPublished(
 
 /** The rows whose published text a snapshot needs: published changes (not leftovers, not new). */
 export function publishedRows(
-  entries: readonly { markerOnly: boolean; pushed?: string; tooltip: { hash: number } }[],
+  entries: readonly Pick<PendingTooltip, 'markerOnly' | 'pushed' | 'tooltip' | 'lane'>[],
 ) {
-  return entries
-    .filter(({ markerOnly, pushed }) => !markerOnly && pushed !== undefined)
-    .map(({ tooltip, pushed }) => ({ hash: tooltip.hash, marker: pushed }));
+  const rows = new Map<number, { hash: number; marker: string | undefined }>();
+  for (const { markerOnly, pushed, tooltip, lane } of entries) {
+    const hash = lane ? lane.hash : tooltip.hash;
+    const marker = lane ? lane.marker : pushed;
+    if (!markerOnly && hash !== undefined && marker !== undefined) rows.set(hash, { hash, marker });
+  }
+  return [...rows.values()];
 }
 
 // A failed request (signed out, 401) must not stick to the next account; the device cache stays.

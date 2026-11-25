@@ -76,6 +76,7 @@ export function useShellNotices(): ShellNotice[] {
   const globalDraftStorageFailed = useGlobalDraftStorage((state) => state.failed);
   const [adoptNote, setAdoptNote] = useState<string | null>(null);
   const saveNotice = useSaveNotice((state) => state.notice);
+  const saveReview = useSaveNotice((state) => state.review);
   const dismissSaveNotice = useSaveNotice((state) => state.dismiss);
   const settingsOpen = useSettingsPanel((state) => state.open);
   const settings = useSettingsNotices();
@@ -181,6 +182,19 @@ export function useShellNotices(): ShellNotice[] {
       level: 'status',
       text: saveNotice,
       onDismiss: dismissSaveNotice,
+      ...(saveReview
+        ? {
+            actions: [
+              {
+                label: 'Review changes',
+                onClick: () => {
+                  dismissSaveNotice();
+                  navigate(saveReview);
+                },
+              },
+            ],
+          }
+        : {}),
     });
   if (savingDrafts)
     // Local writes finish in a blink while typing; only a slow one is worth saying anything about.

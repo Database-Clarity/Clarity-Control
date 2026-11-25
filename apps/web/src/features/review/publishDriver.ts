@@ -1,7 +1,14 @@
 import { create } from 'zustand';
 import { dependencyChunks } from '../../services/dependencyChunks';
-import type { PublishAnswer, PublishBody, RemoteStatus } from '../../services/publisher/api';
-import { PublishHttpError, publishBody } from '../../services/publisher/api';
+import type { TranslationPublishBody, TranslationPublishRow } from '@clarity/core';
+import type {
+  PublishAnswer,
+  PublishBody,
+  RefusedRow,
+  RemoteStatus,
+} from '../../services/publisher/api';
+import { PublishHttpError, publishBody, translationBody } from '../../services/publisher/api';
+import { translationKey } from '../../services/translationPublish';
 import { isTerminal, type OpStore, type PublishOp } from '../../services/publisher/opStore';
 import { newOpId } from '../../services/publisher/ulid';
 
@@ -41,7 +48,8 @@ export const publishTiming = {
 
 export interface PublishApi {
   post(body: PublishBody, switched?: true): Promise<PublishAnswer>;
-  status(opId: string): Promise<RemoteStatus | 'unknown'>;
+  postTranslations(body: TranslationPublishBody): Promise<PublishAnswer>;
+  status(opId: string, translations?: true): Promise<RemoteStatus | 'unknown'>;
   kick(opId: string): Promise<void>;
 }
 
@@ -134,6 +142,25 @@ export const activeHashes = (ops: readonly PublishOp[]): Set<number> =>
 export const activeGlobals = (ops: readonly PublishOp[]): Set<string> =>
   new Set(heldOps(ops).flatMap((op) => op.globals?.map(({ id }) => id) ?? []));
 
+/** Translators' rows covered likewise, by key; a refused request holds the rows it sends again. */
+export const activeTranslations = (ops: readonly PublishOp[]): Set<string> =>
+  new Set(
+    ops.flatMap((op) =>
+      (isTerminal(op.status) && !needsPublishReceipt(op)
+        ? remainder(op, ops)
+        : (op.translations ?? [])
+      ).map(({ row }) => translationKey(row)),
+    ),
+  );
+
+/** The rows a refused request still owes: those not refused themselves, until they are sent again. */
+export function remainder(op: PublishOp, ops: readonly PublishOp[]) {
+  if (!op.translations || !op.refusedRows?.length || op.dismissed) return [];
+  if (ops.some(({ resends }) => resends === op.opId)) return [];
+  const refused = new Set(op.refusedRows.map(({ key }) => key));
+  return op.translations.filter(({ row }) => !refused.has(translationKey(row)));
+}
+
 function heldOps(ops: readonly PublishOp[]): PublishOp[] {
   const groups = new Map<string, PublishOp[]>();
   for (const op of ops)
@@ -195,6 +222,7 @@ const receiptDue = (op: PublishOp) =>
 
 export class PublishDriver {
   private userId: string | null = null;
+  private translationsOnly = false;
   /** Includes dismissed group predecessors; their acceptance still orders unsent chunks. */
   private storedOps: PublishOp[] = [];
   private timer: unknown;
@@ -208,11 +236,15 @@ export class PublishDriver {
 
   constructor(private readonly deps: DriverDeps) {}
 
-  /** Switch to an account (or null). Resumes that account's stored operations. */
-  async start(userId: string | null): Promise<void> {
+  /**
+   * Switch to an account (or null). Resumes that account's stored operations; a translator's tab
+   * never touches a whole publish the account started as an editor.
+   */
+  async start(userId: string | null, translationsOnly = false): Promise<void> {
     this.stopTimer();
     const generation = ++this.generation;
     this.userId = userId;
+    this.translationsOnly = translationsOnly;
     this.storedOps = [];
     this.paused.clear();
     this.attempts.clear();
@@ -319,6 +351,84 @@ export class PublishDriver {
     return chunks[0]!;
   }
 
+  /** A translator's publish: independent rows, sent in parts of the size the Worker takes. */
+  async createTranslations(
+    rows: readonly { row: TranslationPublishRow; name: string }[],
+    partRows: number,
+  ): Promise<void> {
+    const userId = this.userId;
+    const generation = this.generation;
+    if (!userId) throw new Error('Sign in to publish.');
+    if (!rows.length) throw new Error('Nothing to publish.');
+    const now = this.deps.now();
+    const groupId = newOpId(now);
+    const size = Math.ceil(rows.length / partRows);
+    const parts = Array.from({ length: size }, (_, index) =>
+      translationOp(
+        userId,
+        now,
+        rows.slice(index * partRows, (index + 1) * partRows),
+        index === 0 ? groupId : newOpId(now),
+        size > 1 ? { groupId, groupSize: size, groupIndex: index } : {},
+      ),
+    );
+    const keys = rows.map(({ row }) => translationKey(row));
+    let stored = false;
+    try {
+      stored = await this.deps.store.addMany(parts, (known) => {
+        const held = activeTranslations(known);
+        return keys.some((key) => held.has(key));
+      });
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : 'unknown error';
+      throw new Error(
+        `Publishing needs browser storage, which is unavailable (${detail}). Nothing was sent.`,
+      );
+    }
+    if (!stored)
+      throw new Error(
+        'Some of these translations are already being published. Nothing was sent; review the list and publish again.',
+      );
+    if (generation !== this.generation) return;
+    this.storedOps.push(...parts);
+    usePublishState.setState((state) => ({ ops: [...state.ops, ...parts] }));
+    this.deps.broadcast();
+    void this.sendChunks(parts);
+  }
+
+  /** Refused translators' requests whose other rows still go out again. */
+  private owed() {
+    return this.storedOps.flatMap((op) => {
+      const rows =
+        this.deps.now() - op.updatedAt > publishTiming.ackWindowMs
+          ? []
+          : remainder(op, this.storedOps);
+      return rows.length ? [{ op, rows }] : [];
+    });
+  }
+
+  /** The rest of a refused request is sent once, whichever tab gets there. */
+  private async resendTranslations(generation: number) {
+    for (const { op, rows } of this.owed()) {
+      const now = this.deps.now();
+      const part = translationOp(op.userId, now, rows, newOpId(now), {
+        groupId: op.groupId ?? op.opId,
+        groupSize: op.groupSize ?? 1,
+        groupIndex: op.groupIndex ?? 0,
+        groupCreatedAt: op.groupCreatedAt ?? op.createdAt,
+        resends: op.opId,
+      });
+      const stored = await this.deps.store
+        .addMany([part], (known) => known.some(({ resends }) => resends === op.opId))
+        .catch(() => undefined);
+      if (generation !== this.generation) return;
+      if (stored === undefined) continue;
+      if (stored) this.deps.broadcast();
+      // Reload the new part, whichever tab stored it.
+      this.again = true;
+    }
+  }
+
   private async sendChunks(chunks: PublishOp[]) {
     const generation = this.generation;
     for (const op of chunks) {
@@ -360,10 +470,15 @@ export class PublishDriver {
 
   private lastRemoteKick = -Infinity;
 
+  private async list(userId: string) {
+    const stored = await this.deps.store.list(userId);
+    return this.translationsOnly ? stored.filter((op) => op.translations) : stored;
+  }
+
   private async reload(generation: number, first = false) {
     let stored: PublishOp[];
     try {
-      stored = await this.deps.store.list(this.userId!);
+      stored = await this.list(this.userId!);
     } catch (reason) {
       if (generation !== this.generation) return;
       const detail = reason instanceof Error ? reason.message : 'unknown error';
@@ -491,6 +606,7 @@ export class PublishDriver {
         await this.autoKick(op.opId, generation);
     }
     if (generation === this.generation) await this.recoverGroups();
+    if (generation === this.generation) await this.resendTranslations(generation);
   }
 
   private async autoKick(opId: string, generation: number) {
@@ -570,6 +686,7 @@ export class PublishDriver {
     if (!this.userId || !this.deps.visible()) return;
     const now = this.deps.now();
     let next = this.recoveries().length ? now + publishTiming.pollMs(0) : Infinity;
+    if (this.owed().length) next = now;
     for (const op of usePublishState.getState().ops) {
       if (needsPublishReceipt(op) && !this.paused.has(op.opId))
         next = Math.min(next, receiptDue(op));
@@ -696,6 +813,7 @@ export class PublishDriver {
       }
       if (generation !== this.generation || answer.status !== 'rejected') return;
     }
+    if (op.translations && answer?.rows) return this.refuseRows(op, answer.rows);
     const refusal = remote === 'rejected' ? answer?.refusal : undefined;
     return this.settle(opId, {
       status: remote,
@@ -712,6 +830,20 @@ export class PublishDriver {
                 : `${this.subject(op, op.globals ? 'tooltips' : 'Tooltips')}: ${refusal}`,
           }
         : {}),
+    });
+  }
+
+  /** Nothing of this request went live; the rows that refused it wait for another review. */
+  private refuseRows(op: PublishOp, rows: readonly RefusedRow[]) {
+    const names = new Map(op.translations!.map(({ row, name }) => [translationKey(row), name]));
+    return this.settle(op.opId, {
+      status: 'rejected',
+      acceptedAt: op.acceptedAt ?? this.deps.now(),
+      receiptChecked: true,
+      refusedRows: rows.flatMap(({ key, error }) => {
+        const name = names.get(key);
+        return name === undefined ? [] : [{ key, name, error }];
+      }),
     });
   }
 
@@ -750,6 +882,8 @@ export class PublishDriver {
 
   /** "tooltips 10, 20", or with the globals of the request first. */
   private subject(op: PublishOp, tooltipsWord = 'tooltips') {
+    if (op.translations)
+      return new Intl.ListFormat('en').format(firstFew(op.translations.map(({ name }) => name)));
     const tooltips = op.hashes.length ? [`${tooltipsWord} ${hashList(op.hashes)}`] : [];
     return new Intl.ListFormat('en').format([
       ...(op.globals?.map(({ name }) => name) ?? []),
@@ -791,8 +925,16 @@ export class PublishDriver {
 
   /** POST the stored body. Re-sending is always safe: the Worker is idempotent per opId. */
   private post(op: PublishOp) {
+    if (op.translations)
+      return this.deps.api.postTranslations(
+        translationBody({ opId: op.opId, translations: op.translations }),
+      );
     const body = publishBody(op);
     return op.switched ? this.deps.api.post(body, true) : this.deps.api.post(body);
+  }
+
+  private status(op: PublishOp) {
+    return op.translations ? this.deps.api.status(op.opId, true) : this.deps.api.status(op.opId);
   }
 
   private async send(opId: string) {
@@ -805,7 +947,7 @@ export class PublishDriver {
         // Consult persisted predecessors even after another tab dismisses a failed chunk.
         let stored: PublishOp[];
         try {
-          stored = await this.deps.store.list(op.userId);
+          stored = await this.list(op.userId);
         } catch {
           if (generation === this.generation) {
             const count = (this.attempts.get(opId)?.count ?? 0) + 1;
@@ -827,7 +969,7 @@ export class PublishDriver {
         // lost 202). Only the Worker's own answer can say so: never infer non-delivery from age.
         let remote: RemoteStatus | 'unknown';
         try {
-          remote = await this.deps.api.status(opId);
+          remote = await this.status(op);
         } catch {
           if (generation !== this.generation) return;
           this.attempts.set(opId, { count: 9, at: now + publishTiming.sendBackoffMs(9) });
@@ -888,11 +1030,14 @@ export class PublishDriver {
     if (status === 403) {
       await this.settle(op.opId, {
         status: 'failed',
-        error:
-          'The Worker refused this account (HTTP 403), so this tab cannot follow the publish. If it was already queued it may still run; check live status before publishing again.',
+        error: op.translations
+          ? 'These translations are not yours to publish (HTTP 403). If the publish was already queued it may still run; check the live text before publishing again.'
+          : 'The Worker refused this account (HTTP 403), so this tab cannot follow the publish. If it was already queued it may still run; check live status before publishing again.',
       });
       return;
     }
+    if (status === 409 && op.translations && reason instanceof PublishHttpError && reason.rows)
+      return this.refuseRows(op, reason.rows);
     if (status === 409) {
       await this.settle(op.opId, {
         status: 'failed',
@@ -905,7 +1050,7 @@ export class PublishDriver {
     if (status === 400) {
       // Never a new opId: ask the Worker whether it knows this one.
       try {
-        const remote = await this.deps.api.status(op.opId);
+        const remote = await this.status(op);
         if (generation !== this.generation) return;
         if (remote !== 'unknown') return void (await this.adopt(op.opId, remote));
       } catch {
@@ -927,7 +1072,9 @@ export class PublishDriver {
     if (status === 413) {
       await this.settle(op.opId, {
         status: 'failed',
-        error: 'This publish is too large for the Worker. Select fewer tooltips and publish again.',
+        error: op.translations
+          ? 'The Worker takes smaller parts now. Reload the page, then publish again.'
+          : 'This publish is too large for the Worker. Select fewer tooltips and publish again.',
       });
       return;
     }
@@ -952,7 +1099,7 @@ export class PublishDriver {
       // A create may have landed during an earlier attempt: only the Worker's "unknown" settles it.
       let remote: RemoteStatus | 'unknown' | undefined;
       try {
-        remote = await this.deps.api.status(op.opId);
+        remote = await this.status(op);
       } catch {
         remote = undefined;
       }
@@ -985,7 +1132,9 @@ export class PublishDriver {
     const generation = this.generation;
     let remote: RemoteStatus | 'unknown';
     try {
-      remote = await this.deps.api.status(opId);
+      const op = this.current(opId);
+      if (!op) return;
+      remote = await this.status(op);
     } catch (reason) {
       if (generation !== this.generation) return;
       const status = reason instanceof PublishHttpError ? reason.status : 0;
@@ -1032,12 +1181,36 @@ export class PublishDriver {
   }
 }
 
+function translationOp(
+  userId: string,
+  now: number,
+  translations: NonNullable<PublishOp['translations']>,
+  opId: string,
+  group: Partial<PublishOp>,
+): PublishOp {
+  return {
+    opId,
+    ...group,
+    userId,
+    createdAt: now,
+    hashes: [],
+    expected: {},
+    previous: {},
+    translations,
+    status: 'created',
+    updatedAt: now,
+  };
+}
+
 /** Names up to ten tooltips, then "and N more", so the reason after the list is never lost. */
 export function hashList(hashes: readonly number[]): string {
   return hashes.length <= 10
     ? hashes.join(', ')
     : `${hashes.slice(0, 10).join(', ')} and ${hashes.length - 10} more`;
 }
+
+const firstFew = (names: readonly string[]) =>
+  names.length <= 10 ? names : [...names.slice(0, 10), `${names.length - 10} more`];
 
 function byAge(a: PublishOp, b: PublishOp) {
   if (a.groupId && a.groupId === b.groupId) {

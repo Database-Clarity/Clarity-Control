@@ -3,10 +3,10 @@ import { publishableHashInput, stableStringify } from '@clarity/core';
 import { useAuthStore } from '../../stores/auth';
 import { useDataStore } from '../../stores/data';
 import { subscribeSavedRows } from '../../stores/savedOverlay';
-import { canPushLive } from '../auth/permissions';
+import { canPublishTranslations, canPushLive, publishLanguages } from '../auth/permissions';
 import { rowKey, type RowKey } from './globalRows';
 import type { PendingTooltip } from './model';
-import { markerGroup, type Leftovers } from './queueModel';
+import { markerGroup, translationGroup, type Leftovers } from './queueModel';
 
 interface SavedRow {
   key: RowKey;
@@ -37,6 +37,8 @@ interface ReviewQueueState {
   collapsed: ReadonlySet<string>;
   /** Migration leftovers are hidden until the list's "Show". */
   leftovers: Leftovers;
+  /** Rows where only translations wait, likewise (editors and maintainers). */
+  translations: Leftovers;
   /** The list's scroll position, kept across leaving and returning to the route. */
   scrollTop: number;
   setEntries(entries: PendingTooltip[]): void;
@@ -52,6 +54,7 @@ interface ReviewQueueState {
   removePublished(entries: readonly PendingTooltip[]): void;
   toggleGroup(id: string): void;
   showLeftovers(): void;
+  showTranslations(): void;
 }
 
 const empty: ReadonlySet<never> = new Set();
@@ -173,7 +176,10 @@ function readCollapsed(): ReadonlySet<string> {
     const value: unknown = JSON.parse(localStorage.getItem(collapsedKey) ?? '[]');
     if (Array.isArray(value))
       return new Set(
-        value.filter((id): id is string => typeof id === 'string' && id !== markerGroup),
+        value.filter(
+          (id): id is string =>
+            typeof id === 'string' && id !== markerGroup && id !== translationGroup,
+        ),
       );
   } catch {
     // Unreadable or unavailable storage: every group starts open.
@@ -198,6 +204,7 @@ export const useReviewQueue = create<ReviewQueueState>((set, get) => ({
   message: undefined,
   collapsed: readCollapsed(),
   leftovers: 'hidden',
+  translations: 'hidden',
   scrollTop: 0,
   setEntries: (entries) =>
     set((state) => (state.entries === entries ? state : reconcile(state, entries))),
@@ -277,6 +284,8 @@ export const useReviewQueue = create<ReviewQueueState>((set, get) => ({
     set((state) => {
       if (id === markerGroup)
         return { leftovers: state.leftovers === 'open' ? 'collapsed' : 'open' };
+      if (id === translationGroup)
+        return { translations: state.translations === 'open' ? 'collapsed' : 'open' };
       const next = new Set(state.collapsed);
       if (!next.delete(id)) next.add(id);
       writeCollapsed(next);
@@ -284,14 +293,29 @@ export const useReviewQueue = create<ReviewQueueState>((set, get) => ({
     }),
   showLeftovers: () =>
     set((state) => (state.leftovers === 'hidden' ? { leftovers: 'collapsed' } : state)),
+  showTranslations: () =>
+    set((state) => (state.translations === 'hidden' ? { translations: 'collapsed' } : state)),
 }));
 
 // The first settled identity may restore this tab's ticks. A later transition always clears
 // them, including when the Review route is unmounted. A same-account auth refresh is harmless.
 let accountKnown = false;
+let listedLanguages = '';
 function syncAccount({ user, loading }: ReturnType<typeof useAuthStore.getState>) {
   if (!accountKnown && loading && !user) return;
-  const account = user && canPushLive(user) ? String(user.id) : null;
+  // A translator's ticks are another list's: a role change never carries them over.
+  const account =
+    user && canPushLive(user)
+      ? String(user.id)
+      : user && canPublishTranslations(user)
+        ? `${user.id}/translations`
+        : null;
+  // Another kind of list, or other languages: nothing of the old one stays on screen.
+  const languages = publishLanguages(user).join();
+  if (languages !== listedLanguages) {
+    listedLanguages = languages;
+    useReviewQueue.setState({ entries: null });
+  }
   const state = useReviewQueue.getState();
   if (accountKnown && state.account === account) return;
   const versions = accountKnown ? noVersions : readVersions(account);
@@ -312,6 +336,27 @@ subscribeSavedRows((saved) => {
     state.decisions.some((row) => row.key === key) ||
     state.message?.key === key;
   const bundle = useDataStore.getState().data?.bundle;
+  // A translator's row stands for its own language of the saved entry.
+  const lanes = (state.entries ?? []).filter(({ lane }) => lane && tracked(lane.key));
+  if (lanes.length) {
+    const outdated = new Set<RowKey>(
+      lanes.flatMap(({ lane }) => {
+        const next =
+          'global' in saved
+            ? saved.global.id === lane!.id && { entry: saved.global.definitions[lane!.lang] }
+            : saved.tooltips.some(({ hash }) => hash === lane!.hash) && {
+                entry: saved.tooltips.find(({ hash }) => hash === lane!.hash)!.text[lane!.lang],
+              };
+        const changed =
+          next && stableStringify(next.entry ?? null) !== stableStringify(lane!.saved ?? null);
+        return changed || (!('global' in saved) && saved.deleted.includes(lane!.hash!))
+          ? [lane!.key]
+          : [];
+      }),
+    );
+    if (outdated.size) useReviewQueue.setState(retainRows(state, ({ key }) => !outdated.has(key)));
+    return;
+  }
   if ('global' in saved) {
     const { id } = saved.global;
     if (!tracked(id)) return;

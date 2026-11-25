@@ -161,6 +161,7 @@ function listView(changes: { hash: number; name: string; category: string }[]): 
       ordered: entries,
       shown: new Set(entries.map(({ tooltip }) => tooltip.hash)),
       contentCount: entries.length,
+      translationCount: 0,
       markerCount: 0,
     };
     views.set(changes, view);
