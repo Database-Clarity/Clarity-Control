@@ -21446,9 +21446,9 @@ function removeUnusedText(text, removeTitles = true) {
 }
 function resolveImports(text, globals, diagnostics) {
   for (let pass = 0; pass < 5; pass++) {
-    const imports2 = markupImports(text);
-    if (!imports2.length) return text;
-    for (const line of imports2) {
+    const imports = markupImports(text);
+    if (!imports.length) return text;
+    for (const line of imports) {
       const visible = removeUnusedText(text, false).includes(line.trim());
       if (line.includes("import self")) {
         if (visible)
@@ -25165,11 +25165,11 @@ var loadExports = (descriptionData) => {
   let description = descriptionString;
   const getImports = (descriptionString2) => {
     if (!descriptionString2.includes("import")) return null;
-    const imports2 = [
+    const imports = [
       ...descriptionString2.match(/^import [A-z0-9 ]+? from (\d+|global) *?$/gm) || [],
       ...descriptionString2.match(/^import self *?$/gm) || []
     ];
-    return imports2.flatMap((importLine) => {
+    return imports.flatMap((importLine) => {
       const importSelf = importLine.includes("import self");
       if (importSelf) {
         return {
@@ -25706,7 +25706,7 @@ var nativeDescription = (descriptionData, description) => {
   const variables = library(2);
   const titles = library(3);
   let native = [description, variables, titles].some((source2) => source2.includes("{{"));
-  const imports2 = new Proxy(/* @__PURE__ */ Object.create(null), {
+  const imports = new Proxy(/* @__PURE__ */ Object.create(null), {
     get(_target, key) {
       const source2 = typeof key === "string" ? database[key]?.editor[importLanguage]?.main : void 0;
       if (source2?.includes("{")) native = true;
@@ -25716,7 +25716,7 @@ var nativeDescription = (descriptionData, description) => {
   const parsed = parseMarkup(description, {
     variables,
     titles,
-    imports: imports2,
+    imports,
     type: database[hash2].type,
     lang: numberLanguage(descriptionData)
   });
@@ -26953,14 +26953,14 @@ init_numbers();
 var emptyEnglishMessage = "English text must not be empty.";
 var clearedEnglishMessage = "Saving this clears the tooltip. Publishing it removes it from the published files.";
 function validateTextWithReads(text, lang, globals, requireEnglish, selfHash, aliases) {
-  const imports2 = /* @__PURE__ */ new Map();
+  const imports = /* @__PURE__ */ new Map();
   const variables = /* @__PURE__ */ new Set();
   const catalog = new Proxy(globals.imports ?? {}, {
     get(target, key, receiver) {
       const value2 = Reflect.get(target, key, receiver);
       if (typeof key === "string") {
         const hash2 = key === "global" ? 1 : Number(key);
-        if (Number.isInteger(hash2)) imports2.set(key, resolveAlias(hash2, aliases));
+        if (Number.isInteger(hash2)) imports.set(key, resolveAlias(hash2, aliases));
       }
       return value2;
     }
@@ -26972,7 +26972,7 @@ function validateTextWithReads(text, lang, globals, requireEnglish, selfHash, al
     requireEnglish,
     selfHash
   );
-  return { issues, reads: { lang, imports: imports2, variables } };
+  return { issues, reads: { lang, imports, variables } };
 }
 function validateText(text, lang, globals = { variables: "", titles: "" }, requireEnglish = true, selfHash) {
   const issues = [];
@@ -27751,7 +27751,7 @@ function exportLegacy(tooltips, now, catalog, aliases = {}, options) {
   }
   if (omitted.size) {
     for (const language of languages2) {
-      const imports2 = Object.fromEntries(
+      const imports = Object.fromEntries(
         Object.entries(canonical).map(([hash2, entry]) => [
           hash2,
           entry.editor[language]?.main ?? ""
@@ -27759,7 +27759,7 @@ function exportLegacy(tooltips, now, catalog, aliases = {}, options) {
       );
       for (const alias of Object.keys(aliases)) {
         const target = resolveAlias(Number(alias), aliases);
-        if (canonical[target]) imports2[alias] = imports2[target] ?? "";
+        if (canonical[target]) imports[alias] = imports[target] ?? "";
       }
       for (const entry of Object.values(canonical)) {
         if (entry.associated?.some((hash2) => omitted.has(hash2)))
@@ -27770,9 +27770,9 @@ function exportLegacy(tooltips, now, catalog, aliases = {}, options) {
           text,
           language,
           {
-            imports: imports2,
-            variables: imports2[2] ?? "",
-            titles: imports2[3] ?? ""
+            imports,
+            variables: imports[2] ?? "",
+            titles: imports[3] ?? ""
           },
           false,
           entry.hash,
@@ -28343,7 +28343,7 @@ function exportWithInactiveMoves(tooltips, now, catalog, aliases = {}, moves = {
   const kept = tooltips.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
   const resolved = options?.globalsInPlace ? exportLegacy(kept, now, catalog, aliases, options) : void 0;
   for (const language of languages2) {
-    const imports2 = Object.fromEntries(
+    const imports = Object.fromEntries(
       tooltips.map((tooltip) => {
         const entry = resolved?.[tooltip.hash];
         if (entry && !isLegacyAliasStub(entry))
@@ -28353,22 +28353,22 @@ function exportWithInactiveMoves(tooltips, now, catalog, aliases = {}, moves = {
       })
     );
     for (const alias of Object.keys(aliases))
-      imports2[alias] = imports2[resolveAlias(Number(alias), aliases)] ?? "";
+      imports[alias] = imports[resolveAlias(Number(alias), aliases)] ?? "";
     for (const tooltip of kept) {
       for (const hash2 of tooltip.associated)
         if (isMovedInactive(resolveAlias(hash2, aliases), moves))
           throw new Error(
             `Tooltip ${tooltip.hash} associates ${removedKind(hash2, moves, aliases)} tooltip ${hash2}`
           );
-      const text = imports2[tooltip.hash];
+      const text = imports[tooltip.hash];
       if (!text) continue;
       const { reads } = validateTextWithReads(
         text,
         language,
         {
-          imports: imports2,
-          variables: imports2[2] ?? "",
-          titles: imports2[3] ?? ""
+          imports,
+          variables: imports[2] ?? "",
+          titles: imports[3] ?? ""
         },
         false,
         tooltip.hash,
@@ -28419,17 +28419,17 @@ function applyInactiveLive(perks, moves, hashes, aliases, previous = perks) {
       liveAliases[key] = { to: value2.aliasOf, kind: "name" };
   for (const language of languages2)
     for (const field of ["main", "secondary"]) {
-      const imports2 = {};
+      const imports = {};
       for (const [key, value2] of Object.entries(result)) {
         if (!record3(value2) || "aliasOf" in value2) continue;
         const editor = value2.editor;
         if (!record3(editor)) throw new Error(`Invalid live tooltip ${key}`);
         const translation = editor[language];
-        imports2[key] = record3(translation) && typeof translation[field] === "string" ? translation[field] : "";
+        imports[key] = record3(translation) && typeof translation[field] === "string" ? translation[field] : "";
       }
       for (const [key, value2] of Object.entries(result))
         if (record3(value2) && typeof value2.aliasOf === "number")
-          imports2[key] = imports2[value2.aliasOf] ?? "";
+          imports[key] = imports[value2.aliasOf] ?? "";
       for (const [key, value2] of Object.entries(result)) {
         if (!record3(value2) || "aliasOf" in value2) continue;
         if (Array.isArray(value2.associated)) {
@@ -28439,15 +28439,15 @@ function applyInactiveLive(perks, moves, hashes, aliases, previous = perks) {
                 `Tooltip ${key} associates ${removedKind(hash2, moves, liveAliases)} tooltip ${hash2}`
               );
         }
-        const text = imports2[key];
+        const text = imports[key];
         if (!text) continue;
         const { reads } = validateTextWithReads(
           text,
           language,
           {
-            imports: imports2,
-            variables: imports2[2] ?? "",
-            titles: imports2[3] ?? ""
+            imports,
+            variables: imports[2] ?? "",
+            titles: imports[3] ?? ""
           },
           false,
           Number(key),
@@ -31292,10 +31292,10 @@ function compile2(input2, file2, options) {
 }
 var standsIn = (perk, language, rows) => rows[language] === void 0 || perk.editor[language]?.englishFallback === true;
 function globalsOf(lookup, language) {
-  const imports2 = /* @__PURE__ */ Object.create(null);
+  const imports = /* @__PURE__ */ Object.create(null);
   for (const [hash2, perk] of Object.entries(lookup))
-    imports2[hash2] = perk.editor[language]?.main ?? "";
-  return { variables: imports2[2] ?? "", titles: imports2[3] ?? "", imports: imports2 };
+    imports[hash2] = perk.editor[language]?.main ?? "";
+  return { variables: imports[2] ?? "", titles: imports[3] ?? "", imports };
 }
 function globalsForCell(globals, language, englishFallback) {
   const lang = englishFallback ? "en" : language;
@@ -31661,7 +31661,7 @@ function refusal(input2, after, hash2, language, part) {
     if (target && target.editor[language] !== void 0 && JSON.stringify(target.editor[language]) !== JSON.stringify(after.v2[key]?.editor[language]))
       imported.set(key, target.name || key);
   };
-  const imports2 = new Proxy(globals.imports, {
+  const imports = new Proxy(globals.imports, {
     get(target, key, receiver) {
       remember(key);
       return Reflect.get(target, key, receiver);
@@ -31673,7 +31673,7 @@ function refusal(input2, after, hash2, language, part) {
       {
         ...globals,
         titles,
-        imports: imports2,
+        imports,
         type: row.type,
         lang: cell.englishFallback ? "en" : language
       },
@@ -35175,6 +35175,114 @@ function refuseHeldSetBonuses(tooltips, facts) {
   }
 }
 
+// apps/web/src/features/review/publishDependencies.ts
+var textIn = (tooltip, lang) => usesEnglishFallback(tooltip, lang) ? tooltip.text.en?.text : tooltip.text[lang]?.text;
+function tooltipReads(tooltips, aliases, readers, read, changes) {
+  for (const tooltip of readers)
+    for (const hash2 of tooltip.associated) {
+      read(tooltip.hash, hash2, resolveAlias(hash2, aliases));
+    }
+  const saved = new Map(changes?.saved.map((tooltip) => [tooltip.hash, tooltip]));
+  for (const lang of languages2) {
+    const replacements = /* @__PURE__ */ new Map();
+    for (const [hash2, tooltip] of saved) {
+      const before = tooltips[hash2] && textIn(tooltips[hash2], lang);
+      if (!before?.includes("export ")) continue;
+      const after = textIn(tooltip, lang) ?? "";
+      if (before === after) continue;
+      const exports = extractBlocks(after, "export");
+      if (Object.keys(extractBlocks(before, "export")).some((name2) => !Object.hasOwn(exports, name2)))
+        replacements.set(hash2, after);
+    }
+    let replacing;
+    const imports = new Proxy(
+      {},
+      {
+        get: (_target, key) => {
+          const hash2 = typeof key === "string" ? Number(key) : NaN;
+          if (hash2 === replacing) return replacements.get(hash2);
+          const t = tooltips[hash2];
+          return t ? textIn(t, lang) ?? "" : void 0;
+        }
+      }
+    );
+    const catalog = new Proxy(imports, {
+      get: (target, key) => {
+        if (typeof key !== "string") return void 0;
+        return target[resolveAlias(key === "global" ? 1 : Number(key), aliases)];
+      }
+    });
+    for (const tooltip of readers) {
+      const text = textIn(tooltip, lang);
+      if (text === void 0) continue;
+      const validate2 = () => validateTextWithReads(
+        text,
+        lang,
+        { imports: catalog, variables: catalog[2] ?? "", titles: catalog[3] ?? "" },
+        false,
+        tooltip.hash,
+        aliases
+      );
+      const { reads, issues } = validate2();
+      for (const [source2, hash2] of reads.imports)
+        read(tooltip.hash, source2 === "global" ? 1 : Number(source2), hash2);
+      if (changes && replacements.size)
+        for (const hash2 of new Set(reads.imports.values())) {
+          if (hash2 === tooltip.hash || !replacements.has(hash2)) continue;
+          replacing = hash2;
+          const edited = validate2();
+          replacing = void 0;
+          if (edited.issues.some(
+            ({ message: message2 }) => message2.startsWith('Unresolved import "') && !issues.some((issue2) => issue2.message === message2)
+          ))
+            changes.beforeEdit(hash2, tooltip.hash);
+        }
+    }
+  }
+}
+function publishDependencies(tooltips, aliases, pending, selected, { moves = {}, published = {} } = {}) {
+  const result = new Map(selected.map((t) => [t.hash, /* @__PURE__ */ new Set()]));
+  const active = selected.filter((tooltip) => !isMovedInactive(tooltip.hash, moves));
+  tooltipReads(tooltips, aliases, active, (reader, _source, hash2) => {
+    if (pending.has(hash2)) result.get(reader).add(hash2);
+  });
+  const removedBy = /* @__PURE__ */ new Map();
+  for (const key of Object.keys(selectedInactiveMoves(moves, result.keys(), aliases))) {
+    const hash2 = Number(key);
+    if (isMovedInactive(hash2, moves)) removedBy.set(hash2, resolveAlias(hash2, aliases));
+  }
+  if (removedBy.size) {
+    const uncertain = new Set(
+      selected.map(({ hash: hash2 }) => hash2).filter((hash2) => Object.hasOwn(published, hash2) && published[hash2] === void 0)
+    );
+    const live = { ...tooltips };
+    for (const [key, tooltip] of Object.entries(published)) {
+      if (tooltip) live[key] = tooltip;
+      else if (tooltip === null) delete live[key];
+    }
+    tooltipReads(
+      live,
+      aliases,
+      selected.flatMap(({ hash: hash2 }) => published[hash2] ? [published[hash2]] : []),
+      (reader, source2, hash2) => {
+        for (const target of [removedBy.get(source2), removedBy.get(hash2)])
+          if (target !== void 0 && target !== reader) result.get(target).add(reader);
+        if (![1, 2, 3].includes(source2) && !(removedBy.size === 1 && removedBy.has(source2)))
+          uncertain.add(reader);
+      },
+      { saved: active, beforeEdit: (source2, reader) => result.get(source2).add(reader) }
+    );
+    const [first, ...rest] = uncertain.size ? /* @__PURE__ */ new Set([...removedBy.values(), ...uncertain]) : [];
+    if (first !== void 0) {
+      for (const hash2 of rest) {
+        result.get(first).add(hash2);
+        result.get(hash2).add(first);
+      }
+    }
+  }
+  return new Map([...result].map(([hash2, deps]) => [hash2, [...deps]]));
+}
+
 // scripts/publisher/selection.ts
 function snapshotReads(reader, tree) {
   const files = async (paths3) => paths3.map((path) => {
@@ -35184,19 +35292,29 @@ function snapshotReads(reader, tree) {
   return { files };
 }
 var message = (error62) => error62 instanceof Error ? error62.message : String(error62);
-function imports(document, aliases) {
-  if (!document) return [];
-  return Object.values(document.text).flatMap(
-    (translation) => translation ? markupImports(translation.text).flatMap((line) => {
-      const from = line.match(/ from (\d+|global) *$/)?.[1];
-      return from ? [resolveAlias(from === "global" ? 1 : Number(from), aliases)] : [];
-    }) : []
-  );
+var reasonOf = (text) => text.length > 1e3 ? `${text.slice(0, 997)}...` : text;
+function savedDocuments(reader, tree) {
+  const read = (key) => {
+    if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)) return void 0;
+    const parsed = tooltipSchema.safeParse(reader.read(tree, `tooltips/${key}.json`)).data;
+    return parsed?.hash === Number(key) ? parsed : void 0;
+  };
+  return new Proxy({}, {
+    get: (_target, key) => read(key),
+    has: (_target, key) => read(key) !== void 0,
+    ownKeys: () => Object.keys(tree).flatMap((path) => /^tooltips\/(\d+)\.json$/.exec(path)?.[1] ?? []),
+    getOwnPropertyDescriptor: (_target, key) => {
+      const value2 = read(key);
+      return value2 && { value: value2, enumerable: true, configurable: true, writable: false };
+    }
+  });
 }
-async function heldRows(reader, tree, payload, aliases, moves, digest6) {
+async function heldRows(inputs, payload) {
+  const { reader, tree, aliases, stored, moves, facts } = inputs;
   const held = /* @__PURE__ */ new Map();
   const hold = (row) => {
-    if (!held.has(row.hash)) held.set(row.hash, heldRowSchema.parse(row));
+    if (!held.has(row.hash))
+      held.set(row.hash, heldRowSchema.parse({ ...row, reason: reasonOf(row.reason) }));
   };
   const document = (prefix, hash2) => {
     const raw = reader.read(tree, `${prefix}/${hash2}.json`);
@@ -35210,13 +35328,13 @@ async function heldRows(reader, tree, payload, aliases, moves, digest6) {
   }
   const saved = /* @__PURE__ */ new Map();
   for (const [canonical, hashes] of roots) {
-    const source2 = document("tooltips", canonical) ?? (isMovedInactive(canonical, moves) && reader.read(tree, `tooltips/${canonical}.json`) === void 0 ? { hash: canonical, text: {}, associated: [] } : void 0);
+    const source2 = document("tooltips", canonical) ?? (isMovedInactive(canonical, stored) && reader.read(tree, `tooltips/${canonical}.json`) === void 0 ? { hash: canonical, text: {}, associated: [] } : void 0);
     if (!source2) {
       hold({ hash: canonical, code: "changed", reason: "The saved tooltip is missing." });
       continue;
     }
     saved.set(canonical, source2);
-    const reviewed = await digest6(source2, canonical);
+    const reviewed = await inputs.digest(source2, canonical);
     if (hashes.some((hash2) => payload.expected[hash2] !== reviewed))
       hold({ hash: canonical, code: "changed", reason: "Saved text changed after review." });
   }
@@ -35229,27 +35347,26 @@ async function heldRows(reader, tree, payload, aliases, moves, digest6) {
       });
   const github = snapshotReads(reader, tree);
   const pin = { value: reader.read(tree, publisherPinPath) };
-  const active = [...roots.keys()].filter((hash2) => !isMovedInactive(hash2, moves));
+  const active = [...roots.keys()].filter((hash2) => !isMovedInactive(hash2, stored));
   const removals = /* @__PURE__ */ new Map();
   for (const [hash2, state] of await clearedStates(
     github,
     "",
     active.flatMap((hash3) => saved.get(hash3) ?? []),
-    moves
+    stored
   ))
     if (state.state === "removal") removals.set(hash2, state.reviewed);
-  const walks = /* @__PURE__ */ new Map();
   for (const root of active) {
     if (held.has(root)) continue;
     try {
       const checked = await refuseBaseEnhanced(github, "", [root], aliases, [], void 0, {
-        moves,
+        moves: stored,
         removals: new Map(removals)
       });
       for (const checkedDocument of checked.values())
         refuseUnlowerable(checkedDocument, pin, "published");
-      const own2 = checked.get(root);
-      refuseHeldSetBonuses(own2 ? [own2] : []);
+      const own3 = checked.get(root);
+      refuseHeldSetBonuses(own3 ? [own3] : []);
     } catch (error62) {
       if (!(error62 instanceof HttpError)) throw error62;
       hold({
@@ -35257,43 +35374,72 @@ async function heldRows(reader, tree, payload, aliases, moves, digest6) {
         code: error62.status === 409 ? "changed" : "refused",
         reason: error62.status === 409 ? "Saved text changed after review." : message(error62)
       });
+      continue;
     }
+    const own2 = saved.get(root);
+    if (removals.has(root)) continue;
+    if (!own2.custom && !facts[root])
+      hold({ hash: root, code: "refused", reason: "Missing generator facts." });
+    else if (isHeldSetBonus(own2, facts[root]))
+      hold({ hash: root, code: "refused", reason: setBonusHoldMessage });
   }
-  const walk = (root) => {
-    let seen = walks.get(root);
-    if (seen) return seen;
-    seen = /* @__PURE__ */ new Set();
-    const pending = imports(saved.get(root), aliases);
-    while (pending.length) {
-      const hash2 = pending.pop();
-      if (seen.has(hash2)) continue;
-      seen.add(hash2);
-      pending.push(...imports(saved.get(hash2) ?? document("tooltips", hash2), aliases));
+  const dependencies = selectedDependencies(inputs, roots, saved);
+  const close = () => {
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const [root, needs] of dependencies) {
+        if (held.has(root)) continue;
+        const on = needs.find((hash2) => held.has(hash2));
+        if (on === void 0) continue;
+        hold({
+          hash: root,
+          code: "dependency",
+          reason: `Publishes together with held tooltip ${on}.`,
+          on
+        });
+        changed = true;
+      }
     }
-    walks.set(root, seen);
-    return seen;
   };
-  const removing = new Set(
-    [...roots.keys()].filter((hash2) => isMovedInactive(hash2, moves) || removals.has(hash2))
-  );
-  for (let changed = true; changed; ) {
-    changed = false;
-    for (const root of roots.keys()) {
-      if (held.has(root)) continue;
-      const on = [...walk(root)].find((hash2) => held.has(hash2)) ?? (removing.has(root) ? [...held.keys()].find(
-        (hash2) => imports(document("live/tooltips", hash2), aliases).includes(root)
-      ) : void 0);
-      if (on === void 0) continue;
-      hold({
-        hash: root,
-        code: "dependency",
-        reason: `Publishes together with held tooltip ${on}.`,
-        on
-      });
-      changed = true;
-    }
+  close();
+  if (inputs.inPlace) {
+    const kept = [...roots.keys()].filter((hash2) => !held.has(hash2));
+    const documents = kept.flatMap(
+      (hash2) => isMovedInactive(hash2, moves) ? [] : saved.get(hash2) ?? []
+    );
+    for (const [hash2, reason] of inputs.inPlace(kept, documents))
+      hold({ hash: hash2, code: "refused", reason });
+    close();
   }
   return [...held.values()].sort((a, b) => a.hash - b.hash);
+}
+function selectedDependencies({ reader, tree, aliases, moves }, roots, saved) {
+  const selected = [...roots.keys()].flatMap((hash2) => saved.get(hash2) ?? []);
+  const removing = Object.keys(
+    selectedInactiveMoves(
+      moves,
+      selected.map(({ hash: hash2 }) => hash2),
+      aliases
+    )
+  ).some((hash2) => isMovedInactive(Number(hash2), moves));
+  let published = {};
+  if (removing) {
+    const pushed = pushedSchema.parse(reader.read(tree, "live/pushed.json") ?? {});
+    published = Object.fromEntries(
+      selected.map(({ hash: hash2 }) => {
+        if (pushed[hash2] === void 0) return [hash2, void 0];
+        const live = tooltipSchema.safeParse(reader.read(tree, `live/tooltips/${hash2}.json`)).data;
+        return [hash2, live?.hash === hash2 ? live : null];
+      })
+    );
+  }
+  return publishDependencies(
+    savedDocuments(reader, tree),
+    aliases,
+    new Set(roots.keys()),
+    selected,
+    { moves, published }
+  );
 }
 function keptPayload(payload, held, aliases) {
   if (!held.length) return payload;
@@ -35486,7 +35632,7 @@ function effectFacts(input2, hash2, lang, aliases, facts, lookup) {
       throw new Error(`Tooltip ${hash2} (${lang}) contains markup held from publication.`);
     return converted.lines ?? null;
   });
-  const imports2 = new Proxy({}, {
+  const imports = new Proxy({}, {
     get(_target, key) {
       if (typeof key !== "string") return void 0;
       if (key === "global") return database[1]?.editor[language]?.main;
@@ -35496,7 +35642,7 @@ function effectFacts(input2, hash2, lang, aliases, facts, lookup) {
   const v2 = readFormatV2Lines(
     cell.main,
     {
-      imports: imports2,
+      imports,
       variables: lookup[2]?.editor[lang]?.main ?? "",
       titles: lookup[3]?.editor[lang]?.main ?? "",
       lang: language,
@@ -36696,7 +36842,7 @@ var Publisher = class _Publisher {
    * The rows a whole-selection request holds at `tree` (selection.ts), with the reviewed digest
    * computed exactly as the ordinary path below compares it.
    */
-  async wholeSelectionHeld(tree, payload, aliases) {
+  async wholeSelectionHeld(tree, payload, aliases, live, publisher = this, checkInstalledPin = true) {
     const stored = this.movesAt(tree);
     const documents = [
       ...new Set(payload.hashes.map((hash2) => resolveAlias(hash2, aliases)))
@@ -36705,10 +36851,60 @@ var Publisher = class _Publisher {
       return parsed.success && parsed.data.hash === hash2 ? [parsed.data] : [];
     });
     const moves = this.movesWithCleared(tree, documents);
-    return heldRows(this, tree, payload, aliases, stored, async (document, hash2) => {
-      const digest6 = await inactivePublishableHash(document, aliases, moves);
-      return this.reviewedEntries(tree, [{ hash: hash2, digest: digest6, tooltipBlob: "" }], [document], moves)[0].digest;
-    });
+    return heldRows(
+      {
+        reader: this,
+        tree,
+        aliases,
+        stored,
+        moves,
+        facts: publisher.options.facts,
+        digest: async (document, hash2) => {
+          const digest6 = await inactivePublishableHash(document, aliases, moves);
+          return this.reviewedEntries(
+            tree,
+            [{ hash: hash2, digest: digest6, tooltipBlob: "" }],
+            [document],
+            moves
+          )[0].digest;
+        },
+        // checkAndExport's shared-text check, one document at a time.
+        inPlace: (kept, documents2) => {
+          const refused = /* @__PURE__ */ new Map();
+          let options;
+          try {
+            const inPlace = publisher.inPlaceOptions(
+              tree,
+              {
+                ...payload,
+                hashes: payload.hashes.filter((hash2) => kept.includes(resolveAlias(hash2, aliases)))
+              },
+              live,
+              checkInstalledPin
+            );
+            const selected = selectedInactiveMoves(moves, kept, aliases);
+            options = authoredInPlaceOptions(
+              publisher,
+              tree,
+              inPlace.live,
+              inPlace,
+              documents2.filter(({ hash: hash2 }) => !isMovedInactive(hash2, selected)),
+              activeAliases(aliases, selected)
+            );
+          } catch {
+            return refused;
+          }
+          for (const document of documents2)
+            try {
+              assertInPlaceDocuments([document], options);
+            } catch (error62) {
+              refused.set(document.hash, error62 instanceof Error ? error62.message : String(error62));
+            }
+          return refused;
+        }
+      },
+      payload
+    );
   }
   async verifyReceiptDigests(receipt) {
     if (!receipt.inPlace || receipt.globals)
@@ -36727,7 +36923,21 @@ var Publisher = class _Publisher {
     const aliases = this.aliasesAt(frozen, options);
     let signed = verified;
     if (verified.kind === "push" && verified.selection === "whole") {
-      const held = await this.wholeSelectionHeld(frozen, verified, aliases);
+      const held = await this.wholeSelectionHeld(
+        frozen,
+        verified,
+        aliases,
+        receipt.liveParent,
+        options === this.options ? this : new _Publisher(this.git, {
+          ...this.options,
+          generatorSha: options.generatorSha,
+          aliases: options.aliases,
+          facts: options.facts,
+          aliasFacts: options.aliasFacts,
+          sandboxConflicts: options.sandboxConflicts
+        }),
+        false
+      );
       if (!sameHeld(held, receipt.held))
         throw new ConsumerOutputRejected("Receipt held rows differ from the signed selection");
       signed = keptPayload(verified, held, aliases);
@@ -36996,7 +37206,8 @@ var Publisher = class _Publisher {
     const status = result ? ["stale", "rejected", "done", "unchanged"].find((s) => s === result.status) ?? "rejected" : receipt?.outcome === "unchanged" ? "unchanged" : "done";
     const index = recordInPublishAccount(this.read(tree, path), opId, {
       status,
-      held: (result?.held ?? receipt?.held ?? []).length,
+      // Held tooltips and refused shared definitions: whatever of it did not go live.
+      held: (result?.held ?? receipt?.held ?? []).length + (receipt?.inPlace?.refusals?.length ?? 0),
       updatedAt: iso(this.options.now())
     });
     if (index) tree[path] = this.git.writeBlob(json6(index));
@@ -37511,7 +37722,7 @@ var Publisher = class _Publisher {
           let held;
           let push = payload;
           if (push.selection === "whole") {
-            held = await this.wholeSelectionHeld(tree, push, aliases);
+            held = await this.wholeSelectionHeld(tree, push, aliases, live);
             push = keptPayload(push, held, aliases);
             if (!push.hashes.length && !push.globals?.length) {
               const changed = held.some(({ code }) => code === "changed");
