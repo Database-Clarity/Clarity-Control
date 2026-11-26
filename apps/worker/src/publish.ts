@@ -20,6 +20,7 @@ import {
   classifyPublishIntent,
   publishAccountPath,
   wholeSelectionCapability,
+  wholeSelectionMaxRows,
   heldRowSchema,
   globalsInPlacePath,
   globalsInPlacePublishContract,
@@ -102,6 +103,11 @@ const resultStatusSchema = z.object({
 });
 const kickSchema = z.object({ opId: publishOpIdSchema }).strict();
 const heldResultSchema = z.object({ held: z.array(heldRowSchema).max(3000) });
+const refusedGlobalsSchema = z.object({
+  globalRefusals: z
+    .array(z.object({ id: globalIdSchema, error: z.string().max(2000) }).strip())
+    .max(3000),
+});
 const scopedRowIdentity = { lang: translationLanguageSchema };
 const safeResultRow = z
   .discriminatedUnion('kind', [
@@ -406,6 +412,11 @@ async function publishWhole(
   intent: Omit<PublishPayload, 'createdAt' | 'intentDigest'>,
   digest: string,
 ) {
+  if (intent.hashes.length + (intent.globals?.length ?? 0) > wholeSelectionMaxRows)
+    throw new HttpError(413, 'Publish this selection in parts.', {
+      code: 'whole-selection-too-large',
+      maxRows: wholeSelectionMaxRows,
+    });
   const paths = opPaths(intent.opId);
   const accountPath = publishAccountPath(user.id);
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -438,7 +449,9 @@ async function publishWhole(
       throw new HttpError(400, 'Publish opId outside creation window');
     }
     // An older publisher would treat this request as an ordinary part and skip the row checks
-    // this route leaves to it: never write one it cannot drain.
+    // this route leaves to it: never write one it cannot drain. The capability stands in for every
+    // older one the ordinary route checks (one build declares them all); a capability gate added
+    // to that route later must be added here too unless only newer builds declare it.
     const capabilities = (pin?.value as { capabilities?: unknown } | null)?.capabilities;
     if (!Array.isArray(capabilities) || !capabilities.includes(wholeSelectionCapability))
       throw new HttpError(409, 'Update the installed publisher before publishing in one request.', {
@@ -655,9 +668,11 @@ export async function publishStatus(request: Request, github: GitHub, user: Iden
       const result = resultStatusSchema.safeParse(log?.result);
       // A whole-selection publish names the rows it held and why (row checks, never text).
       const held = heldResultSchema.safeParse(log?.result).data?.held;
+      const globalRefusals = refusedGlobalsSchema.safeParse(log?.result).data?.globalRefusals;
       return {
         opId,
         ...(held?.length ? { held } : {}),
+        ...(globalRefusals?.length ? { globalRefusals } : {}),
         status: log
           ? result.success
             ? result.data.status

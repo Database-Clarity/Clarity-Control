@@ -1672,7 +1672,9 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
         'tooltips/900.json': cleared,
         'live/tooltips/900.json': published,
         'live/tooltips/456.json': row(456, 'import main from 900', f),
-        'live/pushed.json': { 900: 'f'.repeat(64), 456: 'e'.repeat(64) },
+        // 123 has a published version that reads nothing: Review does not tie it to the removal.
+        'live/tooltips/123.json': row(123, 'was live', f),
+        'live/pushed.json': { 900: 'f'.repeat(64), 456: 'e'.repeat(64), 123: 'd'.repeat(64) },
       });
       expected[900] = await clearedReviewHash(cleared, 'f'.repeat(64));
       await f.request(A, [123, 456, 900], expected, whole);
@@ -1710,6 +1712,39 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       expect(f.pub.read(f.git.tree(f.git.head(D)!), 'publish/accounts/1.json')).toMatchObject({
         entries: [{ opId: A, status: 'rejected' }],
       });
+    });
+
+    it('holds a row associated with a held row and publishes the unrelated one', async () => {
+      const f = await setup();
+      const expected = await rows(f, { 123: 'associated source', 456: 'reader', 789: 'unrelated' });
+      const reader = { ...row(456, 'reader', f), associated: [123] };
+      f.change(D, { 'tooltips/456.json': reader });
+      expected[456] = await publishableHash(reader, f.options.aliases);
+      await f.request(A, [123, 456, 789], expected, whole);
+      f.change(D, { 'tooltips/123.json': row(123, 'changed after review', f) });
+      await f.pub.run();
+      f.assertDone();
+      expect(log(f).result).toMatchObject({
+        status: 'done',
+        held: [
+          { hash: 123, code: 'changed' },
+          { hash: 456, code: 'dependency', on: 123 },
+        ],
+      });
+      expect(Object.keys(live(f))).toEqual(['789']);
+    });
+
+    it('holds a generator set bonus by its facts and publishes the other row', async () => {
+      const f = await setup();
+      const expected = await rows(f, { 123: 'set bonus', 456: 'unrelated' });
+      f.options.facts[123] = { name: 'Set bonus', type: 'Armor Set Bonus' };
+      await f.request(A, [123, 456], expected, whole);
+      await f.pub.run();
+      f.assertDone();
+      expect(log(f).result.held).toEqual([
+        { hash: 123, code: 'refused', reason: setBonusHoldMessage },
+      ]);
+      expect(Object.keys(live(f))).toEqual(['456']);
     });
 
     it('treats another account index write before RECORD as bookkeeping', async () => {

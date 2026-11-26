@@ -281,6 +281,7 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
     opId = A,
     globals?: { id: string; expected: string }[],
     reviewed: Record<number, string> = {},
+    selection?: 'whole',
   ) => {
     const aliases = pub.aliasesAt(current());
     const expected = Object.fromEntries(
@@ -303,6 +304,7 @@ async function fixture(titleSource = '', exports = false, translatedVariables = 
         hashes,
         expected: { ...expected, ...reviewed },
         ...(globals ? { globals } : {}),
+        ...(selection ? { selection } : {}),
       },
       () => now,
       (payload) => sign(null, Buffer.from(payload), keys.privateKey).toString('base64'),
@@ -1189,10 +1191,10 @@ describe('in-place shared text publication', () => {
       const before = live(f);
       const row = pending(f).find(({ name }) => name === 'Renamed')!;
       // As Review computes it, from the bundle.
-      const bundle = f.pub.read<{ pushed: Record<string, string>; tooltips: Record<string, Tooltip> }>(
-        f.git.tree(f.pub.head('editor-data-bundle')),
-        'bundle.json',
-      )!;
+      const bundle = f.pub.read<{
+        pushed: Record<string, string>;
+        tooltips: Record<string, Tooltip>;
+      }>(f.git.tree(f.pub.head('editor-data-bundle')), 'bundle.json')!;
       const reviewed = await clearedReviewHash(bundle.tooltips[141]!, bundle.pushed[141]);
       await f.request([141], A, together ? selection(row) : undefined, { 141: reviewed });
       await f.pub.run(false);
@@ -1546,6 +1548,38 @@ describe('in-place shared text publication', () => {
     await f.pub.run(false);
     expect(f.read(paths(A).log).result.error).toContain('Review → Globals');
     expect(live(f)).toEqual(before);
+  });
+
+  it('counts a refused global of a whole selection in the account index', async () => {
+    const f = await inPlaceFixture();
+    const at = new Date(now).toISOString();
+    f.change({
+      'tooltips/140.json': tooltip(140, 'Approved edit'),
+      [f.entryPath]: { ...f.entry, tombstone: { at, by: 'alice' } },
+      'publish/accounts/1.json': {
+        entries: [
+          {
+            opId: A,
+            createdAt: at,
+            rows: 1,
+            globals: 1,
+            status: 'pending',
+            held: 0,
+            updatedAt: at,
+          },
+        ],
+      },
+    });
+    const beta = pending(f).find(({ id }) => id === f.entry.id)!;
+    await f.request([140], A, selection(beta), {}, 'whole');
+    await f.pub.run(false);
+    expect(f.read(paths(A).log).result).toMatchObject({
+      status: 'done',
+      globalRefusals: [{ id: beta.id }],
+    });
+    expect(f.read('publish/accounts/1.json')).toMatchObject({
+      entries: [{ opId: A, status: 'done', held: 1 }],
+    });
   });
 
   it('publishes an independent tooltip when a selected global cannot be removed', async () => {

@@ -6,8 +6,6 @@ import { settingsFileId } from './settings.js';
 import type { Identity } from './types.js';
 
 const ackSchema = z.object({ opId: publishOpIdSchema }).strict();
-/** Acknowledgments outlive the 50-entry account index by far; older ones are pruned on write. */
-const ackRetentionMs = 180 * 86_400_000;
 
 /**
  * GET /publish/mine: the signed-in account's own publish index (counts and statuses, never tooltip
@@ -40,22 +38,30 @@ export async function publishMine(github: GitHub, user: Identity) {
   return json({ entries, acknowledged });
 }
 
-/** POST /publish/ack `{ opId }`: this account has seen that publish's outcome, on every device. */
+/**
+ * POST /publish/ack `{ opId }`: this account has seen that publish's outcome, on every device.
+ * Only a publish its own index lists is written, and only acknowledgments of listed publishes are
+ * kept, so the table holds at most `publishAccountLimit` rows per account.
+ */
 export async function publishAck(request: Request, github: GitHub, user: Identity) {
   const { opId } = await body(request, ackSchema, 1024);
   const db = github.env.SETTINGS_DB;
   if (!db) throw new HttpError(503, 'Settings are unavailable');
+  const snapshot = await github.publishSnapshot([publishAccountPath(user.id)]);
+  const listed = readPublishAccount(snapshot.files[0]?.value).entries.map((entry) => entry.opId);
+  if (!listed.includes(opId)) throw new HttpError(404, 'This account has no such publish');
   const account = await settingsFileId(github.env.SESSION_SECRET, user.id);
-  const now = Date.now();
   await db
-    .prepare('DELETE FROM publish_acks WHERE account_id = ? AND acked_at < ?')
-    .bind(account, now - ackRetentionMs)
+    .prepare(
+      `DELETE FROM publish_acks WHERE account_id = ? AND op_id NOT IN (${listed.map(() => '?').join(', ')})`,
+    )
+    .bind(account, ...listed)
     .run();
   await db
     .prepare(
       'INSERT INTO publish_acks (account_id, op_id, acked_at) VALUES (?, ?, ?) ON CONFLICT(account_id, op_id) DO NOTHING',
     )
-    .bind(account, opId, now)
+    .bind(account, opId, Date.now())
     .run();
   return json({ opId, acknowledged: true });
 }

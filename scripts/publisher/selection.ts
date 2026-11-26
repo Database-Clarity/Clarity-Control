@@ -1,21 +1,26 @@
 /**
  * Whole-selection publishes (`selection: 'whole'`, PIN capability `wholeSelectionV1`): the Worker
  * admits them without reading rows, so the publisher runs the ordinary route's row checks here,
- * one root at a time and with the Worker's own functions, and holds what fails instead of
- * refusing the whole selection. A held row takes with it every selected row that imports it, and
- * every selected removal that its published text still imports. Everything here reads one data
- * snapshot only, so the RECORD-time verification derives the same held rows again.
+ * one root at a time and with the Worker's own functions, plus the Action's own attributable
+ * guards, and holds what fails instead of refusing the whole selection. A held row takes with it
+ * every selected row that depends on it by Review's own dependency rules (publishDependencies:
+ * the resolver's real reads, associations, and the live readers of a removal). Everything here
+ * reads one data snapshot only, so the RECORD-time verification derives the same held rows again.
  */
 import {
   heldRowSchema,
+  isHeldSetBonus,
   isMovedInactive,
-  markupImports,
+  pushedSchema,
   resolveAlias,
+  selectedInactiveMoves,
+  setBonusHoldMessage,
   stableStringify,
   tooltipSchema,
   type Aliases,
   type HeldRow,
   type InactiveMoves,
+  type LegacyCatalog,
   type PublishPayload,
   type Tooltip,
 } from '../../packages/core/src/index.js';
@@ -26,12 +31,30 @@ import { HttpError } from '../../apps/worker/src/http.js';
 import { clearedStates } from '../../apps/worker/src/inactiveMoves.js';
 import { refuseHeldSetBonuses } from '../../apps/worker/src/setBonusHold.js';
 import type { GitHub, RepoFile } from '../../apps/worker/src/github.js';
+import { publishDependencies } from '../../apps/web/src/features/review/publishDependencies.js';
 import type { Tree } from './git.js';
 
 interface Reader {
   read<T>(tree: Tree, path: string): T | undefined;
 }
-type Digest = (tooltip: Tooltip, hash: number) => Promise<string | undefined>;
+
+export interface HoldInputs {
+  reader: Reader;
+  tree: Tree;
+  aliases: Aliases;
+  /** `config/inactive.json` at the snapshot (what the Worker's checks read). */
+  stored: InactiveMoves;
+  /** The stored moves plus the cleared removals of the selected documents. */
+  moves: InactiveMoves;
+  facts: LegacyCatalog;
+  /** The reviewed digest of a saved document, as the ordinary path compares it. */
+  digest(tooltip: Tooltip, hash: number): Promise<string | undefined>;
+  /**
+   * The shared-text (in-place globals) check per document for the rows still publishing: a map
+   * of refused hash to reason. A failure that names no row is left to the publication itself.
+   */
+  inPlace?(kept: readonly number[], documents: readonly Tooltip[]): Map<number, string>;
+}
 
 /** The Worker's GitHub reads, answered from one data snapshot (the `head` argument is ignored). */
 function snapshotReads(reader: Reader, tree: Tree): GitHub {
@@ -44,35 +67,38 @@ function snapshotReads(reader: Reader, tree: Tree): GitHub {
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** Reasons are stored; a long refusal message is cut rather than failing the selection. */
+const reasonOf = (text: string) => (text.length > 1000 ? `${text.slice(0, 997)}...` : text);
 
-/** Imports named by a document's text, in every language, as hashes (global = 1). */
-function imports(document: Tooltip | undefined, aliases: Aliases): number[] {
-  if (!document) return [];
-  return Object.values(document.text).flatMap((translation) =>
-    translation
-      ? markupImports(translation.text).flatMap((line) => {
-          const from = line.match(/ from (\d+|global) *$/)?.[1];
-          return from ? [resolveAlias(from === 'global' ? 1 : Number(from), aliases)] : [];
-        })
-      : [],
-  );
+/** The saved documents of the data snapshot, by hash, read on demand (and listed for a spread). */
+function savedDocuments(reader: Reader, tree: Tree): Record<string, Tooltip> {
+  const read = (key: string | symbol) => {
+    if (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key)) return undefined;
+    const parsed = tooltipSchema.safeParse(reader.read<unknown>(tree, `tooltips/${key}.json`)).data;
+    return parsed?.hash === Number(key) ? parsed : undefined;
+  };
+  return new Proxy({} as Record<string, Tooltip>, {
+    get: (_target, key) => read(key),
+    has: (_target, key) => read(key) !== undefined,
+    ownKeys: () =>
+      Object.keys(tree).flatMap((path) => /^tooltips\/(\d+)\.json$/.exec(path)?.[1] ?? []),
+    getOwnPropertyDescriptor: (_target, key) => {
+      const value = read(key);
+      return value && { value, enumerable: true, configurable: true, writable: false };
+    },
+  });
 }
 
-/**
- * The rows of a whole-selection request the publisher holds, sorted by hash, with why. `digest`
- * is the reviewed digest of a saved document, as the ordinary path compares it.
- */
+/** The rows of a whole-selection request the publisher holds, sorted by hash, with why. */
 export async function heldRows(
-  reader: Reader,
-  tree: Tree,
+  inputs: HoldInputs,
   payload: Pick<PublishPayload, 'hashes' | 'expected'>,
-  aliases: Aliases,
-  moves: InactiveMoves,
-  digest: Digest,
 ): Promise<HeldRow[]> {
+  const { reader, tree, aliases, stored, moves, facts } = inputs;
   const held = new Map<number, HeldRow>();
   const hold = (row: HeldRow) => {
-    if (!held.has(row.hash)) held.set(row.hash, heldRowSchema.parse(row));
+    if (!held.has(row.hash))
+      held.set(row.hash, heldRowSchema.parse({ ...row, reason: reasonOf(row.reason) }));
   };
   const document = (prefix: string, hash: number) => {
     const raw = reader.read<unknown>(tree, `${prefix}/${hash}.json`);
@@ -89,7 +115,7 @@ export async function heldRows(
   for (const [canonical, hashes] of roots) {
     const source =
       document('tooltips', canonical) ??
-      (isMovedInactive(canonical, moves) &&
+      (isMovedInactive(canonical, stored) &&
       reader.read(tree, `tooltips/${canonical}.json`) === undefined
         ? { hash: canonical, text: {}, associated: [] }
         : undefined);
@@ -98,7 +124,7 @@ export async function heldRows(
       continue;
     }
     saved.set(canonical, source);
-    const reviewed = await digest(source, canonical);
+    const reviewed = await inputs.digest(source, canonical);
     if (hashes.some((hash) => payload.expected[hash] !== reviewed))
       hold({ hash: canonical, code: 'changed', reason: 'Saved text changed after review.' });
   }
@@ -110,24 +136,24 @@ export async function heldRows(
         code: 'activation',
         reason: 'A scheduled batch activation conflict on this tooltip waits to be resolved.',
       });
-  // 3. The ordinary Worker admission checks, one root at a time, with the Worker's functions.
+  // 3. The ordinary Worker admission checks, one root at a time, with the Worker's functions,
+  // then the Action's own guards that name one row (checkAndExport keeps them for the rest).
   const github = snapshotReads(reader, tree);
   const pin = { value: reader.read<unknown>(tree, publisherPinPath) };
-  const active = [...roots.keys()].filter((hash) => !isMovedInactive(hash, moves));
+  const active = [...roots.keys()].filter((hash) => !isMovedInactive(hash, stored));
   const removals = new Map<number, string>();
   for (const [hash, state] of await clearedStates(
     github,
     '',
     active.flatMap((hash) => saved.get(hash) ?? []),
-    moves,
+    stored,
   ))
     if (state.state === 'removal') removals.set(hash, state.reviewed);
-  const walks = new Map<number, Set<number>>();
   for (const root of active) {
     if (held.has(root)) continue;
     try {
       const checked = await refuseBaseEnhanced(github, '', [root], aliases, [], undefined, {
-        moves,
+        moves: stored,
         removals: new Map(removals),
       });
       for (const checkedDocument of checked.values())
@@ -141,49 +167,81 @@ export async function heldRows(
         code: error.status === 409 ? 'changed' : 'refused',
         reason: error.status === 409 ? 'Saved text changed after review.' : message(error),
       });
+      continue;
     }
+    const own = saved.get(root)!;
+    if (removals.has(root)) continue;
+    if (!own.custom && !facts[root])
+      hold({ hash: root, code: 'refused', reason: 'Missing generator facts.' });
+    else if (isHeldSetBonus(own, facts[root]))
+      hold({ hash: root, code: 'refused', reason: setBonusHoldMessage });
   }
-  // 4. Dependencies: a row publishes with what its saved text imports (directly or through other
-  // documents), and a removal waits for the held rows whose published text imports it.
-  const walk = (root: number) => {
-    let seen = walks.get(root);
-    if (seen) return seen;
-    seen = new Set<number>();
-    const pending = imports(saved.get(root), aliases);
-    while (pending.length) {
-      const hash = pending.pop()!;
-      if (seen.has(hash)) continue;
-      seen.add(hash);
-      pending.push(...imports(saved.get(hash) ?? document('tooltips', hash), aliases));
+  // 4. Dependencies, by Review's own rules: a row waits for every selected row it depends on.
+  const dependencies = selectedDependencies(inputs, roots, saved);
+  const close = () => {
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const [root, needs] of dependencies) {
+        if (held.has(root)) continue;
+        const on = needs.find((hash) => held.has(hash));
+        if (on === undefined) continue;
+        hold({
+          hash: root,
+          code: 'dependency',
+          reason: `Publishes together with held tooltip ${on}.`,
+          on,
+        });
+        changed = true;
+      }
     }
-    walks.set(root, seen);
-    return seen;
   };
-  const removing = new Set(
-    [...roots.keys()].filter((hash) => isMovedInactive(hash, moves) || removals.has(hash)),
-  );
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const root of roots.keys()) {
-      if (held.has(root)) continue;
-      const on =
-        [...walk(root)].find((hash) => held.has(hash)) ??
-        (removing.has(root)
-          ? [...held.keys()].find((hash) =>
-              imports(document('live/tooltips', hash), aliases).includes(root),
-            )
-          : undefined);
-      if (on === undefined) continue;
-      hold({
-        hash: root,
-        code: 'dependency',
-        reason: `Publishes together with held tooltip ${on}.`,
-        on,
-      });
-      changed = true;
-    }
+  close();
+  // 5. Shared text (in-place globals) per document for what is still publishing.
+  if (inputs.inPlace) {
+    const kept = [...roots.keys()].filter((hash) => !held.has(hash));
+    const documents = kept.flatMap((hash) =>
+      isMovedInactive(hash, moves) ? [] : (saved.get(hash) ?? []),
+    );
+    for (const [hash, reason] of inputs.inPlace(kept, documents))
+      hold({ hash, code: 'refused', reason });
+    close();
   }
   return [...held.values()].sort((a, b) => a.hash - b.hash);
+}
+
+/** Each selected root's selected dependencies (publishDependencies, as Review plans parts). */
+function selectedDependencies(
+  { reader, tree, aliases, moves }: HoldInputs,
+  roots: ReadonlyMap<number, number[]>,
+  saved: ReadonlyMap<number, Tooltip>,
+): Map<number, number[]> {
+  const selected = [...roots.keys()].flatMap((hash) => saved.get(hash) ?? []);
+  const removing = Object.keys(
+    selectedInactiveMoves(
+      moves,
+      selected.map(({ hash }) => hash),
+      aliases,
+    ),
+  ).some((hash) => isMovedInactive(Number(hash), moves));
+  let published: Record<number, Tooltip | null | undefined> = {};
+  if (removing) {
+    // As Review: the published version of a row with a marker, explicitly undefined without one.
+    const pushed = pushedSchema.parse(reader.read(tree, 'live/pushed.json') ?? {});
+    published = Object.fromEntries(
+      selected.map(({ hash }) => {
+        if (pushed[hash] === undefined) return [hash, undefined];
+        const live = tooltipSchema.safeParse(reader.read(tree, `live/tooltips/${hash}.json`)).data;
+        return [hash, live?.hash === hash ? live : null];
+      }),
+    );
+  }
+  return publishDependencies(
+    savedDocuments(reader, tree),
+    aliases,
+    new Set(roots.keys()),
+    selected,
+    { moves, published },
+  );
 }
 
 /** The request as published after holding: the held rows (and their alias hashes) left out. */

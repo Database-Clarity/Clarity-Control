@@ -76,13 +76,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it.each([1, 148, 500])(
+it.each([1, 148, 500, 1000])(
   'admits %s rows in one commit with the account entry, reading no row',
   async (rows) => {
     const before = f.subrequests;
-    const cpu = process.cpuUsage();
     const response = await f.request('/publish', 'POST', body(rows), 2);
-    const used = process.cpuUsage(cpu);
     expect(response.status, await response.clone().text()).toBe(202);
     // Installation token, one GraphQL snapshot, then tree, commit, and ref: no row reads.
     expect(f.subrequests - before).toBe(5);
@@ -106,10 +104,6 @@ it.each([1, 148, 500])(
         },
       ],
     });
-    // Local process CPU proxy of the whole route (Node, not the Workers isolate).
-    console.log(
-      `whole-selection admission ${rows} rows: ${((used.user + used.system) / 1000).toFixed(1)} ms process CPU, ${f.subrequests - before} subrequests`,
-    );
   },
 );
 
@@ -167,6 +161,41 @@ it('refuses trials and translators, and the shared text fence still applies', as
   expect(f.commits).toHaveLength(0);
 });
 
+it('evicts fully live entries first, keeping queued and failed publishes discoverable', async () => {
+  const entry = (i: number, status: string, held = 0) => ({
+    opId: `01K95G${String(i).padStart(20, '0')}`,
+    createdAt: '2026-11-01T00:00:00.000Z',
+    rows: 1,
+    globals: 0,
+    status,
+    held,
+    updatedAt: '2026-11-01T00:00:00.000Z',
+  });
+  f.moveData({
+    [publishAccountPath(2)]: {
+      entries: [
+        entry(0, 'pending'),
+        entry(1, 'rejected'),
+        entry(2, 'done', 1),
+        ...Array.from({ length: 47 }, (_, i) => entry(i + 3, 'done')),
+      ],
+    },
+  });
+  expect((await f.request('/publish', 'POST', body(2), 2)).status).toBe(202);
+  const { entries } = f.current()[publishAccountPath(2)] as { entries: { opId: string }[] };
+  expect(entries).toHaveLength(50);
+  expect(entries.slice(0, 4).map(({ opId }) => opId.slice(-2))).toEqual(['00', '01', '02', '04']);
+});
+
+it('refuses more rows than one request takes before reading anything', async () => {
+  const before = f.subrequests;
+  const response = await f.request('/publish', 'POST', body(1001), 2);
+  expect(response.status).toBe(413);
+  expect(await response.json()).toMatchObject({ details: { code: 'whole-selection-too-large' } });
+  expect(f.subrequests - before).toBe(0);
+  expect(f.commits).toHaveLength(0);
+});
+
 it('keeps the newest 50 account entries', async () => {
   f.moveData({
     [publishAccountPath(2)]: {
@@ -207,54 +236,14 @@ it('lists only the own account index with its acknowledgments, failing open with
   delete f.env.SETTINGS_DB;
   expect((await mine(2)).acknowledged).toBeNull();
   expect((await f.request('/publish/ack', 'POST', { opId: 'nope' }, 2)).status).toBe(400);
+  f.env.SETTINGS_DB = binding;
+  // Only a publish the caller's own index lists is written: another account's or a made-up id is
+  // refused without a row, so no account can fill the settings database.
+  const rows = () => db.prepare('SELECT count(*) AS n FROM publish_acks').get()!.n;
+  const before = rows();
+  expect((await f.request('/publish/ack', 'POST', { opId: B }, 2)).status).toBe(404);
+  expect((await f.request('/publish/ack', 'POST', { opId: `0${'A'.repeat(25)}` }, 3)).status).toBe(
+    404,
+  );
+  expect(rows()).toBe(before);
 });
-
-// Local process-CPU proxy (Node, includes the fixture's simulated GitHub and session checks, so an
-// upper bound of the route's own work). PUBLISH_CPU=1 to run; compares with today's accepted
-// ordinary 50-row part.
-it.runIf(process.env.PUBLISH_CPU)(
-  'measures admission CPU against the ordinary 50-row part',
-  async () => {
-    const rounds = 200;
-    const measure = async (make: (i: number) => unknown) => {
-      // Windows process CPU ticks at about 15.6 ms: report the mean over all rounds.
-      const values = Array.from({ length: rounds }, (_, i) => make(i));
-      const start = process.cpuUsage();
-      for (const value of values) {
-        const response = await f.request('/publish', 'POST', value, 2);
-        if (response.status !== 202) throw new Error(await response.text());
-      }
-      const used = process.cpuUsage(start);
-      return { meanMs: Number(((used.user + used.system) / 1000 / rounds).toFixed(2)) };
-    };
-    const id = (i: number) => `01K95H${String(i + 100).padStart(20, '0')}`;
-    const report: Record<string, unknown> = {};
-    for (const rows of [148, 500]) {
-      const before = f.subrequests;
-      report[`whole ${rows}`] = {
-        ...(await measure((i) => ({ ...body(rows, id(i + rows)) }))),
-        subrequests: (f.subrequests - before) / rounds,
-      };
-    }
-    const { tooltip } = await import('./fixture.js');
-    const { publishableHash } = await import('@clarity/core');
-    const documents = Array.from({ length: 50 }, (_, i) => ({
-      ...tooltip(`row ${i}`),
-      hash: 2000 + i,
-    }));
-    f.moveData(Object.fromEntries(documents.map((d) => [`tooltips/${d.hash}.json`, d])));
-    const expected = Object.fromEntries(
-      await Promise.all(documents.map(async (d) => [d.hash, await publishableHash(d, f.aliases)])),
-    );
-    const before = f.subrequests;
-    report['ordinary 50'] = {
-      ...(await measure((i) => ({
-        opId: id(i + 900),
-        hashes: documents.map(({ hash }) => hash),
-        expected,
-      }))),
-      subrequests: (f.subrequests - before) / rounds,
-    };
-    console.log(`publish admission CPU proxy (ms, ${rounds} rounds): ${JSON.stringify(report)}`);
-  },
-);

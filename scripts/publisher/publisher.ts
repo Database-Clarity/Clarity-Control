@@ -1131,7 +1131,14 @@ export class Publisher {
    * The rows a whole-selection request holds at `tree` (selection.ts), with the reviewed digest
    * computed exactly as the ordinary path below compares it.
    */
-  private async wholeSelectionHeld(tree: Tree, payload: PublishPayload, aliases: Aliases) {
+  private async wholeSelectionHeld(
+    tree: Tree,
+    payload: PublishPayload,
+    aliases: Aliases,
+    live: string,
+    publisher: Publisher = this,
+    checkInstalledPin = true,
+  ) {
     const stored = this.movesAt(tree);
     const documents = [
       ...new Set(payload.hashes.map((hash) => resolveAlias(hash, aliases))),
@@ -1140,11 +1147,60 @@ export class Publisher {
       return parsed.success && parsed.data.hash === hash ? [parsed.data] : [];
     });
     const moves = this.movesWithCleared(tree, documents);
-    return heldRows(this, tree, payload, aliases, stored, async (document, hash) => {
-      const digest = await inactivePublishableHash(document, aliases, moves);
-      return this.reviewedEntries(tree, [{ hash, digest, tooltipBlob: '' }], [document], moves)[0]!
-        .digest;
-    });
+    return heldRows(
+      {
+        reader: this,
+        tree,
+        aliases,
+        stored,
+        moves,
+        facts: publisher.options.facts,
+        digest: async (document, hash) => {
+          const digest = await inactivePublishableHash(document, aliases, moves);
+          return this.reviewedEntries(
+            tree,
+            [{ hash, digest, tooltipBlob: '' }],
+            [document],
+            moves,
+          )[0]!.digest;
+        },
+        // checkAndExport's shared-text check, one document at a time.
+        inPlace: (kept, documents) => {
+          const refused = new Map<number, string>();
+          let options: ReturnType<typeof authoredInPlaceOptions>;
+          try {
+            const inPlace = publisher.inPlaceOptions(
+              tree,
+              {
+                ...payload,
+                hashes: payload.hashes.filter((hash) => kept.includes(resolveAlias(hash, aliases))),
+              },
+              live,
+              checkInstalledPin,
+            );
+            const selected = selectedInactiveMoves(moves, kept, aliases);
+            options = authoredInPlaceOptions(
+              publisher,
+              tree,
+              inPlace.live,
+              inPlace,
+              documents.filter(({ hash }) => !isMovedInactive(hash, selected)),
+              activeAliases(aliases, selected),
+            );
+          } catch {
+            return refused; // Not one row's fault: the publication itself decides.
+          }
+          for (const document of documents)
+            try {
+              assertInPlaceDocuments([document], options);
+            } catch (error) {
+              refused.set(document.hash, error instanceof Error ? error.message : String(error));
+            }
+          return refused;
+        },
+      },
+      payload,
+    );
   }
   private async verifyReceiptDigests(receipt: Receipt) {
     if (!receipt.inPlace || receipt.globals)
@@ -1170,7 +1226,23 @@ export class Publisher {
     // source and check the receipt against the rest.
     let signed = verified;
     if (verified.kind === 'push' && verified.selection === 'whole') {
-      const held = await this.wholeSelectionHeld(frozen, verified, aliases);
+      const held = await this.wholeSelectionHeld(
+        frozen,
+        verified,
+        aliases,
+        receipt.liveParent,
+        options === this.options
+          ? this
+          : new Publisher(this.git, {
+              ...this.options,
+              generatorSha: options.generatorSha,
+              aliases: options.aliases,
+              facts: options.facts,
+              aliasFacts: options.aliasFacts,
+              sandboxConflicts: options.sandboxConflicts,
+            }),
+        false,
+      );
       if (!sameHeld(held, receipt.held))
         throw new ConsumerOutputRejected('Receipt held rows differ from the signed selection');
       signed = keptPayload(verified, held, aliases);
@@ -1515,7 +1587,9 @@ export class Publisher {
         : 'done';
     const index = recordInPublishAccount(this.read<unknown>(tree, path), opId, {
       status,
-      held: (result?.held ?? receipt?.held ?? []).length,
+      // Held tooltips and refused shared definitions: whatever of it did not go live.
+      held:
+        (result?.held ?? receipt?.held ?? []).length + (receipt?.inPlace?.refusals?.length ?? 0),
       updatedAt: iso(this.options.now()),
     });
     if (index) tree[path] = this.git.writeBlob(json(index));
@@ -2154,7 +2228,7 @@ export class Publisher {
           let held: HeldRow[] | undefined;
           let push = payload;
           if (push.selection === 'whole') {
-            held = await this.wholeSelectionHeld(tree, push, aliases);
+            held = await this.wholeSelectionHeld(tree, push, aliases, live);
             push = keptPayload(push, held, aliases);
             if (!push.hashes.length && !push.globals?.length) {
               const changed = held.some(({ code }) => code === 'changed');

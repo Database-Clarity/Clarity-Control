@@ -8,6 +8,12 @@ import { publishOpIdSchema } from './publishRequest.js';
  * publishes the rest as one publication, and keeps the account publish index.
  */
 export const wholeSelectionCapability = 'wholeSelectionV1';
+/**
+ * Most rows (tooltips plus shared definitions) one whole-selection request takes: its admission
+ * stays well inside the Worker's Free CPU budget (publishWholeCpu.bench.ts). A larger selection
+ * goes in ordinary parts.
+ */
+export const wholeSelectionMaxRows = 1000;
 
 /** Why the publisher held a row of a whole-selection publish (the rest went live). */
 export const heldRowSchema = z
@@ -60,11 +66,25 @@ export function readPublishAccount(raw: unknown): PublishAccount {
   return publishAccountSchema.safeParse(raw).data ?? { entries: [] };
 }
 
-/** Add (or replace) one entry, newest last, keeping the newest `publishAccountLimit`. */
+/** Whether an entry still matters on its own: queued, or something of it did not go live. */
+export const openPublishEntry = (entry: PublishAccountEntry) =>
+  entry.status === 'pending' ||
+  entry.status === 'stale' ||
+  entry.status === 'rejected' ||
+  entry.held > 0;
+
+/**
+ * Add (or replace) one entry, newest last, within `publishAccountLimit`: the oldest fully live
+ * entries go first, so queued and failed or partly held publishes stay discoverable.
+ */
 export function admitToPublishAccount(raw: unknown, entry: PublishAccountEntry): PublishAccount {
   const entries = readPublishAccount(raw).entries.filter(({ opId }) => opId !== entry.opId);
   entries.push(entry);
-  return { entries: entries.slice(-publishAccountLimit) };
+  while (entries.length > publishAccountLimit) {
+    const settled = entries.findIndex((candidate) => !openPublishEntry(candidate));
+    entries.splice(settled < 0 ? 0 : settled, 1);
+  }
+  return { entries };
 }
 
 /** The outcome of one listed publish; undefined when the index does not list it. */
