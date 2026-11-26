@@ -661,7 +661,8 @@ export async function publishStatus(request: Request, github: GitHub, user: Iden
     if (log && owner && owner.intentDigest === log.intentDigest)
       return json({ operations: [{ opId, ...safeTranslationResult(log.result, owner) }] });
   }
-  // Fixed projection: no signed requests, tooltips, digests, run errors or repository metadata.
+  // Fixed projection: no signed requests, tooltips, digests, run errors or repository metadata;
+  // a whole selection adds its held rows and refused shared definitions with their reasons.
   return json({
     operations: ids.map((opId, i) => {
       const log = logged(snapshot.files[2 + i * 2]);

@@ -1747,6 +1747,64 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
       expect(Object.keys(live(f))).toEqual(['456']);
     });
 
+    it('holds an Inactive removal an unselected live row still imports, and publishes the rest', async () => {
+      const f = await setup();
+      const expected = await rows(f, { 456: 'independent' });
+      f.options.facts[125] = { name: 'Reader', type: 'perk' };
+      f.change(D, {
+        'config/inactive.json': { 123: { by: 1, at: '2026-11-14T00:00:00Z' } },
+        // Saved without the import, but not selected: LIVE keeps reading 123.
+        'tooltips/125.json': row(125, 'no import any more', f),
+        'live/tooltips/125.json': row(125, 'import main from 123', f),
+        'live/tooltips/123.json': f.tooltip,
+        // 456 has a published version: Review does not tie it to the removal.
+        'live/tooltips/456.json': row(456, 'was live', f),
+        'live/pushed.json': { 123: 'c'.repeat(64), 125: 'b'.repeat(64), 456: 'a'.repeat(64) },
+      });
+      expected[123] = await inactiveRemovalHash(123);
+      await f.request(A, [123, 456], expected, whole);
+      await f.pub.run();
+      f.assertDone();
+      expect(log(f).result.held).toEqual([
+        {
+          hash: 123,
+          code: 'refused',
+          reason: 'Tooltip 125 imports inactive tooltip 123 on live.',
+        },
+      ]);
+      expect(live(f)[456]).toBe(expected[456]);
+      expect(live(f)[123]).toBe('c'.repeat(64));
+    });
+
+    it('holds an edit that drops an export a held reader still imports on live', async () => {
+      const f = await setup();
+      const expected = await rows(f, {
+        123: 'export New (\nnew text\n)',
+        456: 'import Old from 123',
+        789: 'independent',
+      });
+      f.change(D, {
+        'live/tooltips/123.json': row(123, 'export Old (\nold text\n)', f),
+        'live/tooltips/456.json': row(456, 'import Old from 123', f),
+        'live/pushed.json': { 123: 'c'.repeat(64), 456: 'b'.repeat(64) },
+      });
+      await f.request(A, [123, 456, 789], expected, whole);
+      f.change(D, {
+        'tooltips/456.json': row(456, 'import Old from 123\nchanged after review', f),
+      });
+      await f.pub.run();
+      f.assertDone();
+      expect(log(f).result.held).toEqual([
+        {
+          hash: 123,
+          code: 'refused',
+          reason: 'Tooltip 456 imports Old from this tooltip on live, which this edit removes.',
+        },
+        { hash: 456, code: 'changed', reason: 'Saved text changed after review.' },
+      ]);
+      expect(live(f)[789]).toBe(expected[789]);
+    });
+
     it('treats another account index write before RECORD as bookkeeping', async () => {
       const f = await setup();
       const expected = await rows(f, { 123: 'one' });

@@ -8,7 +8,9 @@
  * reads one data snapshot only, so the RECORD-time verification derives the same held rows again.
  */
 import {
+  extractBlocks,
   heldRowSchema,
+  markupImports,
   isHeldSetBonus,
   isMovedInactive,
   pushedSchema,
@@ -196,6 +198,18 @@ export async function heldRows(
     }
   };
   close();
+  // 4b. What stays LIVE (unselected published rows and the held ones) must still resolve: a kept
+  // removal it imports or associates, or a kept edit that drops an export it imports, is held.
+  const stays = (hash: number) => held.has(hash) || !roots.has(hash);
+  const retained = retainedReaders(
+    inputs,
+    document,
+    [...roots.keys()].filter((hash) => !stays(hash)),
+    stays,
+    saved,
+  );
+  for (const [hash, reason] of retained) hold({ hash, code: 'refused', reason });
+  close();
   // 5. Shared text (in-place globals) per document for what is still publishing.
   if (inputs.inPlace) {
     const kept = [...roots.keys()].filter((hash) => !held.has(hash));
@@ -207,6 +221,73 @@ export async function heldRows(
     close();
   }
   return [...held.values()].sort((a, b) => a.hash - b.hash);
+}
+
+/**
+ * Kept rows that would break text staying LIVE: removals (Inactive or cleared) that a retained
+ * published row imports or associates, and edits that drop a named export a retained published row
+ * imports. The publication's own consumer checks refuse these for the whole selection.
+ */
+function retainedReaders(
+  { tree, aliases, moves }: HoldInputs,
+  document: (prefix: string, hash: number) => Tooltip | undefined,
+  kept: readonly number[],
+  stays: (hash: number) => boolean,
+  saved: ReadonlyMap<number, Tooltip>,
+): Map<number, string> {
+  const removals = new Set(kept.filter((hash) => isMovedInactive(hash, moves)));
+  const dropped = new Map<number, Set<string>>();
+  for (const hash of kept) {
+    if (removals.has(hash)) continue;
+    const before = document('live/tooltips', hash);
+    const after = saved.get(hash);
+    if (!before || !after) continue;
+    const names = new Set<string>();
+    for (const [lang, cell] of Object.entries(before.text)) {
+      const now = extractBlocks(after.text[lang as keyof Tooltip['text']]?.text ?? '', 'export');
+      for (const name of Object.keys(extractBlocks(cell?.text ?? '', 'export')))
+        if (!Object.hasOwn(now, name)) names.add(name);
+    }
+    if (names.size) dropped.set(hash, names);
+  }
+  const refused = new Map<number, string>();
+  if (!removals.size && !dropped.size) return refused;
+  const kind = (hash: number) => (moves[hash]?.cleared ? 'cleared' : 'inactive');
+  for (const path of Object.keys(tree)) {
+    const reader = Number(/^live\/tooltips\/(\d+)\.json$/.exec(path)?.[1]);
+    if (!Number.isInteger(reader) || !stays(reader)) continue;
+    const live = document('live/tooltips', reader);
+    if (!live) continue;
+    for (const hash of live.associated) {
+      const target = resolveAlias(hash, aliases);
+      if (removals.has(target) && !refused.has(target))
+        refused.set(
+          target,
+          `Tooltip ${reader} associates ${kind(target)} tooltip ${hash} on live.`,
+        );
+    }
+    for (const cell of Object.values(live.text))
+      for (const line of markupImports(cell?.text ?? '')) {
+        const parts = /^import ([A-z0-9 ]+?) from (\d+) *$/.exec(line);
+        if (!parts) continue;
+        const target = resolveAlias(Number(parts[2]), aliases);
+        if (target === reader || refused.has(target)) continue;
+        if (removals.has(target))
+          refused.set(
+            target,
+            `Tooltip ${reader} imports ${kind(target)} tooltip ${parts[2]} on live.`,
+          );
+        else {
+          const name = parts[1]!.split(' ').find((word) => dropped.get(target)?.has(word));
+          if (name)
+            refused.set(
+              target,
+              `Tooltip ${reader} imports ${name} from this tooltip on live, which this edit removes.`,
+            );
+        }
+      }
+  }
+  return refused;
 }
 
 /** Each selected root's selected dependencies (publishDependencies, as Review plans parts). */
