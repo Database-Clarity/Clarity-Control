@@ -437,7 +437,7 @@ it('shows stale and failed outcomes and leaves the tooltips pending', async () =
     const activity = host.querySelector('[aria-label="Publish activity"]')!;
     expect(activity.textContent).toContain('Attention');
     expect(activity.textContent).toContain(
-      'Publish needs attention. Not published: Tooltip 10 (Saved text changed after review).',
+      'Not published: Tooltip 10 (Saved text changed after review).',
     );
   });
   expect(host.textContent).toContain('1 change waiting to go live');
@@ -472,7 +472,7 @@ it('publishes the rest of a whole selection and keeps a held row pending and sel
     const activity = host.querySelector('[aria-label="Publish activity"]')!;
     expect(activity.textContent).toContain('Partly live');
     expect(activity.textContent).toContain(
-      'Publish needs attention. Not published: Second (Saved text changed after review). The rest is live.',
+      'Not published: Second (Saved text changed after review). The rest is live.',
     );
     expect(host.textContent).toContain('1 change waiting to go live');
   });

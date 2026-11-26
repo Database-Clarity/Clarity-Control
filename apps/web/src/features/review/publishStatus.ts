@@ -182,7 +182,8 @@ function describeWhole(
     ...base,
     tone: op.status === 'done' || op.status === 'unchanged' ? 'warn' : 'bad',
     chip: op.status === 'done' || op.status === 'unchanged' ? 'Partly live' : 'Attention',
-    detail: `Publish needs attention. ${detail}`,
+    // The chip says it needs attention: the clamped line goes straight to what did not go live.
+    detail,
   });
   const notLive = [
     ...(op.held ?? []).map(({ name, reason }) => ({ name, error: reason })),

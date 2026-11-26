@@ -230,6 +230,11 @@
 // A line that needs attention opens on click, tap, Enter, or Space to show every held row and reason.
 .activityText[role='button'] {
   cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-ink);
+    outline-offset: 2px;
+  }
 }
 
 .activityText[data-open] {

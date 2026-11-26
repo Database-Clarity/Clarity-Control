@@ -112,7 +112,7 @@ it('names the held rows, acknowledges only the rest, frees the held rows, and ac
   const view = describeOp(finished, undefined, Date.now(), when);
   expect(view.chip).toBe('Partly live');
   expect(view.detail).toBe(
-    'Publish needs attention. Not published: Row 1001 (Saved text changed after review). The rest is live.',
+    'Not published: Row 1001 (Saved text changed after review). The rest is live.',
   );
   await driver.dismiss(created.opId);
   expect(api.ack).toHaveBeenCalledWith(created.opId);
@@ -136,7 +136,7 @@ it('reports a publisher without one-request publishes and sends nothing else', a
     error: 'Update the installed publisher before publishing in one request.',
   });
   expect(describeOp(ops()[0]!, undefined, Date.now(), when).detail).toBe(
-    'Publish needs attention. Update the installed publisher before publishing in one request.',
+    'Update the installed publisher before publishing in one request.',
   );
   expect(api.post).toHaveBeenCalledTimes(1);
 });
