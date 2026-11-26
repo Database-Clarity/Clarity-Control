@@ -36,6 +36,8 @@ interface PublishAttention {
   dismiss(): void;
 }
 
+/** Only the latest read may adopt its answers (a role can change under the same session). */
+let reads = 0;
 /** Re-read at most this often while the tab keeps becoming visible. */
 const rereadMs = 60_000;
 /** Outcome details are read for at most this many publishes per visit. */
@@ -78,7 +80,8 @@ export const usePublishAttention = create<PublishAttention>((set, get) => ({
     const now = Date.now();
     if (get().key === key && now - get().readAt < rereadMs) return;
     set({ key, readAt: now, ...(get().key === key ? {} : { entries: [] }) });
-    const current = () => get().key === key && settledKey() === key;
+    const read = ++reads;
+    const current = () => read === reads && get().key === key && settledKey() === key;
     try {
       const { entries, acknowledged } = await getAccountPublishes();
       if (!current()) return;
@@ -104,7 +107,8 @@ export const usePublishAttention = create<PublishAttention>((set, get) => ({
           }
         }),
       );
-      if (!current()) return;
+      // Details only while the account may still read publish status.
+      if (!current() || !canPushLive(useAuthStore.getState().user)) return;
       const byId = new Map(named.map((entry) => [entry.opId, entry]));
       set({ entries: get().entries.map((entry) => byId.get(entry.opId) ?? entry) });
     } catch {

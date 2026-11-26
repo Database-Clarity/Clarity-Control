@@ -79,6 +79,23 @@ it('never shows an answer read for another account or while the sign-in changes'
   expect(api.getAccountPublishes).toHaveBeenCalledTimes(1);
 });
 
+it('drops editor details that arrive after the same account lost its role', async () => {
+  signIn(1, 'token-a');
+  let answer!: (value: unknown) => void;
+  api.getAccountPublishes.mockResolvedValue({ entries: [entry('A')], acknowledged: [] });
+  api.getPublishOutcome.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+  const editorRead = usePublishAttention.getState().load();
+  await vi.waitFor(() => expect(api.getPublishOutcome).toHaveBeenCalledWith('A'));
+  useAuthStore.setState({ loading: true });
+  await usePublishAttention.getState().load();
+  signIn(1, 'token-a', 'trial');
+  await usePublishAttention.getState().load();
+  answer({ held: [{ hash: 10, reason: 'Saved text changed after review.' }], globals: [] });
+  await editorRead;
+  expect(usePublishAttention.getState().entries[0]?.notLive).toBeUndefined();
+  expect(attentionText(usePublishAttention.getState().entries)).not.toContain('Tooltip 10');
+});
+
 it('acknowledges what it showed when dismissed, and hides acknowledged publishes', async () => {
   signIn(1, 'token-a');
   api.getAccountPublishes.mockResolvedValue({
