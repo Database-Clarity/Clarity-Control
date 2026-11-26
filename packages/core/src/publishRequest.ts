@@ -24,6 +24,12 @@ export const publishBodySchema = z
       .max(3000)
       .refine((items) => new Set(items.map(({ id }) => id)).size === items.length)
       .optional(),
+    /**
+     * One request for a person's whole confirmed selection (PIN capability `wholeSelectionV1`):
+     * the Worker admits it without reading rows, and the publisher runs every row check, holds a
+     * row that fails one with what depends on it, and publishes the rest as one publication.
+     */
+    selection: z.literal('whole').optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -56,6 +62,7 @@ export const publishPayloadSchema = z
         hashes: v.hashes,
         expected: v.expected,
         globals: v.globals,
+        selection: v.selection,
       }).success
     )
       ctx.addIssue({ code: 'custom', message: 'Invalid publish intent' });
@@ -90,6 +97,7 @@ export async function publishIntentDigest(value: PublishIntent): Promise<string>
         : {
             globals: [...value.globals].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
           }),
+      ...(value.selection === undefined ? {} : { selection: value.selection }),
     }),
   );
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (b) =>

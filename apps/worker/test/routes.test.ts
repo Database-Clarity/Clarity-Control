@@ -4,7 +4,11 @@
 // makes a new route fail this test until it is added to the table.
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { currentSaveStagingCapability, defaultSyncedSettings, type Permissions } from '@clarity/core';
+import {
+  currentSaveStagingCapability,
+  defaultSyncedSettings,
+  type Permissions,
+} from '@clarity/core';
 import type { ReportsDatabase } from '../src/reports.js';
 import { newUlid } from '../src/schedule/store.js';
 import { blobOid, config, Fixture, makePrivateKey, tooltip } from './fixture.js';
@@ -59,6 +63,8 @@ const routes: (Route & { public?: true })[] = [
   { method: 'POST', path: '/publish', body: {} },
   { method: 'GET', path: `/publish/status?opId=0${'A'.repeat(25)}` },
   { method: 'POST', path: '/publish/kick', body: {} },
+  { method: 'GET', path: '/publish/mine' },
+  { method: 'POST', path: '/publish/ack', body: { opId: `0${'A'.repeat(25)}` } },
   { method: 'POST', path: '/compendium/refresh', body: {} },
   { method: 'GET', path: '/compendium/refresh/status' },
   { method: 'GET', path: '/compendium/agent-guidance' },
@@ -154,7 +160,13 @@ const routes: (Route & { public?: true })[] = [
   { method: 'POST', path: `/reports/${R}/action`, body: {} },
 ];
 /** Routes a signed-in account with no role may use (today's behaviour, unchanged). */
-const anyAccount = new Set(['GET /me', 'GET /reports/mine']);
+// Its own publish index (statuses and counts) and acknowledgments: also after a role change.
+const anyAccount = new Set([
+  'GET /me',
+  'GET /reports/mine',
+  'GET /publish/mine',
+  `POST /publish/ack`,
+]);
 
 let fixture: Fixture;
 beforeEach(() => {

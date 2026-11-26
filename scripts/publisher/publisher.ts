@@ -52,6 +52,9 @@ import {
   sandboxPointersSchema,
   currentSaveStagePaths,
   type PublishPayload,
+  type HeldRow,
+  publishAccountPath,
+  recordInPublishAccount,
   type PublishRequestPayload,
   type ScopedPublishRequestPayload,
   type TranslationPublishPayload,
@@ -107,6 +110,7 @@ import {
 import { SchedulePreparer } from '../schedule-prepare/prepare.js';
 import { drainCurrentSaves } from './currentSave.js';
 import { unloweredEntry } from './consumerOutput.js';
+import { heldRows, keptPayload, sameHeld } from './selection.js';
 import {
   assertInPlaceDocuments,
   assertScheduledGlobalNames,
@@ -185,6 +189,8 @@ export interface Receipt {
   contentRevision?: number;
   globals?: GlobalReleaseReceipt;
   inPlace?: { globals: string[]; refills: number[]; refusals?: { id: string; error: string }[] };
+  /** Whole-selection requests only: the rows held back, derived again at RECORD. */
+  held?: HeldRow[];
   translations?: {
     rows: Awaited<ReturnType<typeof planTranslations>>['rows'];
     data: Record<string, string>;
@@ -1028,6 +1034,8 @@ export class Publisher {
         path === marksPath ||
         (localized !== 'en' && langSchema.safeParse(localized).success) ||
         /^exports\/projects\/[a-z0-9][a-z0-9-]*\.json$/.test(path) ||
+        // Account publish indexes: admissions and RECORDs of other whole-selection publishes.
+        /^publish\/accounts\/[1-9]\d*\.json$/.test(path) ||
         /^current-saves\/(?:[0-7][0-9A-HJKMNP-TV-Z]{25}\/(?:\d+|request|conflicts)|requesters\/\d+)\.json$/.test(
           path,
         )
@@ -1119,6 +1127,25 @@ export class Publisher {
         );
     }
   }
+  /**
+   * The rows a whole-selection request holds at `tree` (selection.ts), with the reviewed digest
+   * computed exactly as the ordinary path below compares it.
+   */
+  private async wholeSelectionHeld(tree: Tree, payload: PublishPayload, aliases: Aliases) {
+    const stored = this.movesAt(tree);
+    const documents = [
+      ...new Set(payload.hashes.map((hash) => resolveAlias(hash, aliases))),
+    ].flatMap((hash) => {
+      const parsed = tooltipSchema.safeParse(this.read<unknown>(tree, `tooltips/${hash}.json`));
+      return parsed.success && parsed.data.hash === hash ? [parsed.data] : [];
+    });
+    const moves = this.movesWithCleared(tree, documents);
+    return heldRows(this, tree, payload, aliases, stored, async (document, hash) => {
+      const digest = await inactivePublishableHash(document, aliases, moves);
+      return this.reviewedEntries(tree, [{ hash, digest, tooltipBlob: '' }], [document], moves)[0]!
+        .digest;
+    });
+  }
   private async verifyReceiptDigests(receipt: Receipt) {
     if (!receipt.inPlace || receipt.globals)
       throw new ConsumerOutputRejected(
@@ -1129,7 +1156,7 @@ export class Publisher {
       this.read<{ sourceSha: string }>(frozen, '.publisher/PIN')?.sourceSha !== receipt.publisherSha
     )
       throw new ConsumerOutputRejected('Receipt does not match its frozen publisher PIN');
-    const signed = await this.verifyRequest(receipt.requestBlob, receipt.opId, frozen);
+    const verified = await this.verifyRequest(receipt.requestBlob, receipt.opId, frozen);
     const options =
       receipt.generatorSha === this.options.generatorSha
         ? this.options
@@ -1139,6 +1166,16 @@ export class Publisher {
         'Missing pinned generator facts for the publication receipt',
       );
     const aliases = this.aliasesAt(frozen, options);
+    // A whole selection publishes what it did not hold: derive the held rows again at the frozen
+    // source and check the receipt against the rest.
+    let signed = verified;
+    if (verified.kind === 'push' && verified.selection === 'whole') {
+      const held = await this.wholeSelectionHeld(frozen, verified, aliases);
+      if (!sameHeld(held, receipt.held))
+        throw new ConsumerOutputRejected('Receipt held rows differ from the signed selection');
+      signed = keptPayload(verified, held, aliases);
+    } else if (receipt.held !== undefined)
+      throw new ConsumerOutputRejected('Only a whole-selection receipt holds rows');
     const pushed = pushedSchema.parse(this.read(frozen, 'live/pushed.json'));
     if (
       signed.intentDigest !== receipt.intentDigest ||
@@ -1447,6 +1484,42 @@ export class Publisher {
       throw new RefRace('Cannot recover a translation RECORD over a changed publication.');
   }
 
+  /**
+   * A whole-selection RECORD also updates the requester's account publish index (written with
+   * the request by the Worker) in the same commit. Only a verified signed request names the
+   * account, and only an entry already listed for this opId changes.
+   */
+  private recordAccountOutcome(
+    tree: Tree,
+    opId: string,
+    blob: string,
+    receipt: Receipt | undefined,
+    result: { status: string; held?: HeldRow[] } | undefined,
+  ) {
+    let payload: PublishPayload | undefined;
+    try {
+      this.credits(blob, opId);
+      payload = publishPayloadSchema.safeParse(
+        JSON.parse((JSON.parse(this.git.blob(blob)) as { payload: string }).payload),
+      ).data;
+    } catch {
+      return;
+    }
+    if (payload?.selection !== 'whole') return;
+    const path = publishAccountPath(payload.requester.id);
+    const status = result
+      ? ((['stale', 'rejected', 'done', 'unchanged'] as const).find((s) => s === result.status) ??
+        'rejected')
+      : receipt?.outcome === 'unchanged'
+        ? 'unchanged'
+        : 'done';
+    const index = recordInPublishAccount(this.read<unknown>(tree, path), opId, {
+      status,
+      held: (result?.held ?? receipt?.held ?? []).length,
+      updatedAt: iso(this.options.now()),
+    });
+    if (index) tree[path] = this.git.writeBlob(json(index));
+  }
   async record(
     opId: string,
     receipt: Receipt | undefined,
@@ -1457,6 +1530,7 @@ export class Publisher {
       error?: string;
       outcomes?: unknown;
       rows?: unknown;
+      held?: HeldRow[];
     },
     requestBlob?: string,
     landing?: Landing,
@@ -1721,6 +1795,7 @@ export class Publisher {
                   ...(receipt?.inPlace?.refusals?.length
                     ? { globalRefusals: receipt.inPlace.refusals }
                     : {}),
+                  ...(receipt?.held?.length ? { held: receipt.held } : {}),
                 },
                 liveCommit: candidate ?? null,
                 recordCommit: null,
@@ -1735,6 +1810,7 @@ export class Publisher {
               },
         ),
       );
+      this.recordAccountOutcome(tree, opId, blob, receipt, result);
       const c = this.git.commit(h, tree, `Record ${opId}`, credits);
       if (scoped && beforeRecord) {
         const allowed = new Map<string, string | null>(Object.entries(scoped.data));
@@ -2073,9 +2149,32 @@ export class Publisher {
           }
           candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
         } else {
+          // A whole selection holds the rows that fail a row check (and what depends on them)
+          // and publishes the rest; nothing at all left to publish closes the request.
+          let held: HeldRow[] | undefined;
+          let push = payload;
+          if (push.selection === 'whole') {
+            held = await this.wholeSelectionHeld(tree, push, aliases);
+            push = keptPayload(push, held, aliases);
+            if (!push.hashes.length && !push.globals?.length) {
+              const changed = held.some(({ code }) => code === 'changed');
+              await this.record(
+                opId,
+                undefined,
+                undefined,
+                {
+                  status: changed ? 'stale' : 'rejected',
+                  error: 'Nothing in this publish could go live. Review the held tooltips.',
+                  held,
+                },
+                blob,
+              );
+              return;
+            }
+          }
           const stored = this.movesAt(tree);
           const sources = new Map(
-            payload.hashes.map((hash) => {
+            push.hashes.map((hash) => {
               const canonical = resolveAlias(hash, aliases),
                 oid = tree[`tooltips/${canonical}.json`];
               return [
@@ -2100,7 +2199,7 @@ export class Publisher {
           const seen = new Set<number>();
           // Publisher guard (R3): a hash with an activation conflict file publishes only after the
           // conflict is resolved, so a manual request can never overwrite the batch's live state.
-          const blocked = [...new Set(payload.hashes.map((h) => resolveAlias(h, aliases)))].filter(
+          const blocked = [...new Set(push.hashes.map((h) => resolveAlias(h, aliases)))].filter(
             (h) => tree[schedulePaths.conflict(h)],
           );
           if (blocked.length) {
@@ -2113,7 +2212,7 @@ export class Publisher {
             );
             return;
           }
-          for (const hash of payload.hashes) {
+          for (const hash of push.hashes) {
             const canonical = resolveAlias(hash, aliases),
               oid = tree[`tooltips/${canonical}.json`];
             const tooltip = sources.get(canonical)!;
@@ -2126,7 +2225,7 @@ export class Publisher {
             const [reviewed] = this.reviewedEntries(tree, [entry], [tooltip.data], moves);
             outcomes.push({
               hash: canonical,
-              status: reviewed!.digest === payload.expected[hash] ? 'accepted' : 'stale',
+              status: reviewed!.digest === push.expected[hash] ? 'accepted' : 'stale',
             });
             if (!seen.has(canonical)) {
               entries.push({
@@ -2156,11 +2255,11 @@ export class Publisher {
           }
           this.assertRequestedDigests(
             this.reviewedEntries(tree, entries, tooltips, moves),
-            payload.hashes,
-            (hash) => payload.expected[hash],
+            push.hashes,
+            (hash) => push.expected[hash],
             aliases,
           );
-          const inPlace = this.inPlaceOptions(tree, payload, live);
+          const inPlace = this.inPlaceOptions(tree, push, live);
           const neutral = neutralRenameHashes(this, tree, entries, inPlace.rewritten);
           const publishable = neutral?.size
             ? tooltips.filter(({ hash }) => !neutral.has(hash))
@@ -2192,9 +2291,10 @@ export class Publisher {
             changed: entries
               .filter(({ hash, digest }) => !neutral?.has(hash) && pushed[hash] !== digest)
               .map(({ hash }) => hash),
-            requester: payload.requester,
-            intentDigest: payload.intentDigest,
+            requester: push.requester,
+            intentDigest: push.intentDigest,
             inPlace: checked.inPlace,
+            ...(held ? { held } : {}),
           };
           candidate = this.createCandidate(opId, blob, live, r, rebuilding?.candidate);
         }

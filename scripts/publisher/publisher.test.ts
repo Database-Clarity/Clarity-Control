@@ -1536,6 +1536,198 @@ describe.each(['simulator', 'remote'] as const)('%s repository contract', (trans
     f.assertDone();
   });
 
+  describe('whole-selection publishes', () => {
+    const whole = { selection: 'whole' as const };
+    const row = (hash: number, text: string, f: Awaited<ReturnType<typeof setup>>): Tooltip => {
+      f.options.facts[hash] = { name: `Row ${hash}`, type: 'perk' };
+      return { ...f.tooltip, hash, text: { en: { ...f.tooltip.text.en!, text } } };
+    };
+    async function rows(f: Awaited<ReturnType<typeof setup>>, texts: Record<number, string>) {
+      const documents = Object.entries(texts).map(([hash, text]) => row(Number(hash), text, f));
+      f.change(D, Object.fromEntries(documents.map((d) => [`tooltips/${d.hash}.json`, d])));
+      return Object.fromEntries(
+        await Promise.all(
+          documents.map(async (d) => [d.hash, await publishableHash(d, f.options.aliases)]),
+        ),
+      ) as Record<string, string>;
+    }
+    const log = (f: Awaited<ReturnType<typeof setup>>, id = A) =>
+      f.pub.read<{
+        result: { status: string; held?: { hash: number; code: string; on?: number }[] };
+      }>(f.git.tree(f.git.head(D)!), paths(id).log)!;
+    const live = (f: Awaited<ReturnType<typeof setup>>) =>
+      f.pub.read<Record<string, string>>(f.git.tree(f.git.head(D)!), 'live/pushed.json')!;
+    const entry = (opId = A) => ({
+      opId,
+      createdAt: '2026-11-03T12:00:00.000Z',
+      rows: 3,
+      globals: 0,
+      status: 'pending',
+      held: 0,
+      updatedAt: '2026-11-03T12:00:00.000Z',
+    });
+
+    it('holds a row changed after review with its importer, publishes the rest, and records the account outcome', async () => {
+      const f = await setup();
+      const expected = await rows(f, {
+        123: 'first',
+        456: 'changed later',
+        789: 'import main from 456',
+        790: 'last',
+      });
+      f.change(D, { 'publish/accounts/1.json': { entries: [entry()] } });
+      await f.request(A, [123, 456, 789, 790], expected, whole);
+      // Saved again after review: 456 is stale, and 789 publishes what 456 holds.
+      f.change(D, { 'tooltips/456.json': row(456, 'edited after review', f) });
+      await f.pub.run();
+      f.assertDone();
+      expect(log(f).result).toMatchObject({
+        status: 'done',
+        held: [
+          { hash: 456, code: 'changed' },
+          { hash: 789, code: 'dependency', on: 456 },
+        ],
+      });
+      expect(Object.keys(live(f)).sort()).toEqual(['123', '790']);
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), 'publish/accounts/1.json')).toMatchObject({
+        entries: [{ opId: A, status: 'done', held: 2 }],
+      });
+    });
+
+    it('holds a row a check refuses and an activation conflict, with the Worker reason', async () => {
+      const f = await setup();
+      const expected = await rows(f, { 123: 'fine', 456: 'base {{enhanced}}', 457: 'blocked' });
+      f.change(D, { 'schedule/activation-conflicts/457.json': { hash: 457 } });
+      await f.request(A, [123, 456, 457], expected, whole);
+      await f.pub.run();
+      f.assertDone();
+      expect(log(f).result.held).toEqual([
+        { hash: 456, code: 'refused', reason: baseEnhancedPublishMessage },
+        { hash: 457, code: 'activation', reason: expect.stringContaining('activation conflict') },
+      ]);
+      expect(Object.keys(live(f))).toEqual(['123']);
+    });
+
+    it('closes the request without publishing when every row is held', async () => {
+      const f = await setup();
+      const expected = await rows(f, { 123: 'reviewed' });
+      f.change(D, { 'publish/accounts/1.json': { entries: [entry()] } });
+      await f.request(A, [123], expected, whole);
+      f.change(D, { 'tooltips/123.json': row(123, 'edited after review', f) });
+      const before = f.git.head(L);
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(before);
+      expect(log(f).result).toMatchObject({ status: 'stale', held: [{ hash: 123 }] });
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), 'publish/accounts/1.json')).toMatchObject({
+        entries: [{ opId: A, status: 'stale', held: 1 }],
+      });
+    });
+
+    it('publishes the same consumer output as the same rows sent in parts', async () => {
+      const texts = { 123: 'one', 456: 'two', 789: 'import main from 456', 790: 'four' };
+      const one = await setup();
+      const expected = await rows(one, texts);
+      await one.request(A, [123, 456, 789, 790], expected, whole);
+      await one.pub.run();
+      one.assertDone();
+      const parts = await setup();
+      await rows(parts, texts);
+      await parts.request(A, [123, 790], { 123: expected[123]!, 790: expected[790]! });
+      await parts.request(B, [456, 789], { 456: expected[456]!, 789: expected[789]! });
+      await parts.pub.run();
+      parts.assertDone(A);
+      parts.assertDone(B);
+      const output = (f: typeof one) =>
+        f.git.blob(f.git.tree(f.git.head(L)!)['liveDescriptions.json']!);
+      expect(output(one)).toBe(output(parts));
+      expect(live(one)).toEqual(live(parts));
+    });
+
+    it('refuses a receipt whose held rows differ from the signed selection', async () => {
+      const f = await setup();
+      const expected = await rows(f, { 123: 'one', 456: 'two' });
+      await f.request(A, [123, 456], expected, whole);
+      const create = f.pub.createCandidate.bind(f.pub);
+      f.pub.createCandidate = (opId, blob, liveParent, receipt) => {
+        receipt.held = [{ hash: 456, code: 'changed', reason: 'Saved text changed after review.' }];
+        receipt.entries = receipt.entries.filter(({ hash }) => hash !== 456);
+        return create(opId, blob, liveParent, receipt);
+      };
+      const before = f.git.head(L);
+      await f.pub.operation(A);
+      expect(f.git.head(L)).toBe(before);
+      expect(log(f).result).toMatchObject({
+        status: 'rejected',
+        error: expect.stringContaining('Receipt held rows differ'),
+      });
+    });
+
+    it('holds a cleared removal whose held reader still imports it on live', async () => {
+      const f = await setup();
+      const expected = await rows(f, { 123: 'fine', 456: 'no longer imports it' });
+      const cleared: Tooltip = { hash: 900, text: {}, associated: [] };
+      f.options.facts[900] = { name: 'Cleared', type: 'perk' };
+      const published = row(900, 'was published', f);
+      f.change(D, {
+        'tooltips/900.json': cleared,
+        'live/tooltips/900.json': published,
+        'live/tooltips/456.json': row(456, 'import main from 900', f),
+        'live/pushed.json': { 900: 'f'.repeat(64), 456: 'e'.repeat(64) },
+      });
+      expected[900] = await clearedReviewHash(cleared, 'f'.repeat(64));
+      await f.request(A, [123, 456, 900], expected, whole);
+      f.change(D, { 'tooltips/456.json': row(456, 'edited after review', f) });
+      await f.pub.run();
+      f.assertDone();
+      expect(log(f).result.held).toEqual([
+        { hash: 456, code: 'changed', reason: 'Saved text changed after review.' },
+        {
+          hash: 900,
+          code: 'dependency',
+          reason: 'Publishes together with held tooltip 456.',
+          on: 456,
+        },
+      ]);
+      expect(live(f)).toMatchObject({ 900: 'f'.repeat(64), 456: 'e'.repeat(64) });
+      expect(live(f)[123]).toBe(expected[123]);
+    });
+
+    it('rejects a whole selection whose requester lost the role, recording the account outcome', async () => {
+      const f = await setup();
+      const expected = await rows(f, { 123: 'one' });
+      f.change(D, { 'publish/accounts/1.json': { entries: [entry()] } });
+      await f.request(A, [123], expected, whole);
+      f.change(D, {
+        'config/permissions.json': { users: { '1': { login: 'alice', role: 'trial' } } },
+      });
+      const before = f.git.head(L);
+      await f.pub.run();
+      expect(f.git.head(L)).toBe(before);
+      expect(log(f).result).toMatchObject({
+        status: 'rejected',
+        error: expect.stringContaining('revoked'),
+      });
+      expect(f.pub.read(f.git.tree(f.git.head(D)!), 'publish/accounts/1.json')).toMatchObject({
+        entries: [{ opId: A, status: 'rejected' }],
+      });
+    });
+
+    it('treats another account index write before RECORD as bookkeeping', async () => {
+      const f = await setup();
+      const expected = await rows(f, { 123: 'one' });
+      await f.request(A, [123], expected, whole);
+      const create = f.pub.createCandidate.bind(f.pub);
+      f.pub.createCandidate = (opId, blob, liveParent, receipt) => {
+        const candidate = create(opId, blob, liveParent, receipt);
+        f.change(D, { 'publish/accounts/2.json': { entries: [entry(B)] } });
+        return candidate;
+      };
+      await f.pub.operation(A);
+      f.assertDone();
+      expect(log(f).result.status).toMatch(/done|unchanged/);
+    });
+  });
+
   it('publishes reviewed translation lanes atomically and preserves an ordinary publish', async () => {
     const f = await setup();
     await f.request();

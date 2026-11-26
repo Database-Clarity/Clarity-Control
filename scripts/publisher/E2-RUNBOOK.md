@@ -28,6 +28,11 @@ Before installing an `arrowSymbol` PIN, satisfy the [Arrow symbol rollout precon
 For a `numberTokens` PIN, also satisfy the [Number tokens rollout precondition](README.md#number-tokens-rollout-precondition).
 Install an `exoticTags`-capable publisher before saving Exotic text or starting the gated Yellow-to-Exotic data rewrite; older PINs refuse it.
 While `config/inactive.json` is non-empty, never roll back to a PIN without `inactiveMoves`.
+For `wholeSelectionV1`, install the publisher first, apply the settings D1 migration
+`apps/worker/migrations/settings/0004_publish_acks.sql`, then deploy the Worker, then the web build.
+Roll back web, then Worker; keep the publisher (it still drains ordinary parts). A pushed or
+kicked request still needs a pipeline trigger: an unattended re-kick sweep is a separate,
+owner-gated step.
 For `clearedRemovals`, install the publisher first, then deploy the Worker, then the web build.
 Roll back web, then Worker. Keep the publisher: the installer refuses to drop a capability, and an
 older one, like an older Worker and web, treats the translations of a cleared tooltip as an ordinary

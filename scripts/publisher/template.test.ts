@@ -78,6 +78,7 @@ it('ships the reviewed v2 template with a matching integrity pin and documentati
       'globalsInPlaceV1',
       'translationPublishV1',
       'clearedRemovals',
+      'wholeSelectionV1',
     ],
   });
   expect(

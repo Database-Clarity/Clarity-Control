@@ -12,6 +12,7 @@ import { HttpError, json } from './http.js';
 import { managedLanguages, partnerProjects, permissions, roleOf } from './permissions.js';
 import { rollbackUpload, translatorsRoute } from './managers.js';
 import { publish, publishKey, publishStatus, publishKick } from './publish.js';
+import { publishAck, publishMine } from './publishAccount.js';
 import {
   translationPartRows,
   translationPublishEnabled,
@@ -61,6 +62,9 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method === 'POST' && path === '/publish') return publish(request, github, user);
   if (request.method === 'GET' && path === '/publish/status')
     return publishStatus(request, github, user);
+  if (request.method === 'GET' && path === '/publish/mine') return publishMine(github, user);
+  if (request.method === 'POST' && path === '/publish/ack')
+    return publishAck(request, github, user);
   if (request.method === 'POST' && path === '/publish/kick')
     return publishKick(request, github, user);
   if (

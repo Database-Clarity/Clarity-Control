@@ -16,7 +16,11 @@ import {
 } from './inactiveMoves.js';
 import { z } from 'zod';
 import {
+  admitToPublishAccount,
   classifyPublishIntent,
+  publishAccountPath,
+  wholeSelectionCapability,
+  heldRowSchema,
   globalsInPlacePath,
   globalsInPlacePublishContract,
   aliasGroupsPath,
@@ -45,6 +49,7 @@ import {
   translationPublishReasons,
   validatePublishTime,
   type Aliases,
+  type PublishPayload,
   type Tooltip,
   type TranslationPublishBody,
   type TranslationPublishPayload,
@@ -96,6 +101,7 @@ const resultStatusSchema = z.object({
   status: z.enum(['done', 'unchanged', 'stale', 'rejected', 'failed', 'cancelled']),
 });
 const kickSchema = z.object({ opId: publishOpIdSchema }).strict();
+const heldResultSchema = z.object({ held: z.array(heldRowSchema).max(3000) });
 const scopedRowIdentity = { lang: translationLanguageSchema };
 const safeResultRow = z
   .discriminatedUnion('kind', [
@@ -216,6 +222,7 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
     requester: { id: user.id, login: user.login },
   };
   const digest = await publishIntentDigest(intent);
+  if (value.selection === 'whole') return publishWhole(request, github, user, intent, digest);
   const paths = opPaths(value.opId);
   let checkedHead: string | undefined;
   let generatorAliases: Awaited<ReturnType<typeof loadAliases>> | undefined;
@@ -378,6 +385,90 @@ export async function publish(request: Request, github: GitHub, user: Identity) 
     try {
       await github.createPublishRequest(snapshot.head, snapshot.tree, paths[0], envelope, user);
       return json({ opId: value.opId, status: 'pending' }, 202);
+    } catch {
+      // Every write failure is ambiguous. Re-read at the next head, never overwrite a request.
+    }
+  }
+  throw new HttpError(503, 'Publish create unresolved; retry the same opId and body');
+}
+
+/**
+ * A whole confirmed selection in one request. Admission reads no rows: access, the shared text
+ * fence and contract, the installed publisher's capability, the opId window, and the schema and
+ * byte cap (already applied by `body`). The publisher runs every row check the ordinary route
+ * runs here, holds the rows that fail with what depends on them, and publishes the rest. The
+ * request and the account index entry land in one commit.
+ */
+async function publishWhole(
+  request: Request,
+  github: GitHub,
+  user: Identity,
+  intent: Omit<PublishPayload, 'createdAt' | 'intentDigest'>,
+  digest: string,
+) {
+  const paths = opPaths(intent.opId);
+  const accountPath = publishAccountPath(user.id);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const snapshot = await github.publishSnapshot(
+      ['config/permissions.json', ...paths, publisherPinPath, accountPath, globalsInPlacePath],
+      [],
+      [{ path: 'globals', depth: 1 }],
+    );
+    const [permissions, queued, log, pin, account, fenceFile] = snapshot.files;
+    requireAccess(permissionsSchema.parse(permissions?.value), user, ['maintainer', 'editor']);
+    if (
+      fenceFile?.value !== undefined &&
+      new URL(request.url).searchParams.get('contract') !== globalsInPlacePublishContract
+    )
+      throw new HttpError(409, 'Reload this page before publishing shared text.');
+    const existingLog = logged(log ?? null);
+    const decision = classifyPublishIntent(
+      digest,
+      existingLog ? undefined : pending(queued ?? null),
+      existingLog ? { ...existingLog, intentDigest: existingLog.intentDigest ?? '' } : undefined,
+    );
+    if (decision.status === 'conflict')
+      throw new HttpError(409, 'opId already names another publish intent');
+    if (decision.status === 'complete') return json({ opId: intent.opId, result: decision.result });
+    if (decision.status === 'pending') return json({ opId: intent.opId, status: 'pending' }, 202);
+    if (attempt === 2) break;
+    try {
+      validatePublishTime(intent.opId, Date.now());
+    } catch {
+      throw new HttpError(400, 'Publish opId outside creation window');
+    }
+    // An older publisher would treat this request as an ordinary part and skip the row checks
+    // this route leaves to it: never write one it cannot drain.
+    const capabilities = (pin?.value as { capabilities?: unknown } | null)?.capabilities;
+    if (!Array.isArray(capabilities) || !capabilities.includes(wholeSelectionCapability))
+      throw new HttpError(409, 'Update the installed publisher before publishing in one request.', {
+        code: 'whole-selection-unavailable',
+      });
+    const fence = inPlaceAdmission(fenceFile?.value, pin?.value, intent.hashes, intent.liveBranch);
+    if (!fence && (intent.globals || snapshot.trees[0] != null))
+      throw new HttpError(409, 'Complete the shared text migration before publishing.');
+    const createdAt = new Date().toISOString();
+    const envelope = await signRequest(github.env, { ...intent, createdAt, intentDigest: digest });
+    const index = admitToPublishAccount(account?.value, {
+      opId: intent.opId,
+      createdAt,
+      rows: intent.hashes.length,
+      globals: intent.globals?.length ?? 0,
+      status: 'pending',
+      held: 0,
+      updatedAt: createdAt,
+    });
+    try {
+      await github.createPublishRequestFiles(
+        snapshot.head,
+        snapshot.tree,
+        [
+          { path: paths[0], value: envelope },
+          { path: accountPath, value: index },
+        ],
+        user,
+      );
+      return json({ opId: intent.opId, status: 'pending' }, 202);
     } catch {
       // Every write failure is ambiguous. Re-read at the next head, never overwrite a request.
     }
@@ -562,8 +653,11 @@ export async function publishStatus(request: Request, github: GitHub, user: Iden
     operations: ids.map((opId, i) => {
       const log = logged(snapshot.files[2 + i * 2]);
       const result = resultStatusSchema.safeParse(log?.result);
+      // A whole-selection publish names the rows it held and why (row checks, never text).
+      const held = heldResultSchema.safeParse(log?.result).data?.held;
       return {
         opId,
+        ...(held?.length ? { held } : {}),
         status: log
           ? result.success
             ? result.data.status

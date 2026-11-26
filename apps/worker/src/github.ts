@@ -965,6 +965,43 @@ export class GitHub {
     if (!response.ok) throw new HttpError(503, 'Publish create needs reconciliation');
   }
 
+  /**
+   * `createPublishRequest` with more files in the same commit (a whole-selection publish adds its
+   * account index entry next to the request). Same three writes, sole parent H, no rebase.
+   */
+  async createPublishRequestFiles(
+    head: string,
+    baseTree: string,
+    files: readonly { path: string; value: unknown }[],
+    user: Identity,
+  ) {
+    const tree = shaSchema.parse(
+      await this.result('/git/trees', 'POST', {
+        base_tree: baseTree,
+        tree: files.map(({ path, value }) => ({
+          path,
+          mode: '100644',
+          type: 'blob',
+          content: JSON.stringify(value) + '\n',
+        })),
+      }),
+    );
+    const commit = shaSchema.parse(
+      await this.result('/git/commits', 'POST', {
+        tree: tree.sha,
+        parents: [head],
+        message: `Request publish by ${user.login}`,
+        ...this.credits(user),
+      }),
+    );
+    const response = await this.request(
+      `/git/refs/heads/${encodeURIComponent(this.env.DATA_BRANCH)}`,
+      'PATCH',
+      { sha: commit.sha, force: false },
+    );
+    if (!response.ok) throw new HttpError(503, 'Publish create needs reconciliation');
+  }
+
   async kickPublish(opId: string) {
     const nonce = [...crypto.getRandomValues(new Uint32Array(2))].join('');
     await this.result(`/contents/publish/kicks/${opId}-${nonce}.json`, 'PUT', {
