@@ -184,9 +184,13 @@ function describeWhole(
     chip: op.status === 'done' || op.status === 'unchanged' ? 'Partly live' : 'Attention',
     detail: `Publish needs attention. ${detail}`,
   });
-  if (op.held?.length)
+  const notLive = [
+    ...(op.held ?? []).map(({ name, reason }) => ({ name, error: reason })),
+    ...(op.refusedGlobals ?? []),
+  ];
+  if (notLive.length)
     return attention(
-      `${notPublished(op.held.map(({ name, reason }) => ({ name, error: reason })))}${
+      `${notPublished(notLive)}${
         op.status === 'done' || op.status === 'unchanged' ? ' The rest is live.' : ''
       }`,
     );

@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { dependencyChunks } from '../../services/dependencyChunks';
-import type { TranslationPublishBody, TranslationPublishRow } from '@clarity/core';
+import {
+  wholeSelectionMaxRows,
+  type TranslationPublishBody,
+  type TranslationPublishRow,
+} from '@clarity/core';
 import type {
   PublishAnswer,
   PublishBody,
@@ -44,12 +48,15 @@ export const publishTiming = {
   /** Same ceiling as maxPublicationConsumers in the Worker globals reader. */
   maxConsumers: 500,
   maxBodyBytes: 300 * 1024,
-  /** The Worker's hash limit for one request; a whole selection beyond it goes in parts. */
-  wholeHashes: 3000,
 } as const;
 
-/** Whether a confirmed selection goes as one whole request (the publisher splits nothing). */
-export const fitsWhole = (inputs: readonly unknown[]) => inputs.length <= publishTiming.wholeHashes;
+/**
+ * Whether a confirmed selection goes as one whole request (the publisher splits nothing): up to
+ * the Worker's row limit for one request, tooltips and shared definitions together. A larger
+ * selection goes in today's parts.
+ */
+export const fitsWhole = (inputs: readonly unknown[], globals = 0) =>
+  inputs.length + globals <= wholeSelectionMaxRows;
 
 export interface PublishApi {
   post(body: PublishBody, switched?: true): Promise<PublishAnswer>;
@@ -400,7 +407,7 @@ export class PublishDriver {
     globals: NonNullable<PublishOp['globals']>,
     switched: boolean,
   ): PublishOp | undefined {
-    if (!this.whole || !fitsWhole(inputs)) return undefined;
+    if (!this.whole || !fitsWhole(inputs, globals.length)) return undefined;
     const op: PublishOp = {
       opId: newOpId(now),
       round: 0,
@@ -526,7 +533,12 @@ export class PublishDriver {
     if (!op || !isTerminal(op.status)) return;
     await this.deps.store.update(opId, (current) => ({ ...current, dismissed: true }));
     // A whole request's late failure also shows on the account's other devices until seen.
-    if (op.whole && (op.held?.length || (op.status !== 'done' && op.status !== 'unchanged')))
+    if (
+      op.whole &&
+      (op.held?.length ||
+        op.refusedGlobals?.length ||
+        (op.status !== 'done' && op.status !== 'unchanged'))
+    )
       void this.deps.api.ack?.(opId).catch(() => undefined);
     usePublishState.setState((state) => ({
       ops: state.ops.filter((entry) => entry.opId !== opId),
