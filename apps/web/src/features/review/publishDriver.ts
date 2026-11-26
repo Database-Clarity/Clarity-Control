@@ -44,7 +44,12 @@ export const publishTiming = {
   /** Same ceiling as maxPublicationConsumers in the Worker globals reader. */
   maxConsumers: 500,
   maxBodyBytes: 300 * 1024,
+  /** The Worker's hash limit for one request; a whole selection beyond it goes in parts. */
+  wholeHashes: 3000,
 } as const;
+
+/** Whether a confirmed selection goes as one whole request (the publisher splits nothing). */
+export const fitsWhole = (inputs: readonly unknown[]) => inputs.length <= publishTiming.wholeHashes;
 
 export interface PublishApi {
   post(body: PublishBody, switched?: true): Promise<PublishAnswer>;
@@ -53,6 +58,8 @@ export interface PublishApi {
   /** A translators' operation, with the reason of each row that refused it. */
   translationStatus(opId: string): Promise<PublishAnswer | { status: 'unknown' }>;
   kick(opId: string): Promise<void>;
+  /** Marks a whole request's outcome seen on every device of the account (best effort). */
+  ack?(opId: string): Promise<void>;
 }
 
 export interface DriverDeps {
@@ -69,6 +76,11 @@ export interface DriverDeps {
   acknowledge(op: PublishOp): void;
   /** The Worker refused this account: its languages may have changed. */
   forbidden?(): void;
+  /**
+   * Send each confirmed selection as one whole request (installed publisher `wholeSelectionV1`).
+   * Off: today's parts. Stored parts of either kind always resume.
+   */
+  wholeSelection?: boolean;
 }
 
 export interface PublishState {
@@ -101,6 +113,8 @@ export interface PublishInput {
   removal?: boolean;
   /** Reviewed imports and live readers that must publish ahead of a removal. */
   dependencies?: readonly number[];
+  /** Display name, for the rows a whole request holds back. */
+  name?: string;
 }
 
 export const publishingAlready =
@@ -246,6 +260,11 @@ export class PublishDriver {
 
   constructor(private readonly deps: DriverDeps) {}
 
+  /** Whether new selections go as one whole request. */
+  get whole(): boolean {
+    return !!this.deps.wholeSelection;
+  }
+
   /**
    * Switch to an account (or null). Resumes that account's stored operations: a translator's own
    * rows, or an editor's whole publishes, never those of a role the account no longer has.
@@ -303,8 +322,9 @@ export class PublishDriver {
     if (!userId) throw new Error('Sign in to publish.');
     if (!inputs.length && !globals.length) throw new Error('Nothing to publish.');
     const now = this.deps.now();
-    const planned = inputs.length ? publishChunks(inputs) : [[]];
-    const groupId = newOpId(now);
+    const whole = this.wholeOp(userId, now, inputs, globals, switched);
+    const planned = whole ? [] : inputs.length ? publishChunks(inputs) : [[]];
+    const groupId = whole?.opId ?? newOpId(now);
     const chunks: PublishOp[] = [];
     for (const chunk of planned) {
       const op: PublishOp = {
@@ -342,6 +362,7 @@ export class PublishDriver {
         throw new Error('This publish is too large to send. Nothing was sent.');
       chunks.push(op);
     }
+    if (whole) chunks.push(whole);
     let busy = false;
     try {
       // A publish stored since Review listed these rows (or one still recovering) holds them.
@@ -366,6 +387,44 @@ export class PublishDriver {
     // Send in sequence to avoid a burst of CAS collisions between our own chunks.
     void this.sendChunks(chunks);
     return chunks[0]!;
+  }
+
+  /**
+   * The whole selection as one request, or undefined when it is larger than one request takes
+   * (then it goes in today's parts).
+   */
+  private wholeOp(
+    userId: string,
+    now: number,
+    inputs: readonly PublishInput[],
+    globals: NonNullable<PublishOp['globals']>,
+    switched: boolean,
+  ): PublishOp | undefined {
+    if (!this.whole || !fitsWhole(inputs)) return undefined;
+    const op: PublishOp = {
+      opId: newOpId(now),
+      round: 0,
+      userId,
+      createdAt: now,
+      hashes: inputs.map((input) => input.hash),
+      expected: Object.fromEntries(inputs.map((input) => [input.hash, input.digest])),
+      previous: Object.fromEntries(inputs.map((input) => [input.hash, input.previous ?? null])),
+      ...(inputs.some(({ marker }) => marker)
+        ? {
+            markers: Object.fromEntries(
+              inputs.flatMap(({ hash, marker }) => (marker ? [[hash, marker]] : [])),
+            ),
+          }
+        : {}),
+      ...(globals.length ? { globals } : {}),
+      ...(switched ? { switched: true as const } : {}),
+      whole: true,
+      names: Object.fromEntries(inputs.flatMap(({ hash, name }) => (name ? [[hash, name]] : []))),
+      status: 'created',
+      updatedAt: now,
+    };
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(publishBody(op))).length;
+    return bodyBytes <= publishTiming.maxBodyBytes ? op : undefined;
   }
 
   /** A translator's publish: independent rows, sent in parts of the size the Worker takes. */
@@ -466,6 +525,9 @@ export class PublishDriver {
     const op = this.current(opId);
     if (!op || !isTerminal(op.status)) return;
     await this.deps.store.update(opId, (current) => ({ ...current, dismissed: true }));
+    // A whole request's late failure also shows on the account's other devices until seen.
+    if (op.whole && (op.held?.length || (op.status !== 'done' && op.status !== 'unchanged')))
+      void this.deps.api.ack?.(opId).catch(() => undefined);
     usePublishState.setState((state) => ({
       ops: state.ops.filter((entry) => entry.opId !== opId),
     }));
@@ -803,6 +865,31 @@ export class PublishDriver {
   private async adopt(opId: string, remote: RemoteStatus, answer?: PublishAnswer) {
     const op = this.current(opId);
     if (!op) return;
+    if (op.whole && !answer && remote !== 'pending') {
+      // The status projection carries no reasons: the exact POST replays this intent's result,
+      // with the rows it held and why, and never creates anything.
+      const generation = this.generation;
+      try {
+        answer = await this.post(op);
+      } catch (reason) {
+        if (generation !== this.generation) return;
+        const status = reason instanceof PublishHttpError ? reason.status : 0;
+        if (status === 401) {
+          this.paused.add(opId);
+          this.note(opId, 'Sign in again to continue; nothing is lost.');
+        } else if (status === 403 || status === 409)
+          return this.settle(opId, {
+            status: remote === 'done' || remote === 'unchanged' ? 'failed' : remote,
+            acceptedAt: op.acceptedAt ?? this.deps.now(),
+            error:
+              'The publish finished, but its result could not be read. Check live status before publishing these again.',
+          });
+        else this.note(opId, 'Checking the publish result.');
+        return;
+      }
+      if (generation !== this.generation || answer.status === 'pending') return;
+      remote = answer.status;
+    }
     let refusedGlobals: NonNullable<PublishOp['refusedGlobals']> = [];
     if (op.globals && (remote === 'done' || remote === 'unchanged')) {
       // Finished says nothing about single globals: only the receipt's own outcomes do.
@@ -855,7 +942,15 @@ export class PublishDriver {
     }
     if (op.translations && answer?.rows) return this.refuseRows(op, answer.rows);
     const refusal = remote === 'rejected' ? answer?.refusal : undefined;
+    const held = op.whole
+      ? answer?.held?.map(({ hash, reason }) => ({
+          hash,
+          name: op.names?.[hash] ?? `Tooltip ${hash}`,
+          reason,
+        }))
+      : undefined;
     return this.settle(opId, {
+      ...(held?.length ? { held } : {}),
       status: remote,
       acceptedAt: op.acceptedAt ?? this.deps.now(),
       ...(remote === 'rejected' && (answer || op.translations) ? { receiptChecked: true } : {}),
@@ -1174,11 +1269,13 @@ export class PublishDriver {
     }
     this.note(
       op.opId,
-      status === 0
-        ? 'Offline; retrying.'
-        : workerError
-          ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
-          : `Worker busy (HTTP ${status}); retrying.`,
+      op.whole
+        ? 'Checking whether the publish was received.'
+        : status === 0
+          ? 'Offline; retrying.'
+          : workerError
+            ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
+            : `Worker busy (HTTP ${status}); retrying.`,
     );
   }
 

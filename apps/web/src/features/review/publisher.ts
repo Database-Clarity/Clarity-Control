@@ -1,5 +1,6 @@
 import { apiUrl } from '../../services/api';
 import {
+  acknowledgePublish,
   getPublishStatus,
   getTranslationStatus,
   kickPublish,
@@ -54,15 +55,19 @@ export const publishDriver = new PublishDriver({
     status: bound(getPublishStatus),
     translationStatus: bound(getTranslationStatus),
     kick: bound(kickPublish),
+    ack: bound(acknowledgePublish),
   },
   // Its assignments may have changed: the menu, the list, and the ticks follow.
   forbidden: () => void useAuthStore.getState().load(),
+  wholeSelection: true,
   now: () => Date.now(),
   setTimer: (run, ms) => setTimeout(run, ms),
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
   broadcast: () => channel?.postMessage('changed'),
   acknowledge(op) {
+    // Held rows did not go live: they stay pending in Review, selectable for the next publish.
+    const held = new Set(op.held?.map(({ hash }) => hash));
     useReviewSession.setState((state) => ({
       ...(op.translations
         ? {
@@ -89,13 +94,15 @@ export const publishDriver = new PublishDriver({
       acknowledgments: {
         ...state.acknowledgments,
         ...Object.fromEntries(
-          op.hashes.map((hash) => [
-            hash,
-            {
-              digest: op.markers?.[hash] ?? op.expected[hash]!,
-              previous: op.previous[hash] ?? undefined,
-            },
-          ]),
+          op.hashes
+            .filter((hash) => !held.has(hash))
+            .map((hash) => [
+              hash,
+              {
+                digest: op.markers?.[hash] ?? op.expected[hash]!,
+                previous: op.previous[hash] ?? undefined,
+              },
+            ]),
         ),
       },
     }));

@@ -23,6 +23,8 @@ export interface PublishAnswer {
   globals?: { live: string[]; refused: { id: string; error: string }[] };
   /** A translator's refused request: the rows that refused it, with the shared reason text. */
   rows?: RefusedRow[];
+  /** A whole request: the rows the publisher held back, with why (the rest went live). */
+  held?: { hash: number; reason: string }[];
 }
 export interface RefusedRow {
   key: string;
@@ -36,12 +38,20 @@ export interface PublishBody {
   hashes: number[];
   expected: Record<string, string>;
   globals?: { id: string; expected: string }[];
+  selection?: 'whole';
 }
-export const publishBody = ({ opId, hashes, expected, globals }: PublishBody): PublishBody => ({
+export const publishBody = ({
+  opId,
+  hashes,
+  expected,
+  globals,
+  ...op
+}: PublishBody & { whole?: true }): PublishBody => ({
   opId,
   hashes,
   expected,
   ...(globals ? { globals: globals.map(({ id, expected }) => ({ id, expected })) } : {}),
+  ...(op.whole || op.selection === 'whole' ? { selection: 'whole' as const } : {}),
 });
 
 /** A translator's request: the rows of their languages, with exactly the signed facts. */
@@ -182,6 +192,20 @@ export async function postPublish(body: PublishBody, switched = false): Promise<
     .safeParse(complete.data.result);
   // A completed log whose status we do not understand is still a finished operation.
   const resolved = result.success ? result.data.status : 'failed';
+  if (body.selection === 'whole') {
+    const held = heldRows(complete.data.result);
+    const error = typeof result.data?.error === 'string' ? result.data.error : undefined;
+    return {
+      status: resolved,
+      ...(held.length ? { held } : {}),
+      ...(!held.length && resolved === 'rejected' && error
+        ? { refusal: error.replace(/^ConsumerOutputRejected: /, ''), regroupable: false as const }
+        : {}),
+      ...(body.globals && (resolved === 'done' || resolved === 'unchanged')
+        ? { globals: globalResult(complete.data.result, body.globals) }
+        : {}),
+    };
+  }
   const error = result.data?.error;
   if (
     resolved === 'rejected' &&
@@ -252,6 +276,60 @@ export async function getTranslationStatus(
     status: known,
     ...(known === 'done' || known === 'unchanged' ? {} : { rows: refusedRows(operation) }),
   };
+}
+
+/** The rows a whole request's result held back (bounded by the Worker's own projection). */
+function heldRows(result: unknown): { hash: number; reason: string }[] {
+  const parsed = z
+    .object({
+      held: z.array(z.object({ hash: hashSchema, reason: z.string().max(1000) })).max(3000),
+    })
+    .safeParse(result).data;
+  return parsed?.held.map(({ hash, reason }) => ({ hash, reason })) ?? [];
+}
+
+/** This account's whole publishes on any device, and which of them it acknowledged. */
+export interface AccountPublishes {
+  entries: {
+    opId: string;
+    createdAt: string;
+    rows: number;
+    globals: number;
+    status: 'pending' | 'done' | 'unchanged' | 'stale' | 'rejected';
+    held: number;
+  }[];
+  /** null: the acknowledgments could not be read (every notice then shows). */
+  acknowledged: string[] | null;
+}
+const accountSchema = z.object({
+  entries: z
+    .array(
+      z.object({
+        opId: z.string(),
+        createdAt: z.string(),
+        rows: z.number(),
+        globals: z.number(),
+        status: z.enum(['pending', 'done', 'unchanged', 'stale', 'rejected']),
+        held: z.number(),
+      }),
+    )
+    .max(50),
+  acknowledged: z.array(z.string()).nullable(),
+});
+export async function getAccountPublishes(): Promise<AccountPublishes> {
+  const { value } = await send('/publish/mine');
+  const parsed = accountSchema.safeParse(value);
+  if (!parsed.success) throw new PublishHttpError(502, 'Unexpected publish index response');
+  return parsed.data;
+}
+
+/** This account has seen a publish's outcome, on every device. */
+export async function acknowledgePublish(opId: string): Promise<void> {
+  await send('/publish/ack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ opId }),
+  });
 }
 
 export async function kickPublish(opId: string): Promise<void> {

@@ -32,6 +32,15 @@ export interface PublishOp {
   globals?: { id: string; expected: string; name: string }[];
   /** Use the shared-definition publish contract on every attempt, even after reload. */
   switched?: true;
+  /**
+   * One request for the whole confirmed selection (`selection: 'whole'`): the publisher holds the
+   * rows that fail a check, with what depends on them, and publishes the rest.
+   */
+  whole?: true;
+  /** Display names of a whole request's tooltips, for the rows it held. */
+  names?: Record<string, string>;
+  /** The rows a finished whole request held back, with why; they wait in Review. */
+  held?: { hash: number; name: string; reason: string }[];
   /** Globals a finished request left out; the rest of it went live. */
   refusedGlobals?: { id: string; name: string; error: string }[];
   /** A translator's request: exactly these rows of their languages, and the names for display. */

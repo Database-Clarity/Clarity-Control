@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   applyInactiveLive,
   exportLegacy,
@@ -18,6 +18,7 @@ import type { PublishAnswer } from '../../services/publisher/api';
 import type { PendingTooltip } from './model';
 import { planReviewedPublish } from './publishAction';
 import { publishDependencies } from './publishDependencies';
+import { publishDriver } from './publisher';
 import { PublishDriver, publishChunks, type PublishApi } from './publishDriver';
 import { usePublished } from './published';
 
@@ -264,6 +265,9 @@ function reviewInputs(
   }
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 const reviewPlan = (...args: Parameters<typeof reviewInputs>) =>
   publishChunks(reviewInputs(...args)).map((chunk) => chunk.map(({ hash }) => hash));
 
@@ -310,6 +314,10 @@ it.each([true, false])(
       associated: [ambiguous ? 901 : 1000 + ((index + 1) % 501)],
     }));
     const moves = Object.fromEntries(rows.map(({ hash }) => [hash, move]));
+    // One whole request needs no split: the group plans as it is.
+    expect(reviewInputs(rows, rows, { 901: { to: 900, kind: 'frame' } }, moves)).toHaveLength(501);
+    // Parts (a selection beyond one request, or the driver without whole requests) cannot split it.
+    vi.spyOn(publishDriver, 'whole', 'get').mockReturnValue(false);
     expect(() => reviewPlan(rows, rows, { 901: { to: 900, kind: 'frame' } }, moves)).toThrow(
       /cannot safely split.*500 tooltip languages per request.*501 tooltip languages.*Tooltip 1000.*Tooltip 1500/,
     );
@@ -317,6 +325,7 @@ it.each([true, false])(
 );
 
 it('reports each over-limit group with its own count and names', () => {
+  vi.spyOn(publishDriver, 'whole', 'get').mockReturnValue(false);
   const rows = [1000, 2000].flatMap((start) =>
     Array.from({ length: 501 }, (_, i) => ({
       ...t(start + i, 'Reader'),
