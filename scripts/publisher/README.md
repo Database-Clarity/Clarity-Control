@@ -151,13 +151,14 @@ carry a clear, and a removed tooltip publishes again once it has English.
 
 A whole-selection request (`selection: 'whole'`, PIN capability `wholeSelectionV1`) carries a
 person's whole confirmed selection in one signed request. The Worker admits it without reading rows
-(access, shared-text fence and contract, this capability, opId window, schema, and the 300 KiB
-cap) and writes the request and the account's publish index entry (`publish/accounts/<id>.json`)
+(access, shared-text fence and contract, this capability, opId window, schema, the 300 KiB cap,
+and at most 1,000 rows; a larger selection goes in ordinary parts) and writes the request and the account's publish index entry (`publish/accounts/<id>.json`)
 in one commit. The publisher runs every row check the ordinary route runs in the Worker, one row at
 a time with the Worker's own functions (`selection.ts`): a row that changed after review, has an
-activation conflict, or fails a check is held with its reason, and so is every selected row whose
-saved text imports a held row and every selected removal that a held row's published text still
-imports. The rest publishes as one publication; the receipt lists the held rows, and RECORD derives
+activation conflict, or fails a check (the Worker's row checks, then the Action's own row guards:
+generator set bonuses, missing generator facts, shared-text references) is held with its reason,
+and so is every selected row that depends on a held row by Review's own rules
+(`publishDependencies`: the resolver's reads, associations, and a removal's live readers). The rest publishes as one publication; the receipt lists the held rows, and RECORD derives
 them again at the frozen source. Nothing left to publish closes the request as `stale` (a changed
 row) or `rejected`. A failure that cannot be tied to one row (export, converter, run) refuses the
 whole selection as before. RECORD updates the account index entry in the same commit. Translator
