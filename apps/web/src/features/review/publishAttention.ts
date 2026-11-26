@@ -125,6 +125,8 @@ export const usePublishAttention = create<PublishAttention>((set, get) => ({
  * settled, and when the tab becomes visible again. While the sign-in changes, nothing shows.
  */
 export function usePublishAttentionLoader() {
+  // Names come from the editor data, which can arrive after the notice: re-render with it.
+  useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
   const loading = useAuthStore((state) => state.loading);
@@ -150,7 +152,12 @@ export function attentionText(entries: readonly AttentionEntry[]): string {
   const partly = entry.held > 0 && (entry.status === 'done' || entry.status === 'unchanged');
   const named = entry.notLive?.length
     ? ` Not published: ${list.format(
-        entry.notLive.slice(0, 3).map(({ name, reason }) => `${name} (${reasonOf(reason)})`),
+        entry.notLive
+          .slice(0, 3)
+          .map(
+            ({ hash, name, reason }) =>
+              `${hash === undefined ? name : rowName(hash)} (${reasonOf(reason)})`,
+          ),
       )}${entry.notLive.length > 3 ? ` and ${entry.notLive.length - 3} more` : ''}.`
     : '';
   return partly
