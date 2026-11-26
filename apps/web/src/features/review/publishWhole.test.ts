@@ -187,3 +187,67 @@ it('words the shell notice for one or several publishes that need attention', ()
     'Publish needs attention: 2 publishes did not fully go live.',
   );
 });
+
+it('keeps checking a whole request after a day and finishes it from its receipt', async () => {
+  const { driver, api } = make();
+  await driver.start('1');
+  await driver.create(inputs.slice(0, 2));
+  await settle();
+  expect(ops()[0]!.status).toBe('pending');
+  await vi.advanceTimersByTimeAsync(publishTiming.pollGiveUpMs + 1);
+  api.status.mockResolvedValue('done');
+  api.post.mockResolvedValue({ status: 'done' });
+  await vi.advanceTimersByTimeAsync(publishTiming.slowPollMs + 1);
+  expect(ops()[0]!.status).toBe('done');
+});
+
+it('ends the result read on a definitive refusal and refreshes the role on 403', async () => {
+  const { driver, api } = make();
+  const forbidden = vi.fn();
+  (driver as unknown as { deps: DriverDeps }).deps.forbidden = forbidden;
+  await driver.start('1');
+  await driver.create(inputs.slice(0, 2));
+  await settle();
+  api.status.mockResolvedValue('rejected');
+  api.post.mockRejectedValue(new PublishHttpError(403, 'Permission denied', true));
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 1);
+  const finished = ops()[0]!;
+  expect(finished).toMatchObject({ status: 'rejected', receiptChecked: true });
+  expect(forbidden).toHaveBeenCalled();
+  const posts = api.post.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(api.post.mock.calls.length).toBe(posts);
+  expect(describeOp(finished, undefined, Date.now(), when).chip).toBe('Attention');
+});
+
+it('never reads an unreadable held list as all live', async () => {
+  const { driver, api, acknowledged } = make();
+  await driver.start('1');
+  await driver.create(inputs.slice(0, 2));
+  await settle();
+  api.status.mockResolvedValue('done');
+  api.post.mockResolvedValue({
+    status: 'failed',
+    refusal: 'The publish finished, but which tooltips it held could not be read.',
+  });
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 1);
+  expect(ops()[0]).toMatchObject({
+    status: 'failed',
+    error: 'The publish finished, but which tooltips it held could not be read.',
+  });
+  expect(acknowledged).toEqual([]);
+});
+
+it('keeps a whole request that needs attention past the retention day until dismissed', async () => {
+  const { driver, api, store } = make();
+  await driver.start('1');
+  const created = await driver.create(inputs.slice(0, 2));
+  await settle();
+  api.status.mockResolvedValue('done');
+  api.post.mockResolvedValue({ status: 'done', held: [{ hash: 1000, reason: 'Changed.' }] });
+  await vi.advanceTimersByTimeAsync(publishTiming.pollMs(0) + 1);
+  await vi.advanceTimersByTimeAsync(publishTiming.retainMs + 60_000);
+  await driver.refresh();
+  expect(store.records.has(created.opId)).toBe(true);
+  expect(ops().map(({ opId }) => opId)).toEqual([created.opId]);
+});

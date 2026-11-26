@@ -477,6 +477,16 @@ it('publishes the rest of a whole selection and keeps a held row pending and sel
     expect(host.textContent).toContain('1 change waiting to go live');
   });
   expect(Object.keys(useReviewSession.getState().acknowledgments)).toEqual(['10']);
+  // Touch and keyboard open the full reasons (no hover title there).
+  const reasons = host.querySelector<HTMLElement>(
+    '[aria-label="Publish activity"] [role="button"]',
+  )!;
+  expect(reasons.getAttribute('aria-expanded')).toBe('false');
+  await act(async () => reasons.click());
+  expect(reasons.getAttribute('aria-expanded')).toBe('true');
+  expect(host.querySelector('[aria-label="Publish activity"] ul')!.getAttribute('aria-live')).toBe(
+    'polite',
+  );
   expect(host.querySelector<HTMLInputElement>('input[data-review-toggle="20"]')!.disabled).toBe(
     false,
   );

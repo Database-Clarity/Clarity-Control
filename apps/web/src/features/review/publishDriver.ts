@@ -43,12 +43,28 @@ export const publishTiming = {
   ackWindowMs: 15 * 60_000,
   /** A pending operation older than this stops being polled; the line says to check live status. */
   pollGiveUpMs: 24 * 3_600_000,
+  /** A whole request is never given up: past the day above it is checked this often. */
+  slowPollMs: 10 * 60_000,
   /** Conservative local CPU measurement; deployed tail gate still required. */
   chunkHashes: 50,
   /** Same ceiling as maxPublicationConsumers in the Worker globals reader. */
   maxConsumers: 500,
   maxBodyBytes: 300 * 1024,
 } as const;
+
+/** Status poll gap of an operation accepted `age` ago. */
+const pollGap = (op: PublishOp, age: number) =>
+  op.whole && age > publishTiming.pollGiveUpMs
+    ? publishTiming.slowPollMs
+    : publishTiming.pollMs(age);
+
+/** A whole request whose outcome still needs the person: kept until dismissed. */
+const wholeAttention = (op: PublishOp) =>
+  !!op.whole &&
+  !op.dismissed &&
+  (!!op.held?.length ||
+    !!op.refusedGlobals?.length ||
+    (isTerminal(op.status) && op.status !== 'done' && op.status !== 'unchanged'));
 
 /**
  * Whether a confirmed selection goes as one whole request (the publisher splits nothing): up to
@@ -599,6 +615,7 @@ export class PublishDriver {
       (op) =>
         !liveGroups.has(op.groupId ?? op.opId) &&
         isTerminal(op.status) &&
+        !wholeAttention(op) &&
         stored
           .filter((entry) => (entry.groupId ?? entry.opId) === (op.groupId ?? op.opId))
           .every((entry) => now - entry.updatedAt > publishTiming.retainMs),
@@ -685,14 +702,14 @@ export class PublishDriver {
         if (due <= now) await this.send(op.opId);
       } else if (op.status === 'pending') {
         const accepted = op.acceptedAt ?? op.createdAt;
-        if (now - accepted > publishTiming.pollGiveUpMs) {
+        if (!op.whole && now - accepted > publishTiming.pollGiveUpMs) {
           this.note(
             op.opId,
             'Still waiting after 24 hours. Check live status; this is no longer polled.',
           );
           continue;
         }
-        const gap = publishTiming.pollMs(now - accepted) * 0.8;
+        const gap = pollGap(op, now - accepted) * 0.8;
         const polled = await this.claim(op.opId, (current, at) =>
           current.polledAt !== undefined && at - current.polledAt < gap
             ? undefined
@@ -806,6 +823,7 @@ export class PublishDriver {
       if (isTerminal(op.status) || this.paused.has(op.opId) || this.inFlight.has(op.opId)) continue;
       if (
         op.status === 'pending' &&
+        !op.whole &&
         now - (op.acceptedAt ?? op.createdAt) > publishTiming.pollGiveUpMs
       )
         continue;
@@ -818,7 +836,7 @@ export class PublishDriver {
         );
       } else {
         const accepted = op.acceptedAt ?? op.createdAt;
-        next = Math.min(next, (op.polledAt ?? 0) + publishTiming.pollMs(now - accepted));
+        next = Math.min(next, (op.polledAt ?? 0) + pollGap(op, now - accepted));
       }
     }
     if (next === Infinity) return;
@@ -889,14 +907,16 @@ export class PublishDriver {
         if (status === 401) {
           this.paused.add(opId);
           this.note(opId, 'Sign in again to continue; nothing is lost.');
-        } else if (status === 403 || status === 409)
+        } else if (status === 403 || status === 409) {
+          if (status === 403) this.deps.forbidden?.();
           return this.settle(opId, {
             status: remote === 'done' || remote === 'unchanged' ? 'failed' : remote,
             acceptedAt: op.acceptedAt ?? this.deps.now(),
+            receiptChecked: true,
             error:
               'The publish finished, but its result could not be read. Check live status before publishing these again.',
           });
-        else this.note(opId, 'Checking the publish result.');
+        } else this.note(opId, 'Checking the publish result.');
         return;
       }
       if (generation !== this.generation || answer.status === 'pending') return;
@@ -963,6 +983,7 @@ export class PublishDriver {
       : undefined;
     return this.settle(opId, {
       ...(held?.length ? { held } : {}),
+      ...(op.whole && remote === 'failed' && answer?.refusal ? { error: answer.refusal } : {}),
       status: remote,
       acceptedAt: op.acceptedAt ?? this.deps.now(),
       ...(remote === 'rejected' && (answer || op.translations) ? { receiptChecked: true } : {}),

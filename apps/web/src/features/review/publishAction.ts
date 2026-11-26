@@ -120,7 +120,8 @@ export function planReviewedPublish(
   }));
   try {
     // One whole request needs no split; only a selection beyond it goes in today's parts.
-    if (!publishDriver.whole || !fitsWhole(planned)) publishChunks(planned);
+    if (!publishDriver.whole || !fitsWhole(planned, chosen.length - entries.length))
+      publishChunks(planned);
   } catch (reason) {
     if (reason instanceof PublishClosureLimitError) {
       const names = new Map(entries.map(({ tooltip, name }) => [tooltip.hash, name]));

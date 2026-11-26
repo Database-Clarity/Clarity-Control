@@ -194,6 +194,12 @@ export async function postPublish(body: PublishBody, switched = false): Promise<
   const resolved = result.success ? result.data.status : 'failed';
   if (body.selection === 'whole') {
     const held = heldRows(complete.data.result);
+    // A held list that cannot be read must never read as "everything went live".
+    if (held === undefined)
+      return {
+        status: 'failed',
+        refusal: 'The publish finished, but which tooltips it held could not be read.',
+      };
     const error = typeof result.data?.error === 'string' ? result.data.error : undefined;
     return {
       status: resolved,
@@ -244,6 +250,38 @@ export async function postTranslations(body: TranslationPublishBody): Promise<Pu
   };
 }
 
+/** What a finished whole request left out, by its status (editors and maintainers only). */
+export async function getPublishOutcome(
+  opId: string,
+): Promise<{ held: { hash: number; reason: string }[]; globals: { id: string; error: string }[] }> {
+  const { value } = await send(`/publish/status?opId=${encodeURIComponent(opId)}`);
+  const entry = z
+    .object({ operations: z.array(z.unknown()) })
+    .safeParse(value)
+    .data?.operations.map(
+      (operation) =>
+        z
+          .object({
+            opId: z.string(),
+            held: z
+              .array(z.object({ hash: hashSchema, reason: z.string().max(1000) }))
+              .max(3000)
+              .optional(),
+            globalRefusals: z
+              .array(z.object({ id: z.string(), error: z.string().max(2000) }))
+              .max(3000)
+              .optional(),
+          })
+          .safeParse(operation).data,
+    )
+    .find((operation) => operation?.opId === opId);
+  if (!entry) throw new PublishHttpError(502, 'Unexpected status response');
+  return {
+    held: entry.held?.map(({ hash, reason }) => ({ hash, reason })) ?? [],
+    globals: entry.globalRefusals?.map(({ id, error }) => ({ id, error })) ?? [],
+  };
+}
+
 /** `unknown` = the Worker has neither a request nor a log for this opId (a lost 202, or a typo). */
 export async function getPublishStatus(opId: string): Promise<RemoteStatus | 'unknown'> {
   const { value } = await send(`/publish/status?opId=${encodeURIComponent(opId)}`);
@@ -278,14 +316,15 @@ export async function getTranslationStatus(
   };
 }
 
-/** The rows a whole request's result held back (bounded by the Worker's own projection). */
-function heldRows(result: unknown): { hash: number; reason: string }[] {
+/** The rows a whole request's result held back; undefined when a held list is there but unreadable. */
+function heldRows(result: unknown): { hash: number; reason: string }[] | undefined {
+  if ((result as { held?: unknown } | null)?.held === undefined) return [];
   const parsed = z
     .object({
       held: z.array(z.object({ hash: hashSchema, reason: z.string().max(1000) })).max(3000),
     })
     .safeParse(result).data;
-  return parsed?.held.map(({ hash, reason }) => ({ hash, reason })) ?? [];
+  return parsed?.held.map(({ hash, reason }) => ({ hash, reason }));
 }
 
 /** This account's whole publishes on any device, and which of them it acknowledged. */

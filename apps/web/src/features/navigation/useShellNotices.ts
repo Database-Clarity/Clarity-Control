@@ -13,6 +13,7 @@ import { useSettingsPanel } from '../settings/panel';
 import { count, type ShellNotice } from './notices';
 import { useGlobalDraftStorage } from '../globals/globalDrafts';
 import {
+  attentionTarget,
   attentionText,
   usePublishAttention,
   usePublishAttentionLoader,
@@ -215,7 +216,9 @@ export function useShellNotices(): ShellNotice[] {
       level: 'warning',
       text: attentionText(publishAttention),
       onDismiss: dismissPublishAttention,
-      actions: [{ label: 'Review changes', onClick: () => navigate('/review') }],
+      actions: [
+        { label: 'Review changes', onClick: () => navigate(attentionTarget(publishAttention)) },
+      ],
     });
   if (savingDrafts)
     // Local writes finish in a blink while typing; only a slow one is worth saying anything about.
