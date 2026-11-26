@@ -86,11 +86,12 @@ export async function consumerAliasScope(
   pointersFile: RepoFile | null | undefined,
   hashes: readonly number[],
   includeCategories = false,
+  options?: Parameters<typeof aliasInputs>[2],
 ) {
   const groups = storedAliasGroups(groupsFile);
   if (!groups) return undefined;
   const scope = scopedAliases(
-    await aliasInputs(github, includeCategories),
+    await aliasInputs(github, includeCategories, options),
     groups,
     storedSandboxPointers(pointersFile),
   );

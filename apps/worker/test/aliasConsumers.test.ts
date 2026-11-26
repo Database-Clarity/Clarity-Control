@@ -56,6 +56,8 @@ let items: Record<string, AliasItems[string]>;
 let generatorReads: string[];
 let readHeads: string[];
 let generatorStatus: number;
+let generatorHead: string;
+let generatorLookups: number;
 beforeAll(async () => {
   key = await makePrivateKey();
 });
@@ -84,6 +86,8 @@ beforeEach(() => {
     ]),
   );
   generatorStatus = 200;
+  generatorHead = revision;
+  generatorLookups = 0;
   generatorReads = [];
   readHeads = [];
   const original = globalThis.fetch;
@@ -92,8 +96,9 @@ beforeEach(() => {
     if (url.pathname.includes('/generator/commits/')) {
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer installation-token');
       f.subrequests++;
+      generatorLookups++;
       return generatorStatus === 200
-        ? Response.json({ sha: revision })
+        ? Response.json({ sha: generatorHead })
         : new Response(null, { status: generatorStatus });
     }
     if (url.hostname === 'raw.githubusercontent.com') {
@@ -114,6 +119,13 @@ beforeEach(() => {
       const value = JSON.parse(String(init.body)) as { variables: Record<string, string> };
       for (const [name, valueAt] of Object.entries(value.variables))
         if (/^e\d+$/.test(name)) readHeads.push(valueAt.split(':')[0]!);
+      if (Object.values(value.variables).includes(aliasGroupsPath)) {
+        const response = await original(input, init);
+        const result = await response.clone().json();
+        const head = result.data?.repository?.ref?.target?.oid;
+        if (head) readHeads.push(head);
+        return response;
+      }
     }
     return original(input, init);
   });
@@ -268,6 +280,32 @@ it('rejects alias saves with canonical guidance, without recreating an archived 
   });
   expect(f.current()['tooltips/124.json']).toBeUndefined();
   expect(f.commits).toHaveLength(0);
+});
+
+it('rechecks the generator revision and reuses only its pinned inputs', async () => {
+  const scope = (cachePinnedInputs: boolean) =>
+    consumerAliasScope(
+      new GitHub(f.env),
+      { sha: sha(801), value: groups() },
+      null,
+      [123, 124],
+      false,
+      { cachePinnedInputs },
+    );
+  const uncached = await scope(false);
+  expect(uncached?.aliases[124]?.to).toBe(123);
+  expect((await scope(true))?.aliases).toEqual(uncached?.aliases);
+  expect((await scope(true))?.aliases).toEqual(uncached?.aliases);
+  expect(generatorLookups).toBe(3);
+  expect(generatorReads).toHaveLength(6);
+
+  generatorHead = sha(802);
+  f.aliases[124] = { to: 126, kind: 'frame' };
+  const changed = await scope(true);
+  expect(generatorLookups).toBe(4);
+  expect(generatorReads.slice(-3).every((path) => path.includes(`/${generatorHead}/`))).toBe(true);
+  expect(changed?.aliases).not.toEqual(uncached?.aliases);
+  expect(changed?.aliases).toEqual((await scope(false))?.aliases);
 });
 
 it('re-reads groups and tooltips after a save CAS race', async () => {

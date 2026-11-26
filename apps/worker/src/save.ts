@@ -7,8 +7,10 @@ import {
   clearsEnglish,
   hashSchema,
   globalsInPlacePath,
+  hasSandboxTargets,
   isTranslatable,
   merge3,
+  mergeSandboxPointers,
   permissionsSchema,
   reconcileNumberMap,
   refreshNumberFallbacks,
@@ -24,7 +26,12 @@ import { translationRevisionsSchema } from '../../../packages/core/src/translati
 import { loadAliases } from './catalog.js';
 import { exporter, needsLowering, publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { RefRace, SaveTiming, type GitHub } from './github.js';
-import { consumerAliasScope, withSandboxPointers } from './sandboxPointers.js';
+import {
+  consumerAliasScope,
+  loadSandboxConflicts,
+  storedSandboxPointers,
+  withSandboxPointers,
+} from './sandboxPointers.js';
 import { body, HttpError, json } from './http.js';
 import {
   clearedSaveMessage,
@@ -120,6 +127,12 @@ type SaveConflicts = Extract<SaveResult, { conflicts: unknown }>;
 type SavePlan =
   SaveConflicts | { writes: Record<string, Tooltip>; tooltips: Tooltip[]; message: string };
 
+const saveMetadata = ['config/permissions.json', globalsInPlacePath];
+const parsedPermissions = new WeakMap<
+  GitHub['env'],
+  { sha: string; value: z.infer<typeof permissionsSchema> }
+>();
+
 const compendiumContent = (link: Tooltip['compendium']) =>
   link ? { ...link, snapshotAt: undefined } : undefined;
 
@@ -147,53 +160,74 @@ export async function saveChanges(
   const proofFiles = new Map<string, Tooltip | null>();
   const verifiedCommits = new Set<string>();
   let verifiedHead: string | undefined;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const snapshot = await timed(github, 'head', () =>
-      github.publishSnapshot(['config/permissions.json', globalsInPlacePath]),
+  const clears = input.changes.filter(({ base, next }) => clearsEnglish(base, next));
+  const hashes = input.changes.map(({ hash }) => hash);
+  const publisher = exporter.publisherEnabled();
+  // Carry the active exporter's PIN with the current copies whenever submitted markup needs it.
+  const readsPin = publisher && input.changes.some(({ next }) => needsLowering(next));
+  const paths = [
+    ...hashes.map((hash) => `tooltips/${hash}.json`),
+    ...(readsPin ? [publisherPinPath] : []),
+    sandboxPointersPath,
+    aliasGroupsPath,
+  ];
+  let combine =
+    !!github.saveTiming &&
+    hashes.length <= 50 &&
+    !clears.length &&
+    !input.changes.some(
+      ({ hash, translationRevisions }) =>
+        (hash >= 1 && hash <= 3) || translationRevisions !== undefined,
     );
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const combined = combine
+      ? await timed(github, 'head_files', () => github.saveSnapshot(saveMetadata, paths))
+      : undefined;
+    if (!combined) combine = false;
+    const snapshot =
+      combined ?? (await timed(github, 'head', () => github.publishSnapshot(saveMetadata)));
     const headCommit = snapshot.head;
     const permissionFile = snapshot.files[0];
     if (!permissionFile)
       throw new HttpError(502, 'Missing repository file: config/permissions.json');
-    const access = requireAccess(
-      permissionsSchema.parse(permissionFile.value),
-      user,
-      currentSaveRoles,
-    );
+    let permissions = parsedPermissions.get(github.env);
+    if (permissions?.sha !== permissionFile.sha) {
+      permissions = {
+        sha: permissionFile.sha,
+        value: permissionsSchema.parse(permissionFile.value),
+      };
+      parsedPermissions.set(github.env, permissions);
+    }
+    const access = requireAccess(permissions.value, user, currentSaveRoles);
     authorize?.(access);
-    // One batched read for all current copies: flat subrequests however many tooltips change.
-    // While the publisher is the live exporter, a change carrying element-tagged text, `#{name}`,
-    // or `<enhanced/>` also reads the publisher's PIN in the same call: only a build declaring
-    // the matching capability lowers them.
-    const publisher = exporter.publisherEnabled();
-    const readsPin = publisher && input.changes.some(({ next }) => needsLowering(next));
-    const current = await timed(github, 'files', () =>
-      github.files(
-        [
-          ...input.changes.map(({ hash }) => `tooltips/${hash}.json`),
-          ...(readsPin ? [publisherPinPath] : []),
-          sandboxPointersPath,
-          aliasGroupsPath,
-        ],
-        headCommit,
-      ),
-    );
+    const current =
+      combined?.read() ?? (await timed(github, 'files', () => github.files(paths, headCommit)));
     const saveAliases = await timed(github, 'generator', async () => {
-      const generatorAliases = current.at(-1)
-        ? {}
-        : (aliases ??= await loadAliases(github.env, github));
       // A picked shared sandbox perk is an alias of its target, exactly as push and publish see it.
-      const scope = current.at(-1)
-        ? await consumerAliasScope(
-            github,
-            current.at(-1),
-            current.at(-2),
-            input.changes.map(({ hash }) => hash),
-          )
-        : undefined;
-      return (
-        scope?.aliases ?? (await withSandboxPointers(github, generatorAliases, current.at(-2)))
-      );
+      const groups = current.at(-1);
+      const pointersFile = current.at(-2);
+      if (groups)
+        return (await consumerAliasScope(github, groups, pointersFile, hashes, false, {
+          cachePinnedInputs: combine,
+        }))!.aliases;
+      if (combine && !aliases && pointersFile && github.remaining >= 2) {
+        const [generated, sandbox] = await Promise.allSettled([
+          loadAliases(github.env, github),
+          (async () => {
+            const pointers = storedSandboxPointers(pointersFile);
+            const conflicts = hasSandboxTargets(pointers)
+              ? await loadSandboxConflicts(github.env, github)
+              : {};
+            return { pointers, conflicts };
+          })(),
+        ]);
+        if (generated.status === 'rejected') throw generated.reason;
+        if (sandbox.status === 'rejected') throw sandbox.reason;
+        aliases = generated.value;
+        return mergeSandboxPointers(aliases, sandbox.value.conflicts, sandbox.value.pointers);
+      }
+      aliases ??= await loadAliases(github.env, github);
+      return withSandboxPointers(github, aliases, pointersFile);
     });
     let pin: { value: unknown } | undefined = readsPin
       ? { value: current[input.changes.length]?.value }
@@ -265,7 +299,6 @@ export async function saveChanges(
         },
       );
       if ('conflicts' in plan) return plan;
-      const clears = input.changes.filter(({ base, next }) => clearsEnglish(base, next));
       const cleared = await clearedStates(
         github,
         headCommit,

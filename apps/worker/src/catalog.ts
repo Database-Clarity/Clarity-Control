@@ -115,13 +115,42 @@ export async function aliasCatalog(github: GitHub) {
   return { ...(await catalog(env, github, sha)), revision: sha };
 }
 
+type PinnedAliasInputs = {
+  items: Record<string, unknown>;
+  aliases: Record<string, unknown>;
+  conflicts: Record<string, unknown>;
+  categories: z.infer<typeof categoriesSchema>;
+  revision: string;
+};
+
+// One entry per isolate. Admit up to 4 MiB of UTF-16 source JSON across all files.
+// Only the parsed generator inputs are retained. Each call builds its own scope.
+let cachedAliasInputs:
+  { env: Env; includeCategories: boolean; value: PinnedAliasInputs } | undefined;
+
 /** Raw pinned files are narrowed BEFORE schema validation; S1 still decides every alias edge. */
-export async function aliasInputs(github: GitHub, includeCategories = false) {
+export async function aliasInputs(
+  github: GitHub,
+  includeCategories = false,
+  { cachePinnedInputs = false } = {},
+): Promise<PinnedAliasInputs> {
   const env = github.env;
   const sha = await github.generatorRevision();
+  if (
+    cachePinnedInputs &&
+    cachedAliasInputs?.env === env &&
+    cachedAliasInputs.includeCategories === includeCategories &&
+    cachedAliasInputs.value.revision === sha
+  )
+    return cachedAliasInputs.value;
+  let bytes = 0;
   const read = async (file: string) => {
     github.spend();
-    return fetch(`${source(env, sha)}/${file}`).then(upstreamJson);
+    const response = await fetch(`${source(env, sha)}/${file}`);
+    if (!cachePinnedInputs || !response.ok) return upstreamJson(response);
+    const text = await response.text();
+    bytes += text.length * 2;
+    return JSON.parse(text) as unknown;
   };
   const record = (value: unknown): Record<string, unknown> => {
     if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -134,7 +163,10 @@ export async function aliasInputs(github: GitHub, includeCategories = false) {
     read('sandboxConflicts.json').then(record),
     includeCategories ? read('categories.json').then((value) => categoriesSchema.parse(value)) : [],
   ]);
-  return { items, aliases, conflicts, categories, revision: sha };
+  const value = { items, aliases, conflicts, categories, revision: sha };
+  if (cachePinnedInputs && bytes <= 4 * 1024 * 1024)
+    cachedAliasInputs = { env, includeCategories, value };
+  return value;
 }
 
 /** Consumer output must never silently lose a persisted group's drifted members. */

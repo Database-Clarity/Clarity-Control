@@ -42,6 +42,7 @@ const blobFields = z.object({
 });
 // `object` is null for a missing path and `{}` when the path is not a blob (the fragment misses).
 const blobEntry = z.union([z.null(), z.object({}).strict(), blobFields]);
+const snapshotBlob = z.object({ object: blobFields }).nullable();
 const graphqlSchema = z.object({
   data: z.object({ repository: z.record(z.string(), z.unknown()).nullable() }).nullable(),
   errors: z.array(z.unknown()).optional(),
@@ -117,11 +118,15 @@ async function rawBlob(entry: unknown, maxFileBytes: number): Promise<RawBlob> {
 }
 
 /** Reads a response body under a byte cap BEFORE decoding or parsing (R8). */
-async function cappedBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+async function cappedBytes(
+  response: Response,
+  maxBytes: number,
+  failure = rawReadFailure,
+): Promise<Uint8Array> {
   const declared = Number(response.headers.get('Content-Length') ?? '0');
   if (!response.body || !(declared <= maxBytes)) {
     await response.body?.cancel();
-    throw rawReadFailure();
+    throw failure();
   }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -132,7 +137,7 @@ async function cappedBytes(response: Response, maxBytes: number): Promise<Uint8A
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel();
-      throw rawReadFailure();
+      throw failure();
     }
     chunks.push(value);
   }
@@ -145,12 +150,16 @@ async function cappedBytes(response: Response, maxBytes: number): Promise<Uint8A
   return bytes;
 }
 
-async function cappedJson(response: Response, maxBytes: number): Promise<unknown> {
-  const bytes = await cappedBytes(response, maxBytes);
+async function cappedJson(
+  response: Response,
+  maxBytes: number,
+  failure = rawReadFailure,
+): Promise<unknown> {
+  const bytes = await cappedBytes(response, maxBytes, failure);
   try {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
   } catch {
-    throw rawReadFailure();
+    throw failure();
   }
 }
 
@@ -421,19 +430,25 @@ export class GitHub {
     const headers = this.headers(await this.installationToken());
     this.spend();
     const stage =
-      method === 'POST' && path === '/git/trees'
+      this.saveTiming &&
+      (method === 'POST' && path === '/git/trees'
         ? 'tree'
         : method === 'POST' && path === '/git/commits'
           ? 'commit'
           : method === 'PATCH' && path.startsWith('/git/refs/heads/')
             ? 'ref'
-            : undefined;
+            : undefined);
     const stop = stage && this.saveTiming?.start(stage);
-    const response = await fetch(`https://api.github.com${this.root}${path}`, {
-      method,
-      headers,
-      ...(value === undefined ? {} : { body: JSON.stringify(value) }),
-    }).finally(() => stop?.());
+    let response: Response;
+    try {
+      response = await fetch(`https://api.github.com${this.root}${path}`, {
+        method,
+        headers,
+        ...(value === undefined ? {} : { body: JSON.stringify(value) }),
+      });
+    } finally {
+      stop?.();
+    }
     if (response.status === 403 || response.status === 429) {
       throw new HttpError(
         503,
@@ -490,6 +505,7 @@ export class GitHub {
     fileAliases: ReadonlySet<string> = new Set(),
     /** Raw global reads: cap the response bytes before parsing, with fixed refusals. */
     maxResponseBytes?: number,
+    boundedReadFailure = rawReadFailure,
   ): Promise<unknown> {
     const headers = this.headers(await this.installationToken());
     this.spend();
@@ -505,13 +521,13 @@ export class GitHub {
       );
     }
     if (!response.ok) {
-      if (maxResponseBytes !== undefined) throw rawReadFailure();
+      if (maxResponseBytes !== undefined) throw boundedReadFailure();
       throw new HttpError(502, `GitHub batch read failed (${response.status})`);
     }
     const result = graphqlSchema.parse(
       maxResponseBytes === undefined
         ? await response.json()
-        : await cappedJson(response, maxResponseBytes),
+        : await cappedJson(response, maxResponseBytes, boundedReadFailure),
     );
     const repository = result.data?.repository;
     if (
@@ -791,9 +807,56 @@ export class GitHub {
     oidOnly: readonly string[] = [],
     trees: readonly { path: string; depth: number }[] = [],
   ) {
+    const target = await this.snapshotTarget(paths, oidOnly, trees);
+    const files = this.snapshotMetadata(target, paths, oidOnly);
+    const listed = trees.map(({ depth }, i) => treeNodes(target[`t${i}`], depth));
+    return { head: target.oid, tree: target.tree.oid, files, trees: listed };
+  }
+
+  /**
+   * Bound the combined read before parsing it. An unsupported or oversized snapshot falls
+   * back to the two existing reads. Decode tooltip JSON only after the caller authorizes.
+   */
+  async saveSnapshot(metadata: readonly string[], paths: readonly string[]) {
+    const all = [...metadata, ...paths];
+    // Authentication errors are common to either read and must propagate directly.
+    await this.installationToken();
+    try {
+      const target = await this.snapshotTarget(all, [], [], 512 * 1024);
+      const files = this.snapshotMetadata(target, metadata, []);
+      return {
+        head: target.oid,
+        tree: target.tree.oid,
+        files,
+        read: () => {
+          const result: (RepoFile | null)[] = [];
+          for (const [index, path] of paths.entries()) {
+            const entry = snapshotBlob.safeParse(target[`o${metadata.length + index}`]);
+            if (!entry.success) return undefined;
+            const blob = entry.data?.object;
+            if (!blob) result.push(null);
+            else if (blob.isTruncated || blob.text === null) return undefined;
+            else result.push({ sha: blob.oid, value: parseJsonFile(blob.text, path) });
+          }
+          return result;
+        },
+      };
+    } catch (error) {
+      // Rate-limit and subrequest-budget refusals must still stop the operation.
+      if (error instanceof HttpError && error.status === 503) throw error;
+      return undefined;
+    }
+  }
+
+  private async snapshotTarget(
+    paths: readonly string[],
+    oidOnly: readonly string[],
+    trees: readonly { path: string; depth: number }[],
+    maxResponseBytes?: number,
+  ) {
     const invalid = (p: string) => !pathPattern.test(p) || p.includes('..') || p.includes('//');
     if (
-      paths.length + trees.length > 41 ||
+      paths.length + trees.length > (maxResponseBytes === undefined ? 41 : 55) ||
       paths.some(invalid) ||
       trees.some(
         ({ path, depth }) => invalid(path) || !Number.isInteger(depth) || depth < 1 || depth > 3,
@@ -838,10 +901,19 @@ export class GitHub {
           `query($owner:String!,$name:String!,$branch:String!,${declarations}){repository(owner:$owner,name:$name){ref(qualifiedName:$branch){target{... on Commit{oid tree{oid} ${selections}}}}}}`,
           variables,
           new Set([...paths.map((_, i) => `o${i}`), ...trees.map((_, i) => `t${i}`)]),
+          maxResponseBytes,
+          () => new HttpError(502, 'Combined save snapshot unavailable'),
         ),
       );
-    const target = repository.ref.target;
-    const files = paths.map((path, i): RepoFile | null => {
+    return repository.ref.target;
+  }
+
+  private snapshotMetadata(
+    target: Record<string, unknown>,
+    paths: readonly string[],
+    oidOnly: readonly string[],
+  ): (RepoFile | null)[] {
+    return paths.map((path, i): RepoFile | null => {
       if (oidOnly.includes(path)) {
         const entry = z
           .object({ object: z.object({ oid: shaSchema.shape.sha }) })
@@ -849,14 +921,12 @@ export class GitHub {
           .parse(target[`o${i}`]);
         return entry ? { sha: entry.object.oid, value: undefined } : null;
       }
-      const entry = z.object({ object: blobFields }).nullable().parse(target[`o${i}`]);
+      const entry = snapshotBlob.parse(target[`o${i}`]);
       if (!entry) return null;
       if (entry.object.isTruncated || entry.object.text === null)
         throw new HttpError(502, 'Publish metadata is too large or unreadable');
       return { sha: entry.object.oid, value: parseJsonFile(entry.object.text, path) };
     });
-    const listed = trees.map(({ depth }, i) => treeNodes(target[`t${i}`], depth));
-    return { head: target.oid, tree: target.tree.oid, files, trees: listed };
   }
 
   /**

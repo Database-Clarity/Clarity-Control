@@ -72,6 +72,38 @@ describe('save permission matrix', () => {
     expect(result.savedAt).toBeLessThanOrEqual(after);
     expect(result.commit).toBe(fixture.dataHead);
     expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const timing = response.headers.get('Server-Timing');
+    for (const stage of [
+      'token',
+      'head_files',
+      'generator',
+      'validation',
+      'tree',
+      'commit',
+      'ref',
+      'total',
+    ])
+      expect(timing).toContain(`${stage};dur=`);
+  });
+
+  it('falls back to the old reads when a combined snapshot exceeds the response cap', async () => {
+    const original = globalThis.fetch;
+    let rejected = false;
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/graphql') && init?.body) {
+        const { variables } = JSON.parse(String(init.body));
+        if (variables.branch && variables.p2) {
+          rejected = true;
+          return Promise.resolve(new Response('{}', { headers: { 'Content-Length': '524289' } }));
+        }
+      }
+      return original(input, init);
+    });
+    const response = await fixture.request('/save', 'POST', change());
+    expect(rejected).toBe(true);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Server-Timing')).toMatch(/head;dur=[\d.]+, files;dur=/);
+    expect(fixture.current()['tooltips/123.json']).toEqual(tooltip('mine'));
   });
 
   it('rejects stale alias drafts and creates with a clear canonical target and no writes', async () => {
