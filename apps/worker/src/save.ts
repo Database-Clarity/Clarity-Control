@@ -23,7 +23,7 @@ import {
 import { translationRevisionsSchema } from '../../../packages/core/src/translationRevision.js';
 import { loadAliases } from './catalog.js';
 import { exporter, needsLowering, publisherPinPath, refuseUnlowerable } from './elementTags.js';
-import { RefRace, type GitHub } from './github.js';
+import { RefRace, SaveTiming, type GitHub } from './github.js';
 import { consumerAliasScope, withSandboxPointers } from './sandboxPointers.js';
 import { body, HttpError, json } from './http.js';
 import {
@@ -71,8 +71,35 @@ const saveSchema = savedChangesSchema.extend({
 });
 
 export async function save(request: Request, github: GitHub, user: Identity): Promise<Response> {
-  const result = await saveChanges(github, user, await body(request, saveSchema));
-  return 'conflicts' in result ? json(result, 409) : json(result);
+  const timing = new SaveTiming();
+  github.saveTiming = timing;
+  const done = timing.start('total');
+  let response: Response | undefined;
+  try {
+    const result = await saveChanges(github, user, await body(request, saveSchema));
+    response = 'conflicts' in result ? json(result, 409) : json(result);
+  } catch (error) {
+    if (!(error instanceof HttpError)) throw error;
+    response = json(
+      { error: error.message, ...(error.details === undefined ? {} : { details: error.details }) },
+      error.status,
+    );
+  } finally {
+    done();
+    const header = timing.header();
+    response?.headers.set('Server-Timing', header);
+    console.info('POST /save timing', header);
+  }
+  return response;
+}
+
+async function timed<T>(github: GitHub, name: string, run: () => Promise<T>): Promise<T> {
+  const stop = github.saveTiming?.start(name);
+  try {
+    return await run();
+  } finally {
+    stop?.();
+  }
 }
 
 export type SaveInput = z.infer<typeof savedChangesSchema>;
@@ -121,7 +148,9 @@ export async function saveChanges(
   const verifiedCommits = new Set<string>();
   let verifiedHead: string | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const snapshot = await github.publishSnapshot(['config/permissions.json', globalsInPlacePath]);
+    const snapshot = await timed(github, 'head', () =>
+      github.publishSnapshot(['config/permissions.json', globalsInPlacePath]),
+    );
     const headCommit = snapshot.head;
     const permissionFile = snapshot.files[0];
     if (!permissionFile)
@@ -138,29 +167,34 @@ export async function saveChanges(
     // the matching capability lowers them.
     const publisher = exporter.publisherEnabled();
     const readsPin = publisher && input.changes.some(({ next }) => needsLowering(next));
-    const current = await github.files(
-      [
-        ...input.changes.map(({ hash }) => `tooltips/${hash}.json`),
-        ...(readsPin ? [publisherPinPath] : []),
-        sandboxPointersPath,
-        aliasGroupsPath,
-      ],
-      headCommit,
+    const current = await timed(github, 'files', () =>
+      github.files(
+        [
+          ...input.changes.map(({ hash }) => `tooltips/${hash}.json`),
+          ...(readsPin ? [publisherPinPath] : []),
+          sandboxPointersPath,
+          aliasGroupsPath,
+        ],
+        headCommit,
+      ),
     );
-    const generatorAliases = current.at(-1)
-      ? {}
-      : (aliases ??= await loadAliases(github.env, github));
-    // A picked shared sandbox perk is an alias of its target, exactly as push and publish see it.
-    const scope = current.at(-1)
-      ? await consumerAliasScope(
-          github,
-          current.at(-1),
-          current.at(-2),
-          input.changes.map(({ hash }) => hash),
-        )
-      : undefined;
-    const saveAliases =
-      scope?.aliases ?? (await withSandboxPointers(github, generatorAliases, current.at(-2)));
+    const saveAliases = await timed(github, 'generator', async () => {
+      const generatorAliases = current.at(-1)
+        ? {}
+        : (aliases ??= await loadAliases(github.env, github));
+      // A picked shared sandbox perk is an alias of its target, exactly as push and publish see it.
+      const scope = current.at(-1)
+        ? await consumerAliasScope(
+            github,
+            current.at(-1),
+            current.at(-2),
+            input.changes.map(({ hash }) => hash),
+          )
+        : undefined;
+      return (
+        scope?.aliases ?? (await withSandboxPointers(github, generatorAliases, current.at(-2)))
+      );
+    });
     let pin: { value: unknown } | undefined = readsPin
       ? { value: current[input.changes.length]?.value }
       : undefined;
@@ -216,31 +250,35 @@ export async function saveChanges(
       }
       return proofFiles.get(key) ?? null;
     };
-    const plan = await planSaveChanges(
-      input,
-      access,
-      current,
-      saveAliases,
-      exporterPin,
-      Date.now(),
-      {
-        login: user.login,
+    const plan = await timed(github, 'validation', async () => {
+      const plan = await planSaveChanges(
+        input,
+        access,
+        current,
+        saveAliases,
+        exporterPin,
+        Date.now(),
+        {
+          login: user.login,
+          headCommit,
+          read: readRevision,
+        },
+      );
+      if ('conflicts' in plan) return plan;
+      const clears = input.changes.filter(({ base, next }) => clearsEnglish(base, next));
+      const cleared = await clearedStates(
+        github,
         headCommit,
-        read: readRevision,
-      },
-    );
+        clears.map(({ next }) => next),
+        {},
+      );
+      for (const { hash } of clears)
+        if (cleared.get(hash)?.state !== 'removal')
+          throw new HttpError(422, clearedSaveMessage(hash));
+      if (snapshot.files[1]) for (const tooltip of plan.tooltips) refuseInPlaceSave(tooltip);
+      return plan;
+    });
     if ('conflicts' in plan) return plan;
-    const clears = input.changes.filter(({ base, next }) => clearsEnglish(base, next));
-    const cleared = await clearedStates(
-      github,
-      headCommit,
-      clears.map(({ next }) => next),
-      {},
-    );
-    for (const { hash } of clears)
-      if (cleared.get(hash)?.state !== 'removal')
-        throw new HttpError(422, clearedSaveMessage(hash));
-    if (snapshot.files[1]) for (const tooltip of plan.tooltips) refuseInPlaceSave(tooltip);
     if (!Object.keys(plan.writes).length)
       return { commit: headCommit, tooltips: plan.tooltips, savedAt: Date.now() };
     try {

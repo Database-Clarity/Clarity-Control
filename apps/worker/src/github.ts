@@ -10,6 +10,20 @@ const commitSchema = z.object({ tree: shaSchema });
 
 export class RefRace extends Error {}
 
+export class SaveTiming {
+  private readonly durations = new Map<string, number>();
+
+  start(name: string): () => void {
+    const start = performance.now();
+    return () =>
+      this.durations.set(name, (this.durations.get(name) ?? 0) + performance.now() - start);
+  }
+
+  header(): string {
+    return Array.from(this.durations, ([name, ms]) => `${name};dur=${ms.toFixed(1)}`).join(', ');
+  }
+}
+
 /**
  * Cloudflare Workers FREE plan: 50 external subrequests per request. Every fetch() counts, so
  * operations spend from this budget and stop cleanly (503) before the platform would fail them
@@ -301,6 +315,7 @@ function context(env: Env) {
 export class GitHub {
   private token?: { value: string; expires: number };
   private spent = 0;
+  saveTiming?: SaveTiming;
   readonly root: string;
 
   constructor(
@@ -336,6 +351,15 @@ export class GitHub {
     const cached = cache.tokens.get(key);
     if (cached && cached.expires > Date.now() + 60_000) return cached.token;
     cache.tokens.delete(key);
+    const stop = this.saveTiming?.start('token');
+    try {
+      return await this.mintInstallationToken(cache, key);
+    } finally {
+      stop?.();
+    }
+  }
+
+  private async mintInstallationToken(cache: ReturnType<typeof context>, key: string) {
     this.spend();
     const jwt = await appJwt(this.env.GITHUB_APP_ID, this.env.GITHUB_PRIVATE_KEY);
     const response = await fetch(
@@ -396,11 +420,20 @@ export class GitHub {
   async request(path: string, method = 'GET', value?: unknown): Promise<Response> {
     const headers = this.headers(await this.installationToken());
     this.spend();
+    const stage =
+      method === 'POST' && path === '/git/trees'
+        ? 'tree'
+        : method === 'POST' && path === '/git/commits'
+          ? 'commit'
+          : method === 'PATCH' && path.startsWith('/git/refs/heads/')
+            ? 'ref'
+            : undefined;
+    const stop = stage && this.saveTiming?.start(stage);
     const response = await fetch(`https://api.github.com${this.root}${path}`, {
       method,
       headers,
       ...(value === undefined ? {} : { body: JSON.stringify(value) }),
-    });
+    }).finally(() => stop?.());
     if (response.status === 403 || response.status === 429) {
       throw new HttpError(
         503,
