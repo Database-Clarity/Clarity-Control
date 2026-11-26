@@ -35402,6 +35402,16 @@ async function heldRows(inputs, payload) {
     }
   };
   close();
+  const stays = (hash2) => held.has(hash2) || !roots.has(hash2);
+  const retained = retainedReaders(
+    inputs,
+    document,
+    [...roots.keys()].filter((hash2) => !stays(hash2)),
+    stays,
+    saved
+  );
+  for (const [hash2, reason] of retained) hold({ hash: hash2, code: "refused", reason });
+  close();
   if (inputs.inPlace) {
     const kept = [...roots.keys()].filter((hash2) => !held.has(hash2));
     const documents = kept.flatMap(
@@ -35412,6 +35422,61 @@ async function heldRows(inputs, payload) {
     close();
   }
   return [...held.values()].sort((a, b) => a.hash - b.hash);
+}
+function retainedReaders({ tree, aliases, moves }, document, kept, stays, saved) {
+  const removals = new Set(kept.filter((hash2) => isMovedInactive(hash2, moves)));
+  const dropped = /* @__PURE__ */ new Map();
+  for (const hash2 of kept) {
+    if (removals.has(hash2)) continue;
+    const before = document("live/tooltips", hash2);
+    const after = saved.get(hash2);
+    if (!before || !after) continue;
+    const names = /* @__PURE__ */ new Set();
+    for (const [lang, cell] of Object.entries(before.text)) {
+      const now = extractBlocks(after.text[lang]?.text ?? "", "export");
+      for (const name2 of Object.keys(extractBlocks(cell?.text ?? "", "export")))
+        if (!Object.hasOwn(now, name2)) names.add(name2);
+    }
+    if (names.size) dropped.set(hash2, names);
+  }
+  const refused = /* @__PURE__ */ new Map();
+  if (!removals.size && !dropped.size) return refused;
+  const kind2 = (hash2) => moves[hash2]?.cleared ? "cleared" : "inactive";
+  for (const path of Object.keys(tree)) {
+    const reader = Number(/^live\/tooltips\/(\d+)\.json$/.exec(path)?.[1]);
+    if (!Number.isInteger(reader) || !stays(reader)) continue;
+    const live = document("live/tooltips", reader);
+    if (!live) continue;
+    for (const hash2 of live.associated) {
+      const target = resolveAlias(hash2, aliases);
+      if (removals.has(target) && !refused.has(target))
+        refused.set(
+          target,
+          `Tooltip ${reader} associates ${kind2(target)} tooltip ${hash2} on live.`
+        );
+    }
+    for (const cell of Object.values(live.text))
+      for (const line of markupImports(cell?.text ?? "")) {
+        const parts = /^import ([A-z0-9 ]+?) from (\d+) *$/.exec(line);
+        if (!parts) continue;
+        const target = resolveAlias(Number(parts[2]), aliases);
+        if (target === reader || refused.has(target)) continue;
+        if (removals.has(target))
+          refused.set(
+            target,
+            `Tooltip ${reader} imports ${kind2(target)} tooltip ${parts[2]} on live.`
+          );
+        else {
+          const name2 = parts[1].split(" ").find((word) => dropped.get(target)?.has(word));
+          if (name2)
+            refused.set(
+              target,
+              `Tooltip ${reader} imports ${name2} from this tooltip on live, which this edit removes.`
+            );
+        }
+      }
+  }
+  return refused;
 }
 function selectedDependencies({ reader, tree, aliases, moves }, roots, saved) {
   const selected = [...roots.keys()].flatMap((hash2) => saved.get(hash2) ?? []);
