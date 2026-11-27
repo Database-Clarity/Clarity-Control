@@ -37,7 +37,7 @@ import { permissionError, prepareChanges } from './pipeline';
 import { requestSaveValidation } from './validationWorker';
 import { liveFallback, noImpactAvailable } from './fallback';
 import type { TooltipValidationIssue } from '@clarity/core';
-import { useSaveProgress, useSaveState, type SaveReview } from './state';
+import { useSaveProgress, useSaveState, visitSaveTooltip, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
 import { changedSources, linksCompendium, sourceKey, type ChangedSource } from './compendiumSource';
 import { SaveSummary } from './SaveSummary';
@@ -60,7 +60,6 @@ const DestinationRow =
  */
 export function SaveController() {
   const review = useSaveState((state) => state.review);
-  const session = useSaveState((state) => state.session);
   const generation = useDraftStore((state) => state.generation);
   const showNotice = useSaveNotice((state) => state.show);
   // Conflict rows and their saved copy follow the drafts of the signed-in account.
@@ -72,7 +71,7 @@ export function SaveController() {
       if (useSaveState.getState().review) useSaveState.getState().close();
     };
   }, [generation]);
-  return review ? <SaveSession key={session} review={review} onSaved={showNotice} /> : null;
+  return review ? <SaveSession review={review} onSaved={showNotice} /> : null;
 }
 
 function resumeReview() {
@@ -266,7 +265,7 @@ function SaveSession({
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
         return;
       if (pending) event.preventDefault();
-      else useSaveState.setState({ visitingTooltip: true, locked: false });
+      else visitSaveTooltip();
     },
     [pending],
   );

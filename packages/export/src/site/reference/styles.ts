@@ -74,7 +74,8 @@ ${Object.keys(themeTokens.dark)
 :root[data-theme=light] .clarity-art-light{display:block}:root[data-theme=light] .clarity-art-dark{display:none}
 @media(prefers-color-scheme:light){:root:not([data-theme]) .clarity-art-light{display:block}:root:not([data-theme]) .clarity-art-dark{display:none}}
 .clarity-glue{display:inline-block;max-inline-size:100%;word-break:break-all}.clarity-note,.clarity-link{color:var(--link);text-decoration:underline;text-underline-offset:.15em}
-.clarity-note{max-inline-size:100%;overflow-wrap:anywhere}
+.clarity-join{display:inline-flex;align-items:baseline;max-inline-size:100%}
+.clarity-note{display:inline-flex;min-height:0;max-inline-size:100%;overflow-wrap:anywhere;white-space:normal}
 .clarity-note{text-decoration-style:dotted}.clarity-tooltip sup{line-height:0;font-size:.75em}
 .clarity-note{font:inherit;line-height:inherit;background:transparent;border:0;padding:0;cursor:pointer;text-align:start}
 .clarity-note-body>.clarity-tooltip{display:inline}.clarity-note-body{white-space:normal}

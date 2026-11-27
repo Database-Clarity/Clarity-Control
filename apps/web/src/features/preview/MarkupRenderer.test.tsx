@@ -161,9 +161,9 @@ it('keeps an icon with the word right after it, and only that word', async () =>
       root.render(render('Gain <arc/><bold Ionic />Traces at 50%<arrow/>40% and 🡅50%.')),
     );
     expect(glued()).toEqual(['IonicTraces', '50%40%', '🡅50%.']);
-    expect(host.querySelector('[aria-label="leads to"]')?.parentElement?.textContent).toBe(
-      '50%40%',
-    );
+    expect(
+      host.querySelector('[aria-label="leads to"]')?.closest('[class*=iconJoin]')?.textContent,
+    ).toBe('%4');
   } finally {
     await act(async () => root.unmount());
   }

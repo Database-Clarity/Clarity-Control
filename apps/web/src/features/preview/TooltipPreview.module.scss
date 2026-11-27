@@ -571,6 +571,11 @@ $symbol: 0.75rem;
   max-inline-size: 100%;
   word-break: break-all;
 }
+.iconJoin {
+  display: inline-flex;
+  align-items: baseline;
+  max-inline-size: 100%;
+}
 
 .elementText {
   &::before {

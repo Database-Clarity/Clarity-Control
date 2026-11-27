@@ -1,4 +1,4 @@
-interface WrapPart {
+export interface WrapPart {
   text?: string;
   symbol?: 'icon' | 'arrow';
   atomic?: boolean;
@@ -8,6 +8,42 @@ interface Slice {
   index: number;
   from: number;
   to: number;
+}
+
+/** Keep the symbol and the touching characters together even inside an oversized run. */
+export function symbolWrapEdges(parts: WrapPart[], slices: Slice[]) {
+  const edges: { glued: boolean; slices: Slice[] }[] = [];
+  const add = (slice: Slice, glued: boolean) => {
+    const previous = edges.at(-1);
+    if (previous?.glued === glued) previous.slices.push(slice);
+    else edges.push({ glued, slices: [slice] });
+  };
+  const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  slices.forEach((slice, index) => {
+    const { from, to } = slice;
+    const part = parts[slice.index];
+    if (part.symbol) {
+      add(slice, true);
+      return;
+    }
+    const left = Boolean(parts[slices[index - 1]?.index]?.symbol);
+    const right = parts[slices[index + 1]?.index]?.symbol === 'arrow';
+    if ((!left && !right) || part.atomic || from === to) {
+      add(slice, left || right);
+      return;
+    }
+    const text = part.text!.slice(from, to);
+    const segments = graphemes.segment(text);
+    const head = left ? from + segments.containing(0)!.segment.length : from;
+    const tail = right ? from + segments.containing(text.length - 1)!.index : to;
+    if (head >= tail) add(slice, true);
+    else {
+      if (left) add({ ...slice, to: head }, true);
+      add({ ...slice, from: head, to: tail }, false);
+      if (right) add({ ...slice, from: tail }, true);
+    }
+  });
+  return edges;
 }
 
 /** Find display runs that must move together, without changing the source parts. */

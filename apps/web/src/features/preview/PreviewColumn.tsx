@@ -361,9 +361,13 @@ const CompareRow = memo(
         segment.kind === 'same'
           ? segment.spans
           : [
-              ...segment.was.map((part) => ({ ...part, compareClass: previewStyles.was })),
+              ...segment.was.map((part, index) => ({
+                ...part,
+                text: index === segment.was.length - 1 ? part.text?.trimEnd() : part.text,
+                compareClass: previewStyles.was,
+              })),
               {
-                classNames: ['enhancedArrow'],
+                classNames: ['arrow'],
                 compareArrow: segment.was.length ? 'becomes' : 'enhanced',
               },
               ...segment.now.map((part) => ({ ...part, compareClass: previewStyles.now })),

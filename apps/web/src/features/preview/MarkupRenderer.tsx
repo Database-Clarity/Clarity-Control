@@ -9,7 +9,11 @@ import {
   type ReactNode,
 } from 'react';
 import type { MarkupLine, MarkupSpan } from '@clarity/core';
-import { symbolWrapRuns } from '../../../../../packages/core/src/markup/renderWrapping';
+import {
+  symbolWrapEdges,
+  symbolWrapRuns,
+  type WrapPart,
+} from '../../../../../packages/core/src/markup/renderWrapping';
 import { HOVER_REST } from '../../ui/anchorPlacement';
 import { closeTitlePopover, isTitlePopoverOpen, openTitlePopover } from './titlePopover';
 import styles from './TooltipPreview.module.scss';
@@ -185,7 +189,7 @@ function lineKey(line: MarkupLine) {
   return key;
 }
 type RenderParts = (parts: MarkupSpan[]) => ReactNode;
-export function previewSymbol(part: MarkupSpan) {
+function previewSymbol(part: MarkupSpan): WrapPart['symbol'] {
   if (part.classNames?.includes('arrow')) return 'arrow';
   if (
     (!part.text && !part.title && part.classNames?.length) ||
@@ -222,29 +226,37 @@ const normalParts: RenderParts = (parts) =>
 
 export function renderWrappedParts(parts: MarkupSpan[], draw: RenderParts = normalParts) {
   if (!parts.some(previewSymbol)) return draw(parts);
-  const runs = symbolWrapRuns(
-    parts.map((part) => ({
-      text: part.text,
-      symbol: previewSymbol(part),
-      atomic: Boolean(part.title || part.link),
-    })),
-  );
+  const layout = parts.map((part) => ({
+    text: part.text,
+    symbol: previewSymbol(part),
+    atomic: Boolean(part.title || part.link),
+  }));
+  const runs = symbolWrapRuns(layout);
   if (!runs.some((run) => run.glued)) return draw(parts);
-  return runs.map(({ glued, slices }, index) => {
-    const content = draw(
+  const content = (slices: (typeof runs)[number]['slices']) =>
+    draw(
       slices.map(({ index, from, to }) => {
         const part = parts[index];
         return from === 0 && to === (part.text?.length ?? 0) ? part : textPart(part, from, to);
       }),
     );
-    return glued ? (
+  return runs.map(({ glued, slices }, index) =>
+    glued ? (
       <span key={index} className={styles.iconGlue}>
-        {content}
+        {symbolWrapEdges(layout, slices).map((edge, key) =>
+          edge.glued ? (
+            <span key={key} className={styles.iconJoin}>
+              {content(edge.slices)}
+            </span>
+          ) : (
+            <Fragment key={key}>{content(edge.slices)}</Fragment>
+          ),
+        )}
       </span>
     ) : (
-      <Fragment key={index}>{content}</Fragment>
-    );
-  });
+      <Fragment key={index}>{content(slices)}</Fragment>
+    ),
+  );
 }
 const PreviewLine = memo(
   function PreviewLine({

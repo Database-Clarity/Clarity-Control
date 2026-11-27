@@ -1,5 +1,9 @@
 import { Fragment, memo, useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
-import { symbolWrapRuns } from '../../../../../../packages/core/src/markup/renderWrapping';
+import {
+  symbolWrapEdges,
+  symbolWrapRuns,
+  type WrapPart,
+} from '../../../../../../packages/core/src/markup/renderWrapping';
 import preview from '../../preview/TooltipPreview.module.scss';
 import type { PublicAnchor } from '../../../services/reports';
 import {
@@ -232,18 +236,17 @@ export const AnnotatedTooltip = memo(function AnnotatedTooltip({
           {piecesOf(part)}
         </span>
       );
-    const runs = symbolWrapRuns(
-      cell.map((part) => ({
-        text: part.kind === 'text' ? part.text : undefined,
-        symbol: part.classNames?.includes('arrow')
-          ? 'arrow'
-          : part.kind === 'icon' || part.classNames?.includes('enhancedArrow')
-            ? 'icon'
-            : undefined,
-      })),
-    );
-    return runs.map(({ glued, slices }, index) => {
-      const content = slices.map(({ index, from, to }) => {
+    const layout = cell.map<WrapPart>((part) => ({
+      text: part.kind === 'text' ? part.text : undefined,
+      symbol: part.classNames?.includes('arrow')
+        ? 'arrow'
+        : part.kind === 'icon' || part.classNames?.includes('enhancedArrow')
+          ? 'icon'
+          : undefined,
+    }));
+    const runs = symbolWrapRuns(layout);
+    const content = (slices: (typeof runs)[number]['slices']) =>
+      slices.map(({ index, from, to }) => {
         const part = cell[index];
         if (part.kind === 'icon' || (from === 0 && to === part.text.length))
           return draw(part, index);
@@ -257,14 +260,23 @@ export const AnnotatedTooltip = memo(function AnnotatedTooltip({
           index,
         );
       });
-      return glued ? (
+    return runs.map(({ glued, slices }, index) =>
+      glued ? (
         <span key={index} className={preview.iconGlue}>
-          {content}
+          {symbolWrapEdges(layout, slices).map((edge, key) =>
+            edge.glued ? (
+              <span className={preview.iconJoin} key={key}>
+                {content(edge.slices)}
+              </span>
+            ) : (
+              <Fragment key={key}>{content(edge.slices)}</Fragment>
+            ),
+          )}
         </span>
       ) : (
-        <Fragment key={index}>{content}</Fragment>
-      );
-    });
+        <Fragment key={index}>{content(slices)}</Fragment>
+      ),
+    );
   };
 
   const lineMarked = (line: RenderLine) =>

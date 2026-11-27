@@ -1,7 +1,7 @@
 import { decodeV2 } from '../../../decoder/decode-v2.mjs';
 import assets from './assets.json';
 import { iconSymbols } from '../../v2/vocabulary.js';
-import { symbolWrapRuns } from '../../../../core/src/markup/renderWrapping.js';
+import { symbolWrapEdges, symbolWrapRuns } from '../../../../core/src/markup/renderWrapping.js';
 
 const symbols = Object.fromEntries(
   [...iconSymbols, 'arrow', 'enhancedArrow'].map((id) => [
@@ -20,7 +20,7 @@ const symbols = Object.fromEntries(
 
 // Shipped as one readable, dependency-free ES module. No HTML from the data is interpreted.
 export const rendererSource =
-  `// SPDX-License-Identifier: MIT\n// Clarity format v2 reference renderer. Artwork provenance: kit/usage.json.\nexport const decode = ${decodeV2.toString()};\nconst wrapRuns = ${symbolWrapRuns.toString()};\nconst artwork = ${JSON.stringify(symbols)};\n` +
+  `// SPDX-License-Identifier: MIT\n// Clarity format v2 reference renderer. Artwork provenance: kit/usage.json.\nexport const decode = ${decodeV2.toString()};\nconst wrapRuns = ${symbolWrapRuns.toString()};\nconst wrapEdges = ${symbolWrapEdges.toString()};\nconst artwork = ${JSON.stringify(symbols)};\n` +
   String.raw`
 const styles = new Set(['bold', 'exotic', 'pve', 'pvp']);
 const elements = new Set(['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic']);
@@ -151,19 +151,29 @@ export function renderDom(lines, options = {}) {
     decorate(row, line);
     const parts = line.parts || [];
     if (parts.some(part => hasIcon(part.icon))) {
-      const runs = wrapRuns(parts.map(part => ({
+      const layout = parts.map(part => ({
         text: part.text,
         symbol: part.icon === 'arrow' ? 'arrow' : hasIcon(part.icon) ? 'icon' : undefined,
         atomic: Boolean(part.note || part.link),
-      })));
+      }));
+      const drawSlice = ({ index, from, to }) => {
+        const part = parts[index];
+        return draw(from === 0 && to === (part.text || '').length
+          ? part : { ...part, text: part.text.slice(from, to) });
+      };
+      const runs = wrapRuns(layout);
       for (const { glued, slices } of runs) {
-        const target = glued ? node('span', null, 'clarity-glue') : row;
-        for (const { index, from, to } of slices) {
-          const part = parts[index];
-          target.append(draw(from === 0 && to === (part.text || '').length
-            ? part : { ...part, text: part.text.slice(from, to) }));
+        if (!glued) {
+          row.append(...slices.map(drawSlice));
+          continue;
         }
-        if (glued) row.append(target);
+        const group = node('span', null, 'clarity-glue');
+        for (const edge of wrapEdges(layout, slices)) {
+          const target = edge.glued ? node('span', null, 'clarity-join') : group;
+          target.append(...edge.slices.map(drawSlice));
+          if (edge.glued) group.append(target);
+        }
+        row.append(group);
       }
     } else row.append(...parts.map(draw));
     root.append(row);
