@@ -70,9 +70,10 @@ afterEach(() => {
 
 test.each<[word: string, icon: string, canonical?: string]>([
   ...keywords,
-  ['Weakened', 'void', 'Weaken'],
-  ['Slowed', 'stasis', 'Slow'],
-  ['Severed', 'strand', 'Sever'],
+  ['Weakened', 'void'],
+  ['slowed', 'stasis', 'Slowed'],
+  ['severed', 'strand', 'Severed'],
+  ['bolt charges', 'arc', 'Bolt Charges'],
 ])(
   '%s gets an automatic element chip with the catalogue spelling',
   (word, icon, canonical = word) => {

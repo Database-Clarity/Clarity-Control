@@ -207,7 +207,7 @@ export function suggestContext(state: EditorState, explicit: boolean): SuggestCo
   if (
     context?.kind === 'word' &&
     englishSymbols(state) &&
-    !/[\p{L}\p{N}_]/u.test(doc.sliceString(main.head, Math.min(firstLine.to, main.head + 1)))
+    !/^[\p{L}\p{N}_]/u.test(doc.sliceString(main.head, Math.min(firstLine.to, main.head + 2)))
   ) {
     const subclass = subclassSymbol(before, context.query);
     if (subclass)

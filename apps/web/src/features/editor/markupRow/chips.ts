@@ -132,8 +132,8 @@ function wordChip(state: EditorState, globals: MarkupGlobals): Chip | null {
       return null;
   }
   // Only at the end of the word: more letters after the caret means the author is mid-word.
-  const next = state.doc.sliceString(main.head, Math.min(line.to, main.head + 1));
-  if (/[\p{L}\p{N}_]/u.test(next)) return null;
+  const next = state.doc.sliceString(main.head, Math.min(line.to, main.head + 2));
+  if (/^[\p{L}\p{N}_]/u.test(next)) return null;
   const lastWord = before.slice(start);
   const subclass = english ? subclassSymbol(before, lastWord) : null;
   const word = subclass?.word ?? lastWord;

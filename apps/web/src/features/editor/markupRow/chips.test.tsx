@@ -384,10 +384,10 @@ describe('typed symbol placement', () => {
 
   it.each([
     ['Blind', 'arc'],
-    ['Jolt', 'arc', 'Jolted'],
+    ['Jolt', 'arc'],
     ['Jolted', 'arc'],
-    ['Jolting', 'arc', 'Jolted'],
-    ['Jolts', 'arc', 'Jolted'],
+    ['jolting', 'arc', 'Jolting'],
+    ['Jolts', 'arc'],
     ['Frost Armor', 'stasis'],
     ['fRoSt ArMoR', 'stasis', 'Frost Armor'],
     ['ember of torches', 'solar', 'Ember of Torches'],
@@ -464,6 +464,29 @@ describe('typed symbol placement', () => {
     catalogue();
     const view = mount('ember of torchesly');
     act(() => view.dispatch({ selection: { anchor: 'ember of torches'.length } }));
+    act(() => openSuggest(view));
+    expect(suggestState(view.state)?.items.some((item) => item.nameTag)).toBeFalsy();
+  });
+
+  it('keeps the inflection of a generated keyword form on request, cased like the catalogue', () => {
+    catalogue();
+    const view = mount('You are blinded');
+    act(() => openSuggest(view));
+    const snapshot = suggestState(view.state)!;
+    const index = snapshot.items.findIndex((item) => item.id === 'icon:arc');
+    expect(snapshot.items[index]!.label).toBe('<arc Blinded />');
+    act(() => {
+      acceptSuggestion(view, index);
+    });
+    expect(view.state.doc.toString()).toBe('You are <arc Blinded />');
+  });
+
+  it('treats a supplementary-plane letter after the name as part of the word', () => {
+    catalogue();
+    const view = mount('\u{10400}');
+    act(() => view.dispatch({ selection: { anchor: 0 } }));
+    type(view, 'ember of torches');
+    expect(chipState(view.state)).toBeNull();
     act(() => openSuggest(view));
     expect(suggestState(view.state)?.items.some((item) => item.nameTag)).toBeFalsy();
   });

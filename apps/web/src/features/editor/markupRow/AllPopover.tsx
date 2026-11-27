@@ -47,7 +47,8 @@ function AllList({
     [globals, view, catalogue],
   );
   const groups = useMemo(() => {
-    const row = rowEntries(entries).filter((entry) => entry !== rowSeparator);
+    // Unfiltered, the row tools lead in the bar's order; a search keeps its own match order.
+    const row = query ? [] : rowEntries(entries).filter((entry) => entry !== rowSeparator);
     const rowIds = new Set(row.map(({ id }) => id));
     const all = [
       ...row.map((entry) => ({ ...entry, group: 'Markup tools' })),

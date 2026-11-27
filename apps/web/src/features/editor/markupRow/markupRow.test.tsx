@@ -411,6 +411,12 @@ describe('the All popover', () => {
     );
     expect(left).toContain('stasis');
     expect(left.length).toBeLessThan(all.length);
+    // A search keeps each match in its own group, ranked by score, so Enter takes the best match.
+    const filtered = [...popover.querySelectorAll('[role=group]')].map((node) =>
+      node.getAttribute('aria-label'),
+    );
+    expect(filtered).not.toContain('Markup tools');
+    expect(filtered).toContain('Icons');
   });
 
   it('is compact: icon chips carry no label text, the name sits in the tooltip', () => {

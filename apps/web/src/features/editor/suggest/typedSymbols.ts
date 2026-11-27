@@ -124,7 +124,11 @@ function indexNames(data: EditorData | null): Index {
     for (const name of wordForms(original)) {
       if (named.has(name)) continue;
       const existing = spellings.get(name);
-      spellings.set(name, { ...entry, name, icon: existing ? null : entry.icon });
+      // A generated form keeps its inflection ("slowed"), cased like the catalogue name ("Slowed").
+      const canonical = [...name]
+        .map((char, i) => (known.canonical[i]?.toLowerCase() === char ? known.canonical[i] : char))
+        .join('');
+      spellings.set(name, { ...entry, name, canonical, icon: existing ? null : entry.icon });
     }
   }
   for (const entry of spellings.values()) {
