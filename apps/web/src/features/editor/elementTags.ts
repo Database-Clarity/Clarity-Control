@@ -1,5 +1,5 @@
 import { isolateHistory } from '@codemirror/commands';
-import { EditorSelection, Transaction, type EditorState } from '@codemirror/state';
+import { EditorSelection, EditorState, Transaction } from '@codemirror/state';
 import {
   elementTagNames,
   findElementTags,
@@ -50,6 +50,7 @@ export function wrapChange(
   to: number,
   element: string,
   absorb = true,
+  text = state.sliceDoc(from, to),
 ) {
   const icon = `<${element}/>`;
   const absorbed =
@@ -57,7 +58,7 @@ export function wrapChange(
   return {
     from: absorbed ? from - icon.length : from,
     to,
-    insert: `<${element} ${state.sliceDoc(from, to)} />`,
+    insert: `<${element} ${text} />`,
     absorbed,
   };
 }
@@ -67,24 +68,55 @@ export function wrapChange(
  * span where the selection was, and lower to the old line plus the icon (or to the old line itself
  * when an icon was absorbed). An icon that another token swallows (`<yellow <arc/>Jolt`) is not
  * absorbed, and a wrap that fits neither way (an unclosed `<` earlier on the line) is null.
+ * Suggestions can supply the catalogue spelling as `text` in place of the original words.
  */
-export function checkedWrap(state: EditorState, from: number, to: number, element: string) {
+export function checkedWrap(
+  state: EditorState,
+  from: number,
+  to: number,
+  element: string,
+  text = state.sliceDoc(from, to),
+) {
   const line = state.doc.lineAt(from);
   const at = (position: number) => position - line.from;
   for (const absorb of [true, false]) {
-    const change = wrapChange(state, from, to, element, absorb);
+    const change = wrapChange(state, from, to, element, absorb, text);
     if (absorb && !change.absorbed) continue;
     const next =
       line.text.slice(0, at(change.from)) + change.insert + line.text.slice(at(change.to));
     const placed = findElementTags(next).some(
       (tag) => tag.from === at(change.from) && tag.to === at(change.from) + change.insert.length,
     );
+    const renamed = line.text.slice(0, at(from)) + text + line.text.slice(at(to));
     const expected = change.absorbed
-      ? line.text
-      : line.text.slice(0, at(from)) + `<${element}/>` + line.text.slice(at(from));
+      ? renamed
+      : line.text.slice(0, at(from)) + `<${element}/>` + renamed.slice(at(from));
     if (placed && lowerElementTags(next) === lowerElementTags(expected)) return change;
   }
   return null;
+}
+
+/**
+ * Tags the typed name `from`..`to` as `element` in the catalogue's spelling, under the same rules
+ * as tagging that range as a selection (`ember of torches` becomes `<solar Ember of Torches />`).
+ */
+export function checkedNameTag(
+  state: EditorState,
+  from: number,
+  to: number,
+  element: ElementTagName,
+  name: string,
+  globals: MarkupGlobals,
+) {
+  if (state.selection.ranges.length !== 1) return null;
+  // A bare state over the same document: the rules read only the text, and the editor's own
+  // fields (the suggestion menu among them) must not rerun.
+  const selected = EditorState.create({
+    doc: state.doc,
+    selection: EditorSelection.single(from, to),
+  });
+  if (tagSelection(selected, globals).kind !== 'wrap') return null;
+  return checkedWrap(selected, from, to, element, name);
 }
 
 /** Whether the main selection can be tagged with an element, or why not (none: no selection). */

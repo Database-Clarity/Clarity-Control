@@ -10,6 +10,7 @@ import {
   type MarkupGlobals,
 } from '@clarity/core';
 import { insertionRejection } from '../markupInsertion';
+import { suggestionRowOrder } from '../markupRow/order';
 import {
   judgeItems,
   nextCategoryIndex,
@@ -89,7 +90,9 @@ describe('the menu opened on request', () => {
     'pins what the %s context offered before, in the same order, above the rest',
     (_kind, doc, anchor, head) => {
       const { state, context, items } = requested(doc, anchor, head);
-      const before = suggestItems(context, state, globals);
+      const before = suggestItems(context, state, globals).filter(
+        (item) => context.kind !== 'word' || context.query || !suggestionRowOrder.includes(item.id),
+      );
       const pinned = items.filter((item) => item.pinned);
       expect(pinned.map((item) => item.id)).toEqual(before.map((item) => item.id));
       // What a pinned option writes is what it always wrote.
@@ -118,6 +121,19 @@ describe('the menu opened on request', () => {
         .filter((at) => at !== undefined);
       expect(known).toEqual([...known].sort((a, b) => a! - b!));
     }
+  });
+
+  test('the unfiltered tool catalogue follows the markup bar order', () => {
+    const { state, context, items } = requested('Gains ');
+    const tools = (listed: typeof items) =>
+      listed.filter((item) => item.category === 'Markup tools').map((item) => item.id);
+    expect(tools(items)).toEqual(suggestionRowOrder);
+    const ordinary = { ...globals, allowBaseEnhanced: false };
+    expect(tools(requestItems(context, state, ordinary))).toEqual(
+      suggestionRowOrder.filter(
+        (id) => id !== 'icon:enhanced-arrow' && id !== 'snippet:base-enhanced-pair',
+      ),
+    );
   });
 
   test('typing filters both parts, pinned matches first', () => {

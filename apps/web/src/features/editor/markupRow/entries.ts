@@ -30,6 +30,9 @@ import {
 } from '../markupInsertion';
 import { insertItem } from '../suggest/state';
 import { enhancedArrowSnippet as arrowSnippet, type SuggestItem } from '../suggest/source';
+import { rowOrder, rowSeparator } from './order';
+
+export { rowOrder, rowSeparator } from './order';
 
 /**
  * How an entry looks on its button. The row and the "All" popover draw the same glyphs, so what
@@ -491,33 +494,6 @@ export const entryGroups = [
   'Team',
   'Mine',
 ] as const;
-
-/** The owner's markup bar order (independent of the core icon registry). */
-export const rowOrder: readonly string[] = [
-  'enhanced-arrow',
-  'base-enhanced-pair',
-  '|',
-  'pve',
-  'pvp',
-  'pair',
-  '|',
-  ...elementTagNames.map((name) => `icon:${name}`),
-  '|',
-  ...['primary', 'special', 'heavy'].map((name) => `icon:${name}`),
-  '|',
-  ...['barrier', 'overload', 'unstoppable'].map((name) => `icon:${name}`),
-  '|',
-  ...['warlock', 'hunter', 'titan'].map((name) => `icon:${name}`),
-  'icon:arrow',
-  '|',
-  'link',
-  'title',
-  '|',
-  'inline:bold',
-  'inline:exotic',
-];
-
-export const rowSeparator = '|';
 
 export function rowEntries(entries: readonly MarkupEntry[]): (MarkupEntry | typeof rowSeparator)[] {
   const byId = new Map(entries.map((entry) => [entry.id, entry]));

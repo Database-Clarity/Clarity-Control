@@ -17,7 +17,7 @@ import {
   type MarkupGlobals,
 } from '@clarity/core';
 import { insertionRejection } from '../markupInsertion';
-import { elementLabel, isElementName } from '../elementTags';
+import { checkedNameTag, elementLabel, isElementName } from '../elementTags';
 import { groupChange, linePairs } from '../iconPairs';
 import type { SuggestItem } from '../suggest/source';
 import { insertItem, suggestState } from '../suggest/state';
@@ -34,7 +34,7 @@ import type { EntryGlyph } from './entries';
  * is something the markup can express better. It is only an offer: it takes no focus, moves no
  * text, and does nothing until the accept key is pressed while it is showing.
  *
- * - an icon name (replace it), a subclass name (prefix it), or `pve` / `pvp` (the tag);
+ * - an icon name (replace it), a subclass name (tag its canonical spelling), or `pve` / `pvp`;
  * - a selection one of the selection transforms understands (`6.5 [5]` becomes the PvE/PvP pair);
  * - an element icon just inserted right before a known keyword of that element (`<solar/>` before
  *   "Firesprite"): tag them together as `<solar Firesprite />`. Existing pairs never get one.
@@ -138,7 +138,29 @@ function wordChip(state: EditorState, globals: MarkupGlobals): Chip | null {
   const subclass = english ? subclassSymbol(before, lastWord) : null;
   const word = subclass?.word ?? lastWord;
   const from = main.head - word.length;
-  const icon = subclass?.icon ?? iconByName.get(word.toLowerCase());
+  if (subclass?.icon && word.length >= 3) {
+    const element = subclass.icon;
+    const name = subclass.canonical;
+    const change = checkedNameTag(state, from, main.head, element, name, globals);
+    if (!change) return null;
+    return {
+      key: `icon:${element}:${from}`,
+      item: itemFor({
+        id: `icon:${element}`,
+        label: change.insert,
+        from: change.from,
+        to: change.to,
+        insert: change.insert,
+        nameTag: { from, element, name },
+      }),
+      typed: true,
+      glyph: { kind: 'icon', name: element },
+      markup: change.insert,
+      text: `Tag “${name}” as ${elementLabel(element)}`,
+      covers: { from: change.from, to: change.to },
+    };
+  }
+  const icon = iconByName.get(word.toLowerCase());
   if (icon && word.length >= 3) {
     const keep = Boolean(subclass) || !english;
     const to = keep ? from : main.head;

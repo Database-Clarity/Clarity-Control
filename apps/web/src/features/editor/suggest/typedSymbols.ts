@@ -1,13 +1,13 @@
-import { markupIcons } from '@clarity/core';
+import { elementTagNames, lowerElementTags, type ElementTagName } from '@clarity/core';
 import { EditorView } from '@codemirror/view';
 import type { EditorState } from '@codemirror/state';
 import { useDataStore, type EditorData } from '../../../stores/data';
 import { loadManifestFacts } from '../../compendium/manifestFacts';
 
-const icons = new Set(markupIcons);
+const elements: ReadonlySet<string> = new Set(elementTagNames);
 // Hand-kept keyword fallback, only when the catalogue provides no element.
 // Apply after grouping duplicate names so any data-derived element wins.
-const keywordElements: Readonly<Record<string, string>> = {
+const keywordElements: Readonly<Record<string, ElementTagName>> = {
   radiant: 'solar',
   restoration: 'solar',
   blind: 'arc',
@@ -32,7 +32,8 @@ const categories = new Set([
 ]);
 interface Name {
   name: string;
-  icon: string | null;
+  canonical: string;
+  icon: ElementTagName | null;
 }
 interface Index {
   endings: Map<string, Name[]>;
@@ -71,33 +72,41 @@ function indexNames(data: EditorData | null): Index {
   let longest = 0;
   if (!data) return { endings, starts, longest };
   const facts = loadManifestFacts().items;
-  const named = new Map<string, { icons: Set<string>; keyword: boolean; hasElement: boolean }>();
+  const named = new Map<
+    string,
+    { canonical: string; icons: Set<ElementTagName>; keyword: boolean; hasElement: boolean }
+  >();
   for (const item of Object.values(data.items)) {
     if (!categories.has(item.categoryId)) continue;
     const category = facts[item.hash]?.inventory?.plug?.plugCategoryIdentifier;
     const rawElement = category?.split('.')[1];
     const element = rawElement === 'prism' ? 'prismatic' : rawElement;
-    const tooltip = data.bundle.tooltips[item.hash]?.text.en?.text ?? '';
+    // Lowered, an authored element tag (`<solar Name />`) reads as its icon, in its own place.
+    const tooltip = lowerElementTags(data.bundle.tooltips[item.hash]?.text.en?.text ?? '');
     const descriptionElements = [
       ...item.inGameDescription.matchAll(/\[(Arc|Solar|Void|Stasis|Strand|Prismatic)\]/g),
     ].map((match) => match[1]!.toLowerCase());
-    const icon =
-      element && icons.has(element)
+    const candidate =
+      element && elements.has(element)
         ? element
         : (tooltip.match(/<(kinetic|arc|solar|void|stasis|strand|prismatic)\/>/)?.[1] ??
           (new Set(descriptionElements).size === 1 ? descriptionElements[0] : null) ??
           null);
+    const icon = candidate && elements.has(candidate) ? (candidate as ElementTagName) : null;
     const original = item.name.toLowerCase();
     const known = named.get(original) ?? {
-      icons: new Set<string>(),
-      keyword: item.categoryId === 'verbs',
+      canonical: item.name,
+      icons: new Set<ElementTagName>(),
+      keyword: false,
       hasElement: false,
     };
+    known.keyword ||= item.categoryId === 'verbs';
     if (icon) known.icons.add(icon);
     // Multiple description elements are ambiguous data, not missing data.
     known.hasElement ||= Boolean(icon) || descriptionElements.length > 0;
     named.set(original, known);
   }
+  const spellings = new Map<string, Name>();
   for (const [original, known] of named) {
     if (known.icons.size > 1) known.icons.delete('prismatic');
     const icon =
@@ -106,24 +115,35 @@ function indexNames(data: EditorData | null): Index {
         : !known.hasElement && known.keyword && Object.hasOwn(keywordElements, original)
           ? (keywordElements[original] ?? null)
           : null;
-    for (const name of known.keyword && icon ? wordForms(original) : [original]) {
-      const key = name.split(' ').at(-1)!;
-      const entries = endings.get(key) ?? [];
-      const existing = entries.find((entry) => entry.name === name);
-      if (!existing) entries.push({ name, icon });
-      endings.set(
-        key,
-        entries.sort((a, b) => b.name.length - a.name.length),
-      );
-      const first = name.split(' ')[0]!;
-      const leading = starts.get(first) ?? [];
-      if (!leading.some((entry) => entry.name === name)) leading.push({ name, icon });
-      starts.set(
-        first,
-        leading.sort((a, b) => b.name.length - a.name.length),
-      );
-      longest = Math.max(longest, name.length);
+    spellings.set(original, { name: original, canonical: known.canonical, icon });
+  }
+  // Exact catalogue names take precedence over generated forms. An ambiguous form has no element.
+  for (const [original, known] of named) {
+    const entry = spellings.get(original)!;
+    if (!known.keyword || !entry.icon) continue;
+    for (const name of wordForms(original)) {
+      if (named.has(name)) continue;
+      const existing = spellings.get(name);
+      spellings.set(name, { ...entry, name, icon: existing ? null : entry.icon });
     }
+  }
+  for (const entry of spellings.values()) {
+    const { name } = entry;
+    const key = name.split(' ').at(-1)!;
+    const entries = endings.get(key) ?? [];
+    entries.push(entry);
+    endings.set(
+      key,
+      entries.sort((a, b) => b.name.length - a.name.length),
+    );
+    const first = name.split(' ')[0]!;
+    const leading = starts.get(first) ?? [];
+    leading.push(entry);
+    starts.set(
+      first,
+      leading.sort((a, b) => b.name.length - a.name.length),
+    );
+    longest = Math.max(longest, name.length);
   }
   return { endings, starts, longest };
 }
@@ -150,7 +170,7 @@ export function subclassSymbol(before: string, lastWord: string) {
     const start = before.length - entry.name.length;
     if (start < 0 || before.slice(start).toLowerCase() !== entry.name) continue;
     if (start > 0 && /[\p{L}\p{N}_<#$/{|]/u.test(before[start - 1]!)) continue;
-    return { icon: entry.icon, word: before.slice(start) };
+    return { icon: entry.icon, word: before.slice(start), canonical: entry.canonical };
   }
   return null;
 }

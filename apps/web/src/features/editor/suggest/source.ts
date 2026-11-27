@@ -12,12 +12,19 @@ import {
   markupTags,
   markupTransforms,
   writeVariable,
+  type ElementTagName,
   type ExpandedTemplate,
   type MarkupGlobals,
   type Snippet,
 } from '@clarity/core';
 import { insertionChecker, type Rejection } from '../markupInsertion';
-import { checkedWrap, elementLabel, isElementName, tagSelection } from '../elementTags';
+import {
+  checkedNameTag,
+  checkedWrap,
+  elementLabel,
+  isElementName,
+  tagSelection,
+} from '../elementTags';
 import { groupChange, pairAt } from '../iconPairs';
 import { locateBlocks, locateVariables } from '../references';
 import { englishSymbols, subclassSymbol } from './typedSymbols';
@@ -25,9 +32,17 @@ import { numberHost, numbersAllowed, orderedNumbers, usedNumbers } from '../numb
 import { canSaveSnippets, localSnippet, snippetCatalogue, snippetLang } from './custom';
 import { offersBaseEnhanced } from '../markupScope';
 import { snippetTemplateIssue } from '../../../../../../packages/core/src/customSnippets';
+import { suggestionRowOrder } from '../markupRow/order';
 
 export type SuggestCategory =
-  'Transforms' | 'Snippets' | 'Tags' | 'Symbols' | 'Variables' | 'Globals' | 'Numbers';
+  | 'Transforms'
+  | 'Snippets'
+  | 'Tags'
+  | 'Symbols'
+  | 'Variables'
+  | 'Globals'
+  | 'Numbers'
+  | 'Markup tools';
 
 export type ContextKind =
   'selection' | 'tag' | 'variable' | 'title-name' | 'import-source' | 'import-name' | 'word';
@@ -53,8 +68,8 @@ export interface SuggestContext {
    * typed from there on is the query, not the word before it.
    */
   atCaret?: boolean;
-  /** A catalogue subclass name: retain it when a matching symbol is chosen. Null means no known element. */
-  subclassIcon?: string | null;
+  /** A matched catalogue name, with its canonical spelling and known element. */
+  subclass?: NonNullable<ReturnType<typeof subclassSymbol>>;
 }
 
 export interface SuggestItem {
@@ -80,6 +95,8 @@ export interface SuggestItem {
   reference?: boolean;
   /** An element-tag wrap of the selection, already judged by the wrap rules (elementTags.ts). */
   wrap?: boolean;
+  /** The typed name can be replaced by a canonical name inside an element tag. */
+  nameTag?: { from: number; element: ElementTagName; name: string };
   /**
    * "Group with icon" on the pair at the caret (iconPairs.ts), judged by its own rules. A spaced
    * pair asks before it drops the space.
@@ -187,14 +204,18 @@ export function suggestContext(state: EditorState, explicit: boolean): SuggestCo
     found('import-name', triggers.importName) ??
     found('tag', triggers.tag) ??
     (explicit ? found('word', triggers.word) : null);
-  if (context?.kind === 'word' && englishSymbols(state)) {
+  if (
+    context?.kind === 'word' &&
+    englishSymbols(state) &&
+    !/[\p{L}\p{N}_]/u.test(doc.sliceString(main.head, Math.min(firstLine.to, main.head + 1)))
+  ) {
     const subclass = subclassSymbol(before, context.query);
     if (subclass)
       return {
         ...context,
         from: main.head - subclass.word.length,
         query: subclass.word,
-        subclassIcon: subclass.icon,
+        subclass,
       };
   }
   return context;
@@ -573,12 +594,29 @@ function build(
         });
         continue;
       }
+      const subclass = context.kind === 'word' ? context.subclass : undefined;
+      if (subclass?.icon && subclass.icon === symbol.name && symbol.id.startsWith('icon:')) {
+        const name = subclass.canonical;
+        const element = subclass.icon;
+        const nameTag = { from: context.from, element, name };
+        const insert = `<${element} ${name} />`;
+        const tagged = checkedNameTag(state, context.from, context.to, element, name, globals);
+        push({
+          id: symbol.id,
+          category: 'Symbols',
+          label: insert,
+          about: `Tags “${name}” as ${elementLabel(element)}.`,
+          insert,
+          from: tagged?.from,
+          nameTag,
+          ...(tagged ? {} : { unavailable: unavailableReasons.context }),
+          usage: symbol.usage,
+          keys: `${query} ${symbol.keywords}`,
+        });
+        continue;
+      }
       const tag = `<${symbol.name}/>`;
-      const keepWord =
-        context.kind === 'word' &&
-        context.subclassIcon !== undefined &&
-        symbol.id.startsWith('icon:') &&
-        (context.subclassIcon === null || context.subclassIcon === symbol.name);
+      const keepWord = subclass?.icon === null && symbol.id.startsWith('icon:');
       push({
         id: symbol.id,
         category: 'Symbols',
@@ -699,6 +737,21 @@ const everyOrder: readonly SuggestCategory[] = [
   'Variables',
   'Globals',
 ];
+const rowIds = new Set(suggestionRowOrder);
+
+function catalogueOrder(items: SuggestItem[]): SuggestItem[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const row = suggestionRowOrder.flatMap((id) => {
+    const item = byId.get(id);
+    return item ? [{ ...item, category: 'Markup tools' as const }] : [];
+  });
+  return [
+    ...row,
+    ...everyOrder.flatMap((category) =>
+      items.filter((item) => item.category === category && !rowIds.has(item.id)),
+    ),
+  ];
+}
 
 /**
  * The on-request menu (Ctrl+Space, the touch Suggest control): every option there is. What the
@@ -713,19 +766,20 @@ export function requestItems(
   recent: readonly string[] = [],
 ): SuggestItem[] {
   const group = groupItem(state, globals);
+  // With no query or selection, put the whole set of row tools in their shared catalogue order.
+  const bare = context.kind === 'word' && !context.query;
   const pinned = [
     ...(group ? [group] : []),
-    ...suggestItems(context, state, globals, recent, true),
+    ...suggestItems(context, state, globals, recent, true).filter(
+      (item) => !bare || !rowIds.has(item.id),
+    ),
   ];
   const taken = new Set(pinned.map((item) => item.id));
   const others = build(context, state, globals, true, taken).filter(
     (item) => !context.query || matchScore(item, context.query) > 0,
   );
   for (const item of pinned) item.pinned = true;
-  return [
-    ...pinned,
-    ...everyOrder.flatMap((category) => others.filter((item) => item.category === category)),
-  ];
+  return [...pinned, ...catalogueOrder(others)];
 }
 
 /**
@@ -745,7 +799,7 @@ export function judgeItems(
   let changed = false;
   const judged = items.map((item) => {
     // A reference to something already defined is not held to the markup-safety rules.
-    if (item.unavailable || item.reference || item.wrap || item.group) return item;
+    if (item.unavailable || item.reference || item.wrap || item.nameTag || item.group) return item;
     const rejection = check(
       { from: item.from, to: item.to },
       { typed: !selection || item.from === item.to, link: item.link, lineStyle: item.lineStyle },
@@ -769,15 +823,17 @@ export function dropDeclinedPins(
   globals: MarkupGlobals,
 ): SuggestItem[] {
   if (!items[0]?.pinned || items.some((item) => item.pinned && !item.unavailable)) return items;
-  // Where each option sits in the fixed order: its category, then its place in the registry.
+  const ordered = catalogueOrder(build(context, state, globals, true));
   const place = new Map(
-    build(context, state, globals, true).map((item, index) => [item.id, index]),
+    ordered.map((item, index) => [item.id, { index, category: item.category }]),
   );
-  const rank = (item: SuggestItem) =>
-    everyOrder.indexOf(item.category) * 1e6 + (place.get(item.id) ?? 1e6 - 1);
   return items
-    .map((item) => (item.pinned ? { ...item, pinned: false } : item))
-    .sort((a, b) => rank(a) - rank(b));
+    .map((item) =>
+      item.pinned
+        ? { ...item, pinned: false, category: place.get(item.id)?.category ?? item.category }
+        : item,
+    )
+    .sort((a, b) => (place.get(a.id)?.index ?? Infinity) - (place.get(b.id)?.index ?? Infinity));
 }
 
 /**
@@ -793,6 +849,7 @@ export function caretContext(
   return {
     ...context,
     kind: 'word',
+    subclass: undefined,
     atCaret: true,
     from,
     to: head,

@@ -18,7 +18,7 @@ import {
   type MarkupGlobals,
 } from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
-import { checkedWrap, tagSelection } from '../elementTags';
+import { checkedNameTag, checkedWrap, tagSelection } from '../elementTags';
 import { askGroup, groupChange, pairAt } from '../iconPairs';
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
@@ -291,7 +291,12 @@ export function insertItem(
     view.dispatch({ effects: closeEffect.of(null) });
     return insertNumber(view, item.numberId, { from: item.from, to: item.to }) ? null : 'context';
   }
-  if (item.wrap) {
+  if (item.nameTag) {
+    const { from, element, name } = item.nameTag;
+    const globals = view.state.facet(suggestHost).globals;
+    const change = checkedNameTag(view.state, from, item.to, element, name, globals);
+    if (!change || change.from !== item.from || change.insert !== item.insert) return 'context';
+  } else if (item.wrap) {
     // An element-tag wrap is judged again on the live text, by its own rules.
     const selection = tagSelection(view.state, view.state.facet(suggestHost).globals);
     const element = /^<([a-z]+) /.exec(item.insert)?.[1] ?? '';

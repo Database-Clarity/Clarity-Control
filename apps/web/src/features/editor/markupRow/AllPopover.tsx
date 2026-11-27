@@ -11,6 +11,8 @@ import {
   entryGroups,
   entryMessage,
   markupEntries,
+  rowEntries,
+  rowSeparator,
   type MarkupEntry,
 } from './entries';
 import { emptyCatalogue, snippetLang, useSnippetCatalogue } from '../suggest/custom';
@@ -44,30 +46,33 @@ function AllList({
     ],
     [globals, view, catalogue],
   );
-  const groups = useMemo(
-    () =>
-      entryGroups
-        .map((group) => ({
-          group,
-          entries: entries
-            .filter((entry) => entry.group === group)
-            .map((entry) => ({
-              entry,
-              score: query
-                ? Math.max(
-                    fuzzyScore(`${entry.label} ${entry.markup}`.replace(/[<>/]/g, ' '), query) ??
-                      -1,
-                    (fuzzyScore(entry.keys, query) ?? 0) - 15,
-                  )
-                : 0,
-            }))
-            .filter(({ score }) => !query || score > 0)
-            .sort((a, b) => b.score - a.score)
-            .map(({ entry }) => entry),
-        }))
-        .filter(({ entries: found }) => found.length),
-    [entries, query],
-  );
+  const groups = useMemo(() => {
+    const row = rowEntries(entries).filter((entry) => entry !== rowSeparator);
+    const rowIds = new Set(row.map(({ id }) => id));
+    const all = [
+      ...row.map((entry) => ({ ...entry, group: 'Markup tools' })),
+      ...entries.filter(({ id }) => !rowIds.has(id)),
+    ];
+    return ['Markup tools', ...entryGroups]
+      .map((group) => ({
+        group,
+        entries: all
+          .filter((entry) => entry.group === group)
+          .map((entry) => ({
+            entry,
+            score: query
+              ? Math.max(
+                  fuzzyScore(`${entry.label} ${entry.markup}`.replace(/[<>/]/g, ' '), query) ?? -1,
+                  (fuzzyScore(entry.keys, query) ?? 0) - 15,
+                )
+              : 0,
+          }))
+          .filter(({ score }) => !query || score > 0)
+          .sort((a, b) => b.score - a.score)
+          .map(({ entry }) => entry),
+      }))
+      .filter(({ entries: found }) => found.length);
+  }, [entries, query]);
   // Docked (a phone), Escape hands the caret back to the text, so the keyboard stays where the
   // author was typing. The window listener runs before the popover's own (document) one.
   useEffect(() => {

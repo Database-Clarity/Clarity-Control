@@ -384,29 +384,37 @@ describe('typed symbol placement', () => {
 
   it.each([
     ['Blind', 'arc'],
-    ['Jolt', 'arc'],
+    ['Jolt', 'arc', 'Jolted'],
     ['Jolted', 'arc'],
-    ['Jolting', 'arc'],
-    ['Jolts', 'arc'],
+    ['Jolting', 'arc', 'Jolted'],
+    ['Jolts', 'arc', 'Jolted'],
     ['Frost Armor', 'stasis'],
-    ['fRoSt ArMoR', 'stasis'],
-    ['Ember of Ashes', 'solar'],
-    ['Touch of Flame', 'solar'],
-    ['Thundercrash', 'arc'],
+    ['fRoSt ArMoR', 'stasis', 'Frost Armor'],
+    ['ember of torches', 'solar', 'Ember of Torches'],
+    ['touch of flame', 'solar', 'Touch of Flame'],
+    ['thundercrash', 'arc', 'Thundercrash'],
     ['Pulse Grenade', 'arc'],
-  ])('keeps the whole catalogue name %s after its symbol', (name, icon) => {
-    catalogue();
-    const view = mount('Grants ');
-    type(view, name);
-    expect(chipState(view.state)?.text).toBe(`${icon} symbol before “${name}”`);
-    press(view, 'Enter');
-    expect(view.state.doc.toString()).toBe(`Grants <${icon}/>${name}`);
-    expect(view.state.selection.main.head).toBe(view.state.doc.length);
-    act(() => {
-      undo(view);
-    });
-    expect(view.state.doc.toString()).toBe(`Grants ${name}`);
-  });
+  ])(
+    'tags the whole catalogue name %s and restores the typed text in one undo',
+    (name, icon, canonical = name) => {
+      catalogue();
+      const view = mount('Grants ');
+      type(view, name);
+      const tag = `<${icon} ${canonical} />`;
+      expect(chipState(view.state)?.markup).toBe(tag);
+      expect(chipState(view.state)?.text).toContain(`“${canonical}”`);
+      press(view, 'Enter');
+      expect(view.state.doc.toString()).toBe(`Grants ${tag}`);
+      expect(view.state.selection.main.head).toBe(view.state.doc.length);
+      act(() => {
+        undo(view);
+      });
+      expect(view.state.doc.toString()).toBe(`Grants ${name}`);
+      expect(chipState(view.state)).toBeNull();
+      act(() => void redo(view));
+      expect(view.state.doc.toString()).toBe(`Grants ${tag}`);
+    },
+  );
 
   it('does not offer inside longer words, across newlines, or for non-English subclass names', () => {
     catalogue();
@@ -425,16 +433,18 @@ describe('typed symbol placement', () => {
 
   it('uses the same whole-name rule on request, and permits symbols when the element is unknown', () => {
     catalogue();
-    const view = mount('Frost Armor');
+    const view = mount('frost armor');
     act(() => openSuggest(view));
     let snapshot = suggestState(view.state)!;
-    expect(snapshot.context.query).toBe('Frost Armor');
+    expect(snapshot.context.query).toBe('frost armor');
     const index = snapshot.items.findIndex((item) => item.id === 'icon:stasis');
-    expect(snapshot.items[index]!.hint).toBe('before Frost Armor');
+    expect(snapshot.items[index]!.label).toBe('<stasis Frost Armor />');
     act(() => {
       acceptSuggestion(view, index);
     });
-    expect(view.state.doc.toString()).toBe('<stasis/>Frost Armor');
+    expect(view.state.doc.toString()).toBe('<stasis Frost Armor />');
+    act(() => void undo(view));
+    expect(view.state.doc.toString()).toBe('frost armor');
     const unknown = mount('Transcendence');
     act(() => openSuggest(unknown));
     snapshot = suggestState(unknown.state)!;
@@ -448,6 +458,14 @@ describe('typed symbol placement', () => {
       );
     });
     expect(unknown.state.doc.toString()).toBe('<arc/>Transcendence');
+  });
+
+  it('does not offer a canonical replacement on request inside a longer word', () => {
+    catalogue();
+    const view = mount('ember of torchesly');
+    act(() => view.dispatch({ selection: { anchor: 'ember of torches'.length } }));
+    act(() => openSuggest(view));
+    expect(suggestState(view.state)?.items.some((item) => item.nameTag)).toBeFalsy();
   });
 
   it('rebuilds the name index when the catalogue changes', () => {
@@ -480,7 +498,7 @@ describe('typed symbol placement', () => {
     act(() => {
       chipNode()!.querySelector<HTMLButtonElement>('button')!.click();
     });
-    expect(view.state.doc.toString()).toBe('<arc/> <stasis/>Frost Armor');
+    expect(view.state.doc.toString()).toBe('<arc/> <stasis Frost Armor />');
     type(view, ' solar');
     act(() => {
       view.contentDOM.dispatchEvent(new FocusEvent('blur'));

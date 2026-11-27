@@ -47,7 +47,7 @@ describe('leadEntries', () => {
       ),
     );
     expect(elements).toHaveLength(7);
-    expect(led.slice(0, 11)).toEqual([...elements, 'pve', 'pair', 'pvp', '|']);
+    expect(led.slice(0, 11)).toEqual([...elements, 'pair', 'pve', 'pvp', '|']);
     // The rest keeps the row's order, without doubled or trailing separators, and loses nothing.
     expect(led.filter((id) => id !== '|').sort()).toEqual(
       ids(row)

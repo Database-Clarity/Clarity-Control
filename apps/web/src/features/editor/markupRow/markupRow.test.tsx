@@ -180,18 +180,19 @@ describe('the markup row catalogue', () => {
         .map((item) => item.id),
     ).toEqual([
       'enhanced-arrow',
+      'icon:arrow',
       'base-enhanced-pair',
+      'pair',
+      ...['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic'].map(
+        (name) => `icon:${name}`,
+      ),
+      'link',
+      'title',
+      'inline:bold',
+      'inline:exotic',
       'pve',
       'pvp',
-      'pair',
       ...[
-        'kinetic',
-        'arc',
-        'solar',
-        'void',
-        'stasis',
-        'strand',
-        'prismatic',
         'primary',
         'special',
         'heavy',
@@ -201,12 +202,7 @@ describe('the markup row catalogue', () => {
         'warlock',
         'hunter',
         'titan',
-        'arrow',
       ].map((name) => `icon:${name}`),
-      'link',
-      'title',
-      'inline:bold',
-      'inline:exotic',
     ]);
     expect(entries.some((entry) => entry.id === 'bullet')).toBe(false);
     expect(entries.find((entry) => entry.id === 'inline:exotic')?.label).toBe('Exotic');
@@ -218,7 +214,7 @@ describe('the markup row catalogue', () => {
     expect(rowOrder.filter((id) => id.startsWith('icon:'))).toHaveLength(17);
   });
 
-  it('offers separate PvE and PvP tags next to the pair preset, and no tables anywhere', () => {
+  it('offers standalone PvE and PvP tags and the pair preset, with no tables', () => {
     const entries = markupEntries(globals);
     const markup = (id: string) => entries.find((entry) => entry.id === id)?.markup;
     expect(markup('pair')).toBe('<pve ? /> <pvp [?] />');
@@ -239,14 +235,7 @@ describe('the markup row catalogue', () => {
         true,
       );
     }
-    for (const id of [
-      'pair',
-      'pve',
-      'pvp',
-      'enhanced-block',
-      'enhanced-formula',
-      'icon-word',
-    ])
+    for (const id of ['pair', 'pve', 'pvp', 'enhanced-block', 'enhanced-formula', 'icon-word'])
       expect(ids.has(id)).toBe(true);
     // Every tag the menu lists as Tags is reachable (pve/pvp as their own entries).
     for (const tag of markupTags) {
@@ -403,18 +392,14 @@ describe('the All popover', () => {
       node.getAttribute('aria-label'),
     );
     expect(titles).toEqual(
-      expect.arrayContaining([
-        'Values',
-        'Icons',
-        'Enhanced',
-        'Format',
-        'Line styles',
-        'References',
-      ]),
+      expect.arrayContaining(['Markup tools', 'Icons', 'Enhanced', 'Line styles']),
     );
     expect(popover.textContent?.toLowerCase()).not.toContain('table');
     const all = popover.querySelectorAll('[data-all-button]');
     expect(all.length).toBeGreaterThan(rowButtons().length);
+    expect(
+      [...all].slice(0, rowButtons().length).map((node) => node.getAttribute('aria-label')),
+    ).toEqual(rowButtons().map((node) => node.getAttribute('aria-label')));
     const filter = popover.querySelector<HTMLInputElement>('input')!;
     act(() => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
@@ -440,7 +425,7 @@ describe('the All popover', () => {
     expect(pvp.title).toBe('PvP only: <pvp [value] />');
     // No chip repeats its own name beside its face.
     expect(popover.querySelector('[class*=chipLabel]')).toBeNull();
-    for (const group of ['Format', 'Line styles'])
+    for (const group of ['Line styles'])
       expect(
         popover.querySelector(`[role=group][aria-label="${group}"]`)!.textContent!.length,
       ).toBeLessThan(60);
@@ -490,9 +475,9 @@ describe('inserting an enhanced section from the popover', () => {
     expect(text.startsWith('Reload speed up.' + NL + 'enhanced (' + NL)).toBe(true);
     // The <enhanced/> line is the enhanced arrow line, and it ships with text to replace.
     expect(text.endsWith(NL + ')')).toBe(true);
-    expect(text.split(NL).some((line) => line.startsWith('<enhanced/> ') && line === '<enhanced/> ')).toBe(
-      true,
-    );
+    expect(
+      text.split(NL).some((line) => line.startsWith('<enhanced/> ') && line === '<enhanced/> '),
+    ).toBe(true);
   });
 });
 

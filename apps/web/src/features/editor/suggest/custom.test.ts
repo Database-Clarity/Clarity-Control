@@ -119,7 +119,7 @@ describe('custom snippets in the menus', () => {
     const firstCustom = withCustom.findIndex((item) => item.source);
     expect(withCustom.slice(0, firstCustom).every((item) => !item.source)).toBe(true);
     expect(withCustom.slice(firstCustom).every((item) => item.source)).toBe(true);
-    const recent = ['snippet:team:r', withCustom[1]!.id, 'snippet:me:a'];
+    const recent = ['snippet:team:r', withCustom[0]!.id, 'snippet:me:a'];
     expect(
       snippets(recent)
         .slice(0, 3)
@@ -154,12 +154,13 @@ describe('custom snippets in the menus', () => {
       ]);
     }
     // Clearing the query restores recency rather than retaining the typed source order.
+    const unfilteredRecent = ['snippet:icon-word', 'snippet:team:tie', 'snippet:me:tie'];
     expect(
-      requestItems({ ...context, query: '' }, at, enhanced, recent)
+      requestItems({ ...context, query: '' }, at, enhanced, unfilteredRecent)
         .filter((item) => item.category === 'Snippets')
         .slice(0, 3)
         .map((item) => item.id),
-    ).toEqual(recent);
+    ).toEqual(unfilteredRecent);
   });
 
   test('invalid selections explain how to fix markup, while corrected selections open the form', () => {

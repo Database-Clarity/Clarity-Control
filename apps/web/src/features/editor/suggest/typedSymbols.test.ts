@@ -10,7 +10,7 @@ import { acceptChip, chipState, chipsExtension, markChipShown } from '../markupR
 const facts = vi.hoisted(() => ({ items: {} as Record<number, unknown> }));
 vi.mock('../../compendium/manifestFacts', () => ({ loadManifestFacts: () => facts }));
 
-const keywords = [
+const keywords: [string, string][] = [
   ['Radiant', 'solar'],
   ['Restoration', 'solar'],
   ['Blind', 'arc'],
@@ -23,7 +23,7 @@ const keywords = [
   ['Threadling', 'strand'],
   ['Shatter', 'stasis'],
   ['Slow', 'stasis'],
-] as const;
+];
 
 function catalogue(
   entries: { name: string; description?: string; text?: string; categoryId?: string }[],
@@ -68,31 +68,43 @@ afterEach(() => {
   useDataStore.setState({ data: null });
 });
 
-test.each([
+test.each<[word: string, icon: string, canonical?: string]>([
   ...keywords,
-  ['Weakened', 'void'] as const,
-  ['Slowed', 'stasis'] as const,
-  ['Severed', 'strand'] as const,
-])('%s gets an automatic element chip that preserves the word on acceptance', (word, icon) => {
-  catalogue(keywords.map(([name]) => ({ name })));
-  const view = new EditorView({ state: EditorState.create({ extensions: [chipsExtension()] }) });
-  try {
-    const doc = `Gains ${word}`;
-    view.dispatch({
-      changes: { from: 0, insert: doc },
-      selection: { anchor: doc.length },
-      userEvent: 'input.type',
-    });
-    expect(chipState(view.state)?.item).toMatchObject({
-      id: `icon:${icon}`,
-      insert: `<${icon}/>`,
-    });
-    markChipShown(view, true);
-    expect(acceptChip(view)).toBe(true);
-    expect(view.state.doc.toString()).toBe(`Gains <${icon}/>${word}`);
-  } finally {
-    view.destroy();
-  }
+  ['Weakened', 'void', 'Weaken'],
+  ['Slowed', 'stasis', 'Slow'],
+  ['Severed', 'strand', 'Sever'],
+])(
+  '%s gets an automatic element chip with the catalogue spelling',
+  (word, icon, canonical = word) => {
+    catalogue(keywords.map(([name]) => ({ name })));
+    const view = new EditorView({ state: EditorState.create({ extensions: [chipsExtension()] }) });
+    try {
+      const doc = `Gains ${word}`;
+      view.dispatch({
+        changes: { from: 0, insert: doc },
+        selection: { anchor: doc.length },
+        userEvent: 'input.type',
+      });
+      expect(chipState(view.state)?.item).toMatchObject({
+        id: `icon:${icon}`,
+        insert: `<${icon} ${canonical} />`,
+      });
+      markChipShown(view, true);
+      expect(acceptChip(view)).toBe(true);
+      expect(view.state.doc.toString()).toBe(`Gains <${icon} ${canonical} />`);
+    } finally {
+      view.destroy();
+    }
+  },
+);
+
+test('exact names take precedence over generated forms, and conflicting forms are ambiguous', () => {
+  catalogue([
+    { name: 'Jolt', description: '[Arc]' },
+    { name: 'Jolted', description: '[Void]' },
+  ]);
+  expect(subclassSymbol('jolted', 'jolted')).toMatchObject({ canonical: 'Jolted', icon: 'void' });
+  expect(subclassSymbol('jolting', 'jolting')?.icon).toBeNull();
 });
 
 test('any data-derived element wins, including across duplicate keyword records', () => {
@@ -145,4 +157,18 @@ test('editor save validation accepts a prismatic tooltip', () => {
   expect(validateChanges([{ hash: 100, base: null, next }], useDataStore.getState().data!)).toEqual(
     [],
   );
+});
+
+test('an authored element tag supplies the element as its bare icon would, before any later icon', () => {
+  for (const text of [
+    '<solar/>Review Aspect grants Scorch.',
+    '<solar Review Aspect /> grants Scorch.',
+    '<solar Review Aspect /> grants <arc/>Jolt.',
+  ]) {
+    catalogue([{ name: 'Review Aspect', text }]);
+    expect(subclassSymbol('Review Aspect', 'Aspect'), text).toMatchObject({
+      canonical: 'Review Aspect',
+      icon: 'solar',
+    });
+  }
 });
