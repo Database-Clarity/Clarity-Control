@@ -228,7 +228,14 @@ function useRowFit(
   /** More is on the line whatever fits (Grouped, rare actions): its width is already counted. */
   moreAlways: boolean,
 ) {
-  const [fit, setFit] = useState<RowFit>({ moved: 0, wrap: false });
+  // The tools in More are kept by name: when one leaves the list (the last mark resolved takes
+  // "marksLabels" away), the others stay where they are instead of shifting into More, so an open
+  // Marks popover is not remounted mid-save.
+  const [fit, setFit] = useState<RowFit & { names: readonly SpillTool[] }>({
+    moved: 0,
+    wrap: false,
+    names: [],
+  });
   const fitRef = useRef(fit);
   fitRef.current = fit;
   const toolsRef = useRef(tools);
@@ -248,7 +255,7 @@ function useRowFit(
     for (const tool of element.querySelectorAll<HTMLElement>(':scope > [data-spill]'))
       widths.current[tool.dataset.spill as SpillTool] =
         (tool.getBoundingClientRect().width + gap) / rem;
-    const { moved } = fitRef.current;
+    const moved = toolsRef.current.filter((tool) => fitRef.current.names.includes(tool)).length;
     const inPlace = toolsRef.current[0] === 'marksLabels' ? 1 : 0;
     const trigger = moved > inPlace ? (element.lastElementChild as HTMLElement | null) : null;
     if (trigger) more.current = (trigger.getBoundingClientRect().width + gap) / rem;
@@ -265,13 +272,14 @@ function useRowFit(
         // The names only become the count: about as wide as "Marks (2)" until that was seen.
         return Math.max(0, width - (widths.current.marks ?? 4.5)) * rem;
       }),
-      Math.min(moved, toolsRef.current.length),
+      moved,
       alwaysRef.current ? 0 : (more.current || 1.5 + gap / rem) * rem,
       inPlace,
     );
-    if (next.moved !== fitRef.current.moved || next.wrap !== fitRef.current.wrap) {
-      fitRef.current = next;
-      setFit(next);
+    const names = toolsRef.current.slice(0, next.moved);
+    if (names.join() !== fitRef.current.names.join() || next.wrap !== fitRef.current.wrap) {
+      fitRef.current = { ...next, names };
+      setFit(fitRef.current);
     }
   };
   // What the line holds changed: measure before paint, so it never shows a clipped frame.
@@ -365,7 +373,7 @@ function DesktopToolRow({
     marksKey,
     moreAlways,
   );
-  const inMore = new Set(tools.slice(0, fit.moved));
+  const inMore = new Set(tools.filter((tool) => fit.names.includes(tool)));
   const marksCount = inMore.delete('marksLabels') || !!activeOverride;
   const marksControl = marksShown && markHash !== undefined && (
     <MarksControl hash={markHash} className={styles.ghost} compact={marksCount} />
