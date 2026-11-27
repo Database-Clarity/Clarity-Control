@@ -69,7 +69,7 @@ const caretIn = (doc: string, word: string) => at(doc, doc.indexOf(word) + 1);
 const grouped = (doc: string, word: string) => {
   const state = caretIn(doc, word);
   const pair = pairAt(state);
-  const change = pair && groupChange(state, pair, globals);
+  const change = pair && groupChange(state, pair);
   if (!change) return null;
   return {
     text: doc.slice(0, change.from) + change.insert + doc.slice(change.to),

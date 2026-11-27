@@ -122,6 +122,11 @@ export interface SuggestItem {
 export const unavailableReasons = {
   context: 'Cannot go inside this markup.',
   expansion: 'An import or variable here may change the markup.',
+  'tag-output': 'Tagging here would change the rendered tooltip.',
+  'tag-unresolved': 'A tooltip variant could not be evaluated.',
+  'tag-invisible': 'The tag could not be matched to the selected text in the rendered tooltip.',
+  'tag-unclosed':
+    'An unclosed maths block or comment in this tooltip or an import could change the tag. Close it first.',
   'table-link': 'Links cannot go in table cells.',
   'line-style': 'This line already has that style.',
   line: 'Needs an empty line.',
@@ -571,7 +576,7 @@ function build(
   if (every || context.kind === 'selection' || context.kind === 'tag' || context.kind === 'word') {
     const insertAtStart = context.kind === 'selection';
     // A wrappable selection: the element symbols tag it instead (`<solar Scorch />`).
-    const wrap = insertAtStart ? tagSelection(state, globals) : undefined;
+    const wrap = insertAtStart ? tagSelection(state) : undefined;
     for (const symbol of markupSymbols) {
       if (skip?.has(symbol.id)) continue;
       const change =
@@ -600,7 +605,7 @@ function build(
         const element = subclass.icon;
         const nameTag = { from: context.from, element, name };
         const insert = `<${element} ${name} />`;
-        const tagged = checkedNameTag(state, context.from, context.to, element, name, globals);
+        const tagged = checkedNameTag(state, context.from, context.to, element, name);
         push({
           id: symbol.id,
           category: 'Symbols',
@@ -696,12 +701,12 @@ function build(
  * its words become one tagged span. None when the selection is exactly the words of a joined pair:
  * the element wraps there do the same.
  */
-export function groupItem(state: EditorState, globals: MarkupGlobals): SuggestItem | null {
+export function groupItem(state: EditorState): SuggestItem | null {
   const pair = pairAt(state);
   if (!pair) return null;
   const { from, to } = state.selection.main;
   if (!pair.spaced && from === pair.from && to === pair.to) return null;
-  const change = groupChange(state, pair, globals);
+  const change = groupChange(state, pair);
   if (!change) return null;
   const element = elementLabel(pair.element);
   const line = state.doc.lineAt(change.from);
@@ -765,7 +770,7 @@ export function requestItems(
   globals: MarkupGlobals,
   recent: readonly string[] = [],
 ): SuggestItem[] {
-  const group = groupItem(state, globals);
+  const group = groupItem(state);
   // With no query or selection, put the whole set of row tools in their shared catalogue order.
   const bare = context.kind === 'word' && !context.query;
   const pinned = [
@@ -802,7 +807,12 @@ export function judgeItems(
     if (item.unavailable || item.reference || item.wrap || item.nameTag || item.group) return item;
     const rejection = check(
       { from: item.from, to: item.to },
-      { typed: !selection || item.from === item.to, link: item.link, lineStyle: item.lineStyle },
+      {
+        typed: !selection || item.from === item.to,
+        link: item.link,
+        lineStyle: item.lineStyle,
+        elementIcon: item.id.startsWith('icon:') && isElementName(item.id.slice(5)),
+      },
     );
     if (!rejection) return item;
     changed = true;

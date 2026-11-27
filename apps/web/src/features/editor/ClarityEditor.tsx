@@ -826,7 +826,7 @@ export function ClarityEditor({
           tagMode.set(
             update.state.selection.ranges.every((range) => range.empty)
               ? noTagSelection
-              : tagSelection(update.state, configured.current.globals),
+              : tagSelection(update.state),
           );
         }
       }),

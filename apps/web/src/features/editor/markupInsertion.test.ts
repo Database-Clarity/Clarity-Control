@@ -629,7 +629,7 @@ describe('markup insertion', () => {
     },
   );
 
-  test.each(['inline:blue', 'link', 'title', 'icon:solar', 'line:blue'])(
+  test.each(['inline:blue', 'link', 'title', 'line:blue'])(
     'rejects %s when an expansion creates a comment or is unresolved',
     (id) => {
       const cases: { doc: string; globals: MarkupGlobals }[] = [
@@ -751,7 +751,7 @@ describe('markup insertion', () => {
         expect(preview(state.doc.toString())).toBe(before);
         expect(before).not.toContain('<a ');
       }
-      for (const id of ['inline:blue', 'title', 'icon:solar', 'line:bold']) {
+      for (const id of ['inline:blue', 'title', 'line:bold']) {
         const state = EditorState.create({ doc, selection: { anchor: point, head: point + 5 } });
         const next = insert(state, option(id));
         const html = preview(next.doc.toString());
@@ -763,6 +763,9 @@ describe('markup insertion', () => {
           expect(html).toContain('Description');
         }
       }
+      const cell = EditorState.create({ doc, selection: { anchor: point, head: point + 5 } });
+      // Legacy lowering moves the icon to the row, so it cannot wrap a cell's selected words.
+      expect(markupTransaction(cell, option('icon:solar'))).toBeNull();
       const withPlain = `${doc}\noutside`;
       const outside = withPlain.indexOf('outside');
       const multi = EditorState.create({

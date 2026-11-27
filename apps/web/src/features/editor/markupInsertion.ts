@@ -4,6 +4,7 @@ import type { EditorView } from '@codemirror/view';
 import {
   extractBlocks,
   extractVariables,
+  baseEnhancedPairs,
   markupColors,
   markupCommentContext,
   markupEmpty,
@@ -15,7 +16,8 @@ import {
   variableReferences,
   type MarkupGlobals,
 } from '@clarity/core';
-import { isElementName, wrapTransaction } from './elementTags';
+import { isElementName, tryWrapTransaction } from './elementTags';
+import type { TagOracleRefusal } from './tagOracle';
 
 type MarkupKind = 'inline' | 'icon' | 'line' | 'link' | 'title';
 export interface MarkupOption {
@@ -62,12 +64,13 @@ export const markupOptions: MarkupOption[] = [
 interface ProtectedRange {
   from: number;
   to: number;
+  kind?: 'comment' | 'declaration' | 'formula' | 'variable' | 'cell';
   incomplete?: boolean;
   protectStart?: boolean;
   protectEnd?: boolean;
 }
 
-export type Rejection = 'context' | 'expansion' | 'table-link' | 'line-style';
+export type Rejection = 'context' | 'expansion' | 'table-link' | 'line-style' | TagOracleRefusal;
 type PreparedContext = { text: string; offsets: number[] };
 
 function expandedContext(text: string, globals: MarkupGlobals): PreparedContext | null {
@@ -111,12 +114,16 @@ function expandedContext(text: string, globals: MarkupGlobals): PreparedContext 
       from = expanded.indexOf(reference, from + value.length);
     }
   }
-  const originalComments = markupCommentContext(text).comments;
   const prepared = markupCommentContext(expanded);
-  const expandedComments = prepared.comments.map(({ from, to }) => ({
+  const comments = prepared.comments.map(({ from, to }) => ({
     from: offsets[from],
     to: offsets[to - 1] + 1,
   }));
+  const context = {
+    text: prepared.text,
+    offsets: prepared.offsets.map((offset) => offsets[offset]),
+  };
+  const originalComments = markupCommentContext(text).comments;
   const delimiters = (value: string, mapping: number[]) =>
     [...value.matchAll(/\/\*|\*\//g)].map((match) => ({
       from: mapping[match.index],
@@ -128,10 +135,10 @@ function expandedContext(text: string, globals: MarkupGlobals): PreparedContext 
   );
   const expandedDelimiters = delimiters(expanded, offsets);
   const unsafe =
-    originalComments.length !== expandedComments.length ||
+    originalComments.length !== comments.length ||
     originalComments.some(
       (comment, index) =>
-        comment.from !== expandedComments[index].from || comment.to !== expandedComments[index].to,
+        comment.from !== comments[index].from || comment.to !== comments[index].to,
     ) ||
     originalDelimiters.length !== expandedDelimiters.length ||
     originalDelimiters.some(
@@ -139,16 +146,22 @@ function expandedContext(text: string, globals: MarkupGlobals): PreparedContext 
         delimiter.from !== expandedDelimiters[index].from ||
         delimiter.to !== expandedDelimiters[index].to,
     );
-  return unsafe
-    ? null
-    : { text: prepared.text, offsets: prepared.offsets.map((offset) => offsets[offset]) };
+  return unsafe ? null : context;
 }
 
-function protectedRanges(state: EditorState, comments: { from: number; to: number }[]) {
+function protectedRanges(
+  state: EditorState,
+  comments: { from: number; to: number }[],
+  tagging = false,
+) {
   const text = state.doc.toString();
   const tokens: ProtectedRange[] = [];
   const tables: ProtectedRange[] = [];
   for (const comment of comments) {
+    if (tagging) {
+      tokens.push({ ...comment, kind: 'comment' });
+      continue;
+    }
     const start = state.doc.lineAt(comment.from);
     const standalone = comment.from === start.from && text[comment.to - 1] === '\n';
     tokens.push({
@@ -165,10 +178,21 @@ function protectedRanges(state: EditorState, comments: { from: number; to: numbe
       /^(?:title |export |var |import |enhanced \(|catalyst \(|exotic perk \()/.test(line.text) ||
       /^\) *$/.test(line.text)
     ) {
-      tokens.push({ from: line.from, to: line.to, protectStart: true, protectEnd: true });
+      tokens.push({
+        from: line.from,
+        to: line.to,
+        protectStart: true,
+        protectEnd: true,
+        kind: 'declaration',
+      });
     }
     for (const range of markupInlineRanges(line.text)) {
       tokens.push({ from: line.from + range.from, to: line.from + range.to });
+    }
+    if (tagging && line.text.includes('{{')) {
+      for (const pair of baseEnhancedPairs(line.text)) {
+        tokens.push({ from: line.from + pair.from, to: line.from + pair.to, kind: 'formula' });
+      }
     }
     for (const match of line.text.matchAll(/<[^>\n]*(?:>|$)/g)) {
       tokens.push({
@@ -192,14 +216,17 @@ function protectedRanges(state: EditorState, comments: { from: number; to: numbe
     // them). The renderer evaluates math up to the next `}` on the line (`\${.+?}`), so an
     // unclosed or empty block protects everything after it on its line.
     for (const match of line.text.matchAll(
-      /#\{[a-zA-Z0-9]+\}|#[a-zA-Z0-9]+|\$\{(?:(?:#\{[a-zA-Z0-9]+\}|[^}\n])+\}|[^\n]*$)/g,
+      /#\{(?:[a-zA-Z0-9]+|=[1-9]\d*)\}|#[a-zA-Z0-9]+|\$\{(?:(?:#\{(?:[a-zA-Z0-9]+|=[1-9]\d*)\}|[^}\n])*\}|[^\n]*$)/g,
     )) {
       const open =
-        match[0].startsWith('${') && !/^\$\{(?:#\{[a-zA-Z0-9]+\}|[^}])+\}$/.test(match[0]);
+        match[0].startsWith('${') &&
+        (!tagging || match[0] !== '${}') &&
+        !/^\$\{(?:#\{(?:[a-zA-Z0-9]+|=[1-9]\d*)\}|[^}])+\}$/.test(match[0]);
       tokens.push({
         from: line.from + match.index,
         to: open ? line.to : line.from + match.index + match[0].length,
         incomplete: open,
+        kind: match[0].startsWith('${') ? 'formula' : 'variable',
       });
     }
     if (line.text.startsWith('< table ') && tableStart === undefined) tableStart = line.from;
@@ -209,6 +236,7 @@ function protectedRanges(state: EditorState, comments: { from: number; to: numbe
           from: line.from + match.index,
           to: line.from + match.index + match[0].length,
           protectStart: true,
+          kind: 'cell',
         });
       }
       if (line.text === '<$>') {
@@ -236,6 +264,26 @@ function intersects(from: number, to: number, protectedRange: ProtectedRange) {
     (protectedRange.protectStart && to === protectedRange.from) ||
     ((protectedRange.incomplete || protectedRange.protectEnd) && from === protectedRange.to)
   );
+}
+
+type TagBlock = NonNullable<ProtectedRange['kind']> | 'tag';
+
+function tagBlock(tokens: ProtectedRange[], from: number, to: number): TagBlock | null {
+  const token = tokens.find((range) => intersects(from, to, range));
+  return token ? (token.kind ?? 'tag') : null;
+}
+
+const tagSourceRanges = new WeakMap<EditorState['doc'], ProtectedRange[]>();
+
+/** The fast source check can reject a selection. Acceptance still checks actual output. */
+export function tagSourceBlock(state: EditorState, from: number, to: number): TagBlock | null {
+  let tokens = tagSourceRanges.get(state.doc);
+  if (!tokens) {
+    const { comments } = markupCommentContext(state.doc.toString());
+    tokens = protectedRanges(state, comments, true).tokens;
+    tagSourceRanges.set(state.doc, tokens);
+  }
+  return tagBlock(tokens, from, to);
 }
 
 /** The expanded document and every protected range in it, for the insertion safety rules. */
@@ -314,6 +362,7 @@ interface InsertionOptions {
   typed?: boolean;
   link?: boolean;
   lineStyle?: string;
+  elementIcon?: boolean;
 }
 
 type InsertionCheck = (
@@ -351,8 +400,9 @@ function createChecker(state: EditorState, globals: MarkupGlobals): InsertionChe
       analysed.set(key, entry);
     }
     const { probe, analysis } = entry;
-    if (!analysis) return 'expansion';
     const to = options.typed ? range.from : range.to;
+    if (options.elementIcon && tagSourceBlock(probe, range.from, to)) return 'context';
+    if (!analysis) return 'expansion';
     if (options.link && analysis.preparedTables.some((table) => intersects(range.from, to, table)))
       return 'table-link';
     const selected = options.typed ? '' : probe.sliceDoc(range.from, to);
@@ -371,6 +421,11 @@ export const insertionMessages: Record<Rejection, string> = {
     'Imports or variable expansions may change the surrounding markup. Edit the markup directly.',
   'line-style': 'This line cannot display another of that line style. Edit the markup directly.',
   context: 'Cannot insert markup in this syntax or selection. Edit the markup directly.',
+  'tag-output': 'Tagging here would change the rendered tooltip.',
+  'tag-unresolved': 'A tooltip variant could not be evaluated.',
+  'tag-invisible': 'The tag could not be matched to the selected text in the rendered tooltip.',
+  'tag-unclosed':
+    'An unclosed maths block or comment in this tooltip or an import could change the tag. Close it first.',
 };
 
 function createMarkupTransaction(
@@ -381,8 +436,10 @@ function createMarkupTransaction(
   // An element icon with a wrappable selection tags it (`<solar Scorch />`); with any other
   // selection, or none, the icon goes in at the caret as before (elementTags.ts).
   if (option.kind === 'icon' && isElementName(option.name)) {
-    const wrap = wrapTransaction(state, option.name, globals);
-    if (wrap) return { transaction: wrap };
+    const wrap = tryWrapTransaction(state, option.name, globals);
+    if (wrap) return wrap;
+    if (state.selection.ranges.some(({ head }) => tagSourceBlock(state, head, head)))
+      return { rejection: 'context' };
   }
   const analysis = analyse(state, globals);
   if (!analysis) return { rejection: 'expansion' };

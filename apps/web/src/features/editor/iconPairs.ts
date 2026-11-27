@@ -6,13 +6,8 @@ import {
   EditorState,
   Transaction,
 } from '@codemirror/state';
-import {
-  elementTagNames,
-  findElementTags,
-  lowerElementTags,
-  type MarkupGlobals,
-} from '@clarity/core';
-import { checkedWrap, elementLabel, isElementName, tagSelection } from './elementTags';
+import { elementTagNames, findElementTags, lowerElementTags } from '@clarity/core';
+import { checkedWrap, elementLabel, isElementName, tagRangeRefusal } from './elementTags';
 import { subclassNameAt } from './suggest/typedSymbols';
 
 /**
@@ -113,24 +108,14 @@ export interface GroupChange {
 
 /**
  * The change that groups the pair, or null when the words cannot be tagged there (inside another
- * tag, a declaration line, a table cell, an import that may change the markup): the same rules as
+ * tag, a declaration line, a table cell marker, a formula): the same rules as
  * tagging a selection. A joined pair must lower to the line exactly as it was.
  */
-export function groupChange(
-  state: EditorState,
-  pair: IconPair,
-  globals: MarkupGlobals,
-): GroupChange | null {
+export function groupChange(state: EditorState, pair: IconPair): GroupChange | null {
   if (!isElementName(pair.element)) return null;
-  // The words must be taggable as a selection would be. A bare state over the same document: the
-  // rules read only the text, and the editor's own fields (this menu among them) must not rerun.
-  const selected = EditorState.create({
-    doc: state.doc,
-    selection: EditorSelection.single(pair.from, pair.to),
-  });
-  if (tagSelection(selected, globals).kind !== 'wrap') return null;
+  if (tagRangeRefusal(state, pair.from, pair.to)) return null;
   if (!pair.spaced) {
-    const change = checkedWrap(selected, pair.from, pair.to, pair.element);
+    const change = checkedWrap(state, pair.from, pair.to, pair.element);
     if (!change?.absorbed) return null;
     return { from: change.from, to: change.to, insert: change.insert, dropsSpace: false };
   }

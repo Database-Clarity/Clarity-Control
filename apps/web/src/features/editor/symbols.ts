@@ -40,6 +40,8 @@ import {
   type IconPair,
 } from './iconPairs';
 import { chipHost } from './markupRow/chips';
+import { insertionMessages } from './markupInsertion';
+import { tagInsertionRefusal } from './tagOracle';
 import { dockedBarHeight } from './markupRow/dock';
 import { hasDiagnosticWorker, requestDiagnostics } from './diagnosticWorker';
 import previewStyles from '../preview/TooltipPreview.module.scss';
@@ -829,12 +831,12 @@ function selectedPair(state: EditorState): IconPair | null {
   const pair = pairAt(state);
   const { from, to } = state.selection.main;
   if (!pair || from !== pair.iconFrom || to !== pair.iconTo) return null;
-  return groupChange(state, pair, state.facet(chipHost).globals) ? pair : null;
+  return groupChange(state, pair) ? pair : null;
 }
 
 /** Groups the pair now (a joined pair) or after the author agrees (a spaced pair drops its space). */
 function groupPair(view: EditorView, pair: IconPair, confirmed: boolean): boolean {
-  const change = groupChange(view.state, pair, view.state.facet(chipHost).globals);
+  const change = groupChange(view.state, pair);
   if (!change) return false;
   if (change.dropsSpace && !confirmed) {
     // Asked beside the button, in the icon's popover: the icon is selected so it shows.
@@ -843,6 +845,15 @@ function groupPair(view: EditorView, pair: IconPair, confirmed: boolean): boolea
       effects: askGroup.of(pair.iconFrom),
       scrollIntoView: true,
     });
+    return true;
+  }
+  const source = view.state.doc.toString();
+  const expected = change.dropsSpace
+    ? source.slice(0, pair.iconTo) + source.slice(pair.from)
+    : source;
+  const refusal = tagInsertionRefusal(source, change, view.state.facet(chipHost).globals, expected);
+  if (refusal) {
+    view.dispatch({ effects: EditorView.announce.of(insertionMessages[refusal]) });
     return true;
   }
   view.dispatch(groupTransaction(view.state, change));

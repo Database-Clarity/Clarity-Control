@@ -8,16 +8,40 @@ import { EditorSelection, EditorState } from '@codemirror/state';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { undo, redo } from '@codemirror/commands';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { lowerElementTags, type MarkupGlobals } from '@clarity/core';
+import { buildLegacy, type LegacyInput } from '@clarity/export';
+import {
+  exportLegacy,
+  lowerElementTags,
+  parseMarkup,
+  type MarkupGlobals,
+  type Tooltip,
+} from '@clarity/core';
 import { ClarityEditor } from './ClarityEditor';
 import { useSettingsStore } from '../../stores/settings';
-import { tagRefusals, tagSelection, wrapTransaction } from './elementTags';
-import { insertMarkup, markupOptions } from './markupInsertion';
+import { tagRefusals, tagSelection, tryWrapTransaction } from './elementTags';
+import { insertMarkup, markupOptions, markupTransaction } from './markupInsertion';
 import { findTags, pinTag, toggleRaw } from './symbols';
 import { requestItems, suggestContext } from './suggest/source';
+import { insertItem, suggestConfiguration } from './suggest/state';
 
 const globals: MarkupGlobals = { variables: '', titles: '' };
 const solar = markupOptions.find((option) => option.id === 'icon:solar')!;
+const coolingBaubles =
+  'Collecting an Orb of Power or Elemental Pickup dissipates <enhanced/>${33+#d}% Weapon damage.';
+const tooltip = (hash: number, text: string): Tooltip => ({
+  hash,
+  associated: [],
+  text: { en: { text, updatedAt: '2026-11-27T00:00:00Z', updatedBy: 'fixture' } },
+});
+
+function legacyText(text: string, variables: string, type = 'Weapon Perk') {
+  const tooltips = [tooltip(1, ''), tooltip(2, variables), tooltip(3, ''), tooltip(100, text)];
+  const facts = Object.fromEntries(tooltips.map(({ hash }) => [hash, { type, name: 'Test' }]));
+  const input = JSON.parse(
+    JSON.stringify({ perks: exportLegacy(tooltips, 0, facts) }),
+  ) as LegacyInput;
+  return new TextDecoder().decode(buildLegacy(input, 'clarityV2'));
+}
 
 function state(doc: string, from: number, to = from) {
   return EditorState.create({ doc, selection: EditorSelection.range(from, to) });
@@ -27,6 +51,8 @@ const select = (doc: string, word: string, occurrence = 0) => {
   for (let i = 0; i <= occurrence; i++) from = doc.indexOf(word, from + 1);
   return state(doc, from, from + word.length);
 };
+const wrapTransaction = (at: EditorState, element: string, context: MarkupGlobals) =>
+  tryWrapTransaction(at, element, context)?.transaction ?? null;
 const wrapped = (doc: string, word: string, element = 'solar', occurrence = 0) =>
   wrapTransaction(select(doc, word, occurrence), element, globals)?.state.doc.toString() ?? null;
 
@@ -41,15 +67,226 @@ describe('wrap rules', () => {
     for (const [doc, word] of [
       ['Gain Scorch stacks.', 'Scorch'],
       ['<pve/>Applies Jolt.', 'Jolt'],
-      ['< table wide >\n| Amplified | 10%\n<$>', 'Amplified'],
       ['title Info (\nApplies Slow.\n)', 'Slow'],
       ['Base.\nenhanced (\nLonger Radiant.\n)', 'Radiant'],
+      ['<enhanced/>${33+#d}% boosts Scorch.', 'Scorch'],
+      ['Gain ${} Scorch.', 'Scorch'],
+      ['#Unresolved Scorch.', 'Scorch'],
+      ['Gain Scorch /* notes */ now.', 'Scorch'],
+      ['Gain /* notes */ Scorch now.', 'Scorch'],
+      ['Gain Scorch // notes', 'Scorch'],
+      ['Gain /* notes\nMore notes */ Scorch now.', 'Scorch'],
     ]) {
       const at = doc.indexOf(word);
       expect(lowerElementTags(wrapped(doc, word)!)).toBe(
         `${doc.slice(0, at)}<solar/>${doc.slice(at)}`,
       );
     }
+  });
+
+  it('exports the tagged Cooling Baubles line as its hand-written legacy equivalent', () => {
+    const doc = `var d = 5\n${coolingBaubles}`;
+    const tagged = wrapped(doc, 'Elemental Pickup')!;
+    const lowered = doc.replace('Elemental Pickup', '<solar/>Elemental Pickup');
+    expect(lowerElementTags(tagged)).toBe(lowered);
+    expect(JSON.stringify(exportLegacy([tooltip(42, tagged)], 0))).toBe(
+      JSON.stringify(exportLegacy([tooltip(42, lowered)], 0)),
+    );
+  });
+
+  it.each([
+    ['<enhanced/>3} damage.', 'var e = ${2+'],
+    [
+      'title Stats (\n#outer 3} damage.\n)\n<title Stats [Stats] />',
+      'var outer = #inner\nvar inner = ${2+',
+    ],
+  ])(
+    'preserves the converter damage in %s when the selected digit is in an expanded formula',
+    (doc, variables) => {
+      const g = { ...globals, variables };
+      const selected = select(doc, '3');
+      const view = new EditorView({
+        state: EditorState.create({
+          doc,
+          selection: selected.selection,
+          extensions: [suggestConfiguration({ globals: g })],
+        }),
+      });
+      try {
+        const item = requestItems(suggestContext(view.state, true)!, view.state, g).find(
+          ({ id }) => id === solar.id,
+        )!;
+        expect(insertItem(view, item, { typed: false })).toBe('tag-unclosed');
+        expect(view.state.doc.toString()).toBe(doc);
+      } finally {
+        view.destroy();
+      }
+      expect(tryWrapTransaction(selected, 'solar', g)).toEqual({ rejection: 'tag-unclosed' });
+      expect(markupTransaction(selected, solar, g)).toBeNull();
+      expect(JSON.stringify(parseMarkup(selected.doc.toString(), g).lines)).toContain('5 damage.');
+      expect(legacyText(selected.doc.toString(), variables)).toContain('5 damage.');
+      expect(legacyText(doc.replace('3}', '<solar 3 />}'), variables)).toContain('2 damage.');
+    },
+  );
+
+  it('refuses any tag while a variable holds an unclosed comment', () => {
+    const doc = 'import main from 42\nHidden text\n*/Scorch.';
+    const g = { ...globals, variables: 'var e = /*', imports: { '42': '<enhanced/>' } };
+    expect(parseMarkup(doc, g).lines[0].linesContent?.[0].text).toBe('Scorch.');
+    for (const word of ['Hidden text', 'Scorch'])
+      expect(tryWrapTransaction(select(doc, word), 'solar', g)).toEqual({
+        rejection: 'tag-unclosed',
+      });
+    expect(markupTransaction(select(doc, 'Hidden text'), solar, g)).toBeNull();
+  });
+
+  it('refuses the catalyst tag that the globals-in-place export would change from 5 to 2', () => {
+    const doc = 'Base.\nenhanced (\nEnhanced.\n)\ncatalyst (\n#example 3} damage.\n)';
+    const g = { ...globals, variables: 'var example = ${2+', type: 'Weapon Catalyst Exotic' };
+    expect(tryWrapTransaction(select(doc, '3'), 'solar', g)).toEqual({ rejection: 'tag-unclosed' });
+  });
+
+  it('refuses for an unclosed block in an import, never for closed ones', () => {
+    const doc = 'import main from 42\nGain Scorch.';
+    const closed = { ...globals, variables: 'var x = ${2+3}', imports: { '42': 'A /* b */ c' } };
+    expect(wrapTransaction(select(doc, 'Scorch'), 'solar', closed)?.state.doc.toString()).toBe(
+      doc.replace('Scorch', '<solar Scorch />'),
+    );
+    const open = { ...globals, imports: { '42': 'A /* b' } };
+    expect(tryWrapTransaction(select(doc, 'Scorch'), 'solar', open)).toEqual({
+      rejection: 'tag-unclosed',
+    });
+  });
+
+  it('detects the formula that a literal empty marker can form with a later brace', () => {
+    const doc = 'Gain ${} Scorch ${3}.';
+    expect(parseMarkup(doc, globals).lines[0].linesContent?.[0].text).toBe('Gain 3.');
+    expect(tryWrapTransaction(select(doc, 'Scorch'), 'solar', globals)).toEqual({
+      rejection: 'tag-invisible',
+    });
+  });
+
+  it('allows the literal formula shape formed only after comment cleanup', () => {
+    const doc = 'Gain $/* cut */{2 Scorch}.';
+    const tagged = wrapTransaction(select(doc, 'Scorch'), 'solar', globals);
+    expect(tagged?.state.doc.toString()).toBe('Gain $/* cut */{2 <solar Scorch />}.');
+    expect(legacyText(doc, '')).toContain('Gain ${2 Scorch}.');
+    expect(legacyText(tagged!.state.doc.toString(), '')).toMatch(
+      /"classNames":\s*\[\s*"solar"\s*\]/,
+    );
+  });
+
+  it('refuses a table tag when the legacy consumer applies the icon to the whole row', () => {
+    const doc = '< table wide >\n| Amplified | 10%\n<$>';
+    expect(tryWrapTransaction(select(doc, 'Amplified'), 'solar', globals)).toEqual({
+      rejection: 'tag-output',
+    });
+  });
+
+  it('groups an existing table icon with its text when the legacy bytes stay identical', () => {
+    const doc = '< table wide >\n| <solar/>Scorch | 10%\n<$>';
+    const tagged = doc.replace('<solar/>Scorch', '<solar Scorch />');
+    expect(legacyText(tagged, '')).toBe(legacyText(doc, ''));
+    expect(
+      tryWrapTransaction(
+        select(doc, 'Scorch'),
+        'solar',
+        globals,
+      )?.transaction?.state.doc.toString(),
+    ).toBe(tagged);
+  });
+
+  it('tags a common line that renders unchanged across all three condition types', () => {
+    const doc =
+      'Common Scorch.\nenhanced (\nEnhanced.\n)\ncatalyst (\nCatalyst.\n)\nexotic perk (\nExotic.\n)';
+    expect(wrapped(doc, 'Scorch')).toBe(doc.replace('Scorch', '<solar Scorch />'));
+  });
+
+  it('checks a translated line with numbered text using the same values as export', () => {
+    const doc = 'Scorch inflige #{=1} points.';
+    const g = {
+      ...globals,
+      lang: 'fr' as const,
+      numberInput: {
+        english: 'Scorch deals 7 damage.',
+        lang: 'fr' as const,
+        fallback: false,
+        values: new Map([[1, '7']]),
+      },
+    };
+    expect(wrapTransaction(select(doc, 'Scorch'), 'solar', g)?.state.doc.toString()).toBe(
+      doc.replace('Scorch', '<solar Scorch />'),
+    );
+  });
+
+  it('refuses a shared-line tag while a variable holds an unclosed formula', () => {
+    const doc = '<enhanced/>3} damage.\nenhanced (\nExtra.\n)';
+    const variables = 'var e = ${2+';
+    const enhanced = 'Weapon Trait Enhanced';
+    const g = { ...globals, variables, type: 'Weapon Perk' };
+    expect(legacyText(doc, variables, enhanced)).toContain('5 damage.');
+    expect(legacyText(doc.replace('3}', '<solar 3 />}'), variables, enhanced)).toContain(
+      '2 damage.',
+    );
+    expect(tryWrapTransaction(select(doc, '3'), 'solar', g)).toEqual({
+      rejection: 'tag-unclosed',
+    });
+  });
+
+  it.each([
+    ['enhanced', 'Weapon Trait Enhanced'],
+    ['catalyst', 'Weapon Catalyst Exotic'],
+    ['exotic perk', 'Weapon Perk Exotic'],
+  ])(
+    'checks the %s body in its consuming type, including when that body is inactive',
+    (condition, type) => {
+      const doc = `Base.\n${condition} (\n#start 3} damage and Scorch.\n)`;
+      const variables = 'var start = ${2+';
+      const g = { ...globals, variables, type: 'Weapon Perk' };
+      expect(legacyText(doc, variables, type)).toContain('5 damage and Scorch.');
+      for (const word of ['3', 'Scorch'])
+        expect(tryWrapTransaction(select(doc, word), 'solar', g)).toEqual({
+          rejection: 'tag-unclosed',
+        });
+    },
+  );
+
+  it('rechecks maths formed in a referenced title after comment cleanup', () => {
+    const doc = 'title Info (\n$/* cut */{2 Scorch}.\n)\n<title Info [Info] />';
+    expect(wrapTransaction(select(doc, 'Scorch'), 'solar', globals)).toBeNull();
+  });
+
+  it('refuses tagging while an imported export holds an unclosed comment', () => {
+    const doc = 'import main from 42\nignored\n*/10 />\nplain';
+    const imported = {
+      ...globals,
+      imports: {
+        '42': 'import Shared from global',
+        '1': 'export Shared (\n<bold Damage > /*\n)',
+      },
+    };
+    expect(
+      parseMarkup(doc, imported).lines.flatMap((line) => line.linesContent ?? []),
+    ).toContainEqual({ text: 'Damage > 10', classNames: ['bold'] });
+    expect(wrapTransaction(select(doc, '10'), 'solar', imported)).toBeNull();
+    for (const word of ['ignored', 'plain'])
+      expect(tryWrapTransaction(select(doc, word), 'solar', imported)).toEqual({
+        rejection: 'tag-unclosed',
+      });
+  });
+
+  it('tags prose after a comment formed by an empty variable, and refuses an unresolved import cycle', () => {
+    const doc = '/#empty* hidden\n*/visible';
+    const expanded = { ...globals, variables: 'var empty = empty' };
+    expect(parseMarkup(doc, expanded).lines[0].linesContent?.[0].text).toBe('visible');
+    expect(wrapTransaction(select(doc, 'visible'), 'solar', expanded)?.state.doc.toString()).toBe(
+      '/#empty* hidden\n*/<solar visible />',
+    );
+    const cyclic = 'import main from 42\nplain';
+    const imports = { '42': 'import main from 42' };
+    expect(tryWrapTransaction(select(cyclic, 'plain'), 'solar', { ...globals, imports })).toEqual({
+      rejection: 'tag-unresolved',
+    });
   });
 
   it('absorbs the same icon right before the selection, and no other', () => {
@@ -97,13 +334,20 @@ describe('wrap rules', () => {
     ['inside a tag already', select('Gain <solar Scorch /> now', 'Scorch'), tagRefusals.inside],
     ['an icon in it', select('Gain <solar/>Scorch', '<solar/>Scorch'), tagRefusals.tag],
     ['a table pipe', select('< table wide >\n| a | b\n<$>', 'a | b'), tagRefusals.cell],
-    ['a variable', select('var X = 1\nGain #X now', '#X now'), tagRefusals.reference],
-    ['a formula', select('Gain ${2*3} now', '${2*3}'), tagRefusals.reference],
-    ['a comment', select('Gain /* x */ now', '/* x */'), tagRefusals.reference],
+    ['a variable', select('var X = 1\nGain #X now', '#X now'), tagRefusals.variable],
+    ['part of a variable', select('Gain #Scorch now', 'Scorch'), tagRefusals.variable],
+    ['part of a number reference', select('Gain #{=33} now', '33'), tagRefusals.variable],
+    ['a formula', select('Gain ${2*3} now', '${2*3}'), tagRefusals.formula],
+    ['inside maths', select('Gain ${2*3} now', '2*3'), tagRefusals.formula],
+    ['a value pair arm', select('Gain {{Slow}{Scorch}} now', 'Scorch'), tagRefusals.formula],
+    ['a comment', select('Gain /* x */ now', '/* x */'), tagRefusals.comment],
+    ['inside a comment', select('Gain /* notes\nScorch */ now', 'Scorch'), tagRefusals.comment],
+    ['inside a line comment', select('Gain // Scorch', 'Scorch'), tagRefusals.comment],
+    ['an import line', select('import Scorch from global', 'Scorch'), tagRefusals.declaration],
     ['a declaration line', select('var X = Scorch', 'Scorch'), tagRefusals.declaration],
     ['an unclosed < before it', select('a <b Scorch c', 'Scorch'), tagRefusals.tag],
   ])('%s', (_, at, expected) => {
-    const result = tagSelection(at, globals);
+    const result = tagSelection(at);
     expect(result.kind === 'refused' ? result.reason : result.kind).toBe(expected);
   });
 
@@ -116,7 +360,7 @@ describe('wrap rules', () => {
         EditorSelection.range(11, 15),
       ]),
     });
-    expect(tagSelection(at, globals)).toEqual({ kind: 'refused', reason: tagRefusals.ranges });
+    expect(tagSelection(at)).toEqual({ kind: 'refused', reason: tagRefusals.ranges });
   });
 });
 
@@ -206,16 +450,40 @@ describe('in the editor', () => {
   it('a selection that cannot be tagged shows why; the icon goes in at the caret as before', () => {
     const { view } = mount('Gain <yellow Scorch /> now');
     act(() => view.dispatch({ selection: { anchor: 13, head: 19 } }));
-    expect(label()?.textContent).toBe(`Can't tag: ${tagRefusals.inside}`);
+    expect(label()?.getAttribute('title')).toBe(tagRefusals.inside);
     act(() => view.dispatch({ selection: { anchor: 23, head: 26 } }));
     expect(label()?.getAttribute('data-tag-mode')).toBe('wrap');
     act(() => view.dispatch({ selection: { anchor: 0, head: 26 } }));
-    expect(label()?.textContent).toBe(`Can't tag: ${tagRefusals.tag}`);
+    expect(label()?.getAttribute('title')).toBe(tagRefusals.tag);
     act(() => button('icon:solar').click());
     expect(view.state.doc.toString()).toBe('Gain <yellow Scorch /> now<solar/>');
     expect(row().querySelector('[role="status"]')?.textContent).toBe(
-      `Icon inserted at the caret. Can't tag the selection: ${tagRefusals.tag}.`,
+      `Icon inserted at the caret. ${tagRefusals.tag}`,
     );
+  });
+
+  it('tags Elemental Pickup from the row even when the same line has an unresolved formula', () => {
+    const { view } = mount(coolingBaubles);
+    const from = coolingBaubles.indexOf('Elemental Pickup');
+    act(() =>
+      view.dispatch({ selection: { anchor: from, head: from + 'Elemental Pickup'.length } }),
+    );
+    expect(label()?.getAttribute('data-tag-mode')).toBe('wrap');
+    act(() => button('icon:solar').click());
+    expect(view.state.doc.toString()).toBe(
+      coolingBaubles.replace('Elemental Pickup', '<solar Elemental Pickup />'),
+    );
+    expect(row().querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('names the formula when a selection inside it is refused', () => {
+    const { view } = mount(coolingBaubles);
+    const from = coolingBaubles.indexOf('33');
+    act(() => view.dispatch({ selection: { anchor: from, head: from + 2 } }));
+    expect(label()?.getAttribute('title')).toBe(tagRefusals.formula);
+    act(() => button('icon:solar').click());
+    expect(row().querySelector('[role="status"]')?.textContent).toBe(tagRefusals.formula);
+    expect(view.state.doc.toString()).toBe(coolingBaubles);
   });
 
   it('insertMarkup wraps through the All popover path too', () => {

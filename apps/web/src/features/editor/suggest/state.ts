@@ -18,8 +18,9 @@ import {
   type MarkupGlobals,
 } from '@clarity/core';
 import { insertionMessages, insertionRejection, type Rejection } from '../markupInsertion';
-import { checkedNameTag, checkedWrap, tagSelection } from '../elementTags';
+import { checkedNameTag, checkedWrap, isElementName, tagSelection } from '../elementTags';
 import { askGroup, groupChange, pairAt } from '../iconPairs';
+import { tagInsertionRefusal } from '../tagOracle';
 import { recentSuggestions, rememberSuggestion } from './recent';
 import {
   caretContext,
@@ -293,12 +294,11 @@ export function insertItem(
   }
   if (item.nameTag) {
     const { from, element, name } = item.nameTag;
-    const globals = view.state.facet(suggestHost).globals;
-    const change = checkedNameTag(view.state, from, item.to, element, name, globals);
+    const change = checkedNameTag(view.state, from, item.to, element, name);
     if (!change || change.from !== item.from || change.insert !== item.insert) return 'context';
   } else if (item.wrap) {
     // An element-tag wrap is judged again on the live text, by its own rules.
-    const selection = tagSelection(view.state, view.state.facet(suggestHost).globals);
+    const selection = tagSelection(view.state);
     const element = /^<([a-z]+) /.exec(item.insert)?.[1] ?? '';
     const change =
       selection.kind === 'wrap'
@@ -308,7 +308,7 @@ export function insertItem(
   } else if (item.group) {
     // "Group with icon" is judged again on the live text, by its own rules.
     const pair = pairAt(view.state);
-    const change = pair && groupChange(view.state, pair, view.state.facet(suggestHost).globals);
+    const change = pair && groupChange(view.state, pair);
     if (!pair || !change || change.from !== item.from || change.insert !== item.insert)
       return 'context';
     if (change.dropsSpace) {
@@ -327,9 +327,31 @@ export function insertItem(
       view.state,
       { from: item.from, to: item.to },
       view.state.facet(suggestHost).globals,
-      { typed: target.typed, link: item.link, lineStyle: item.lineStyle },
+      {
+        typed: target.typed,
+        link: item.link,
+        lineStyle: item.lineStyle,
+        elementIcon: item.id.startsWith('icon:') && isElementName(item.id.slice(5)),
+      },
     );
     if (rejection) return rejection;
+  }
+  if (item.nameTag || item.wrap || item.group) {
+    const source = view.state.doc.toString();
+    const globals = view.state.facet(suggestHost).globals;
+    if (item.nameTag) {
+      const typed = source.slice(item.nameTag.from, item.to);
+      if (typed !== item.nameTag.name) {
+        const original = { ...item, insert: `<${item.nameTag.element} ${typed} />` };
+        const refusal = tagInsertionRefusal(source, original, globals);
+        if (refusal) return refusal;
+      }
+    }
+    const expected = item.nameTag
+      ? source.slice(0, item.nameTag.from) + item.nameTag.name + source.slice(item.to)
+      : source;
+    const refusal = tagInsertionRefusal(source, item, globals, expected);
+    if (refusal) return refusal;
   }
   const stops = item.stops.map((stop) => ({
     from: item.from + stop.from,

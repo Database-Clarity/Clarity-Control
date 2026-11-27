@@ -472,7 +472,7 @@
 
 // "Tag selection:" (an element symbol wraps the selection) or, desktop only, why it cannot: a
 // small label cell at the row's end, beside Raw, shown only while text is selected. It never
-// moves the buttons (the strip keeps its start); a long reason is cut, its title has all of it.
+// moves the buttons (the strip keeps its start); the tooltip explains a refusal.
 .tagLabel {
   flex: none;
   max-width: 14rem;

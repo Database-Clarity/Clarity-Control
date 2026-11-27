@@ -16,7 +16,7 @@ import {
   markupIcons,
   type MarkupGlobals,
 } from '@clarity/core';
-import { insertionRejection } from '../markupInsertion';
+import { insertionMessages, insertionRejection } from '../markupInsertion';
 import { checkedNameTag, elementLabel, isElementName } from '../elementTags';
 import { groupChange, linePairs } from '../iconPairs';
 import type { SuggestItem } from '../suggest/source';
@@ -141,7 +141,7 @@ function wordChip(state: EditorState, globals: MarkupGlobals): Chip | null {
   if (subclass?.icon && word.length >= 3) {
     const element = subclass.icon;
     const name = subclass.canonical;
-    const change = checkedNameTag(state, from, main.head, element, name, globals);
+    const change = checkedNameTag(state, from, main.head, element, name);
     if (!change) return null;
     return {
       key: `icon:${element}:${from}`,
@@ -164,7 +164,10 @@ function wordChip(state: EditorState, globals: MarkupGlobals): Chip | null {
   if (icon && word.length >= 3) {
     const keep = Boolean(subclass) || !english;
     const to = keep ? from : main.head;
-    const rejection = insertionRejection(state, { from, to }, globals, { typed: !keep });
+    const rejection = insertionRejection(state, { from, to }, globals, {
+      typed: !keep,
+      elementIcon: isElementName(icon),
+    });
     if (rejection) return null;
     return {
       key: `icon:${icon}:${from}`,
@@ -267,7 +270,7 @@ function keywordChip(state: EditorState, icon: { element: string; to: number }):
   if (known?.icon !== icon.element) return null;
   const pair = linePairs(state, icon.to).find((candidate) => candidate.iconTo === icon.to);
   if (!pair || pair.spaced || pair.to !== icon.to + known.word.length) return null;
-  const change = groupChange(state, pair, state.facet(chipHost).globals);
+  const change = groupChange(state, pair);
   if (!change || change.dropsSpace) return null;
   return {
     key: `group:${pair.iconFrom}:${pair.text}`,
@@ -358,6 +361,12 @@ export function acceptChip(view: EditorView): boolean {
     keepSelection: chip.keepSelection,
   });
   if (rejection) {
+    if (rejection.startsWith('tag-')) {
+      view.dispatch({
+        effects: [dismissEffect.of(null), EditorView.announce.of(insertionMessages[rejection])],
+      });
+      return true;
+    }
     dismissChip(view);
     return false;
   }

@@ -24,7 +24,6 @@ import { observeDock } from './dock';
 import {
   elementLabel,
   isElementName,
-  tagRefusals,
   type TagSelection,
   type TagSelectionStore,
 } from '../elementTags';
@@ -123,8 +122,8 @@ export const MarkupRow = memo(function MarkupRow({
     const result = entry.run(editor, globals);
     // A selection that cannot be tagged: the icon went in at the caret as before; say why.
     setMessage(
-      result === 'inserted' && refusal
-        ? `Icon inserted at the caret. Can't tag the selection: ${refusal}.`
+      refusal && (result === 'inserted' || result === 'context' || result === 'expansion')
+        ? `${result === 'inserted' ? 'Icon inserted at the caret. ' : ''}${refusal}`
         : entryMessage(result),
     );
     if (result !== 'inserted') editor.focus();
@@ -329,12 +328,8 @@ export const MarkupRow = memo(function MarkupRow({
           <span aria-hidden="true">← </span>Tag selection
         </span>
       ) : tagMode.kind === 'refused' && !docked ? (
-        <span
-          className={styles.tagLabel}
-          data-tag-mode="refused"
-          title={`The element symbols insert at the caret: the selection ${tagMode.reason === tagRefusals.declaration ? 'is on a declaration line' : tagMode.reason}.`}
-        >
-          Can't tag: {tagMode.reason}
+        <span className={styles.tagLabel} data-tag-mode="refused" title={tagMode.reason}>
+          Can't tag
         </span>
       ) : null}
       {rawView !== undefined && onRawView && (
