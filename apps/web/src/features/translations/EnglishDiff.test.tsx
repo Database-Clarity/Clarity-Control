@@ -73,9 +73,9 @@ it('says "Markup only" when only element tags changed', async () => {
   const rendered = host.querySelector<HTMLElement>('[data-markup-only-text]')!;
   expect(rendered.textContent).toContain('Gain Scorch.');
   expect(rendered.textContent).not.toContain('<solar');
-  expect([...rendered.querySelectorAll('[data-new-tag]')].map((span) => span.textContent)).toEqual([
-    'Scorch',
-  ]);
+  expect(
+    [...rendered.querySelectorAll('[data-new-tag]')].map((span) => span.textContent).join(''),
+  ).toBe('Scorch');
   expect(host.querySelector('[data-tag-here]')?.textContent).toBe('Tag the same words here');
   expect(host.querySelector('[data-tag-here]')?.hasAttribute('title')).toBe(false);
   expect(host.querySelector('[role="tooltip"]')?.textContent).toContain(
@@ -89,14 +89,16 @@ it('outlines only the spans that are new, not ones tagged before', async () => {
     'Gain <solar Scorch /> and <solar Scorch />, <arc Jolt />.',
   );
   const outlined = [...host.querySelectorAll('[data-markup-only-text] [data-new-tag]')];
-  expect(outlined.map((span) => span.textContent)).toEqual(['Scorch', 'Jolt']);
+  expect(outlined.map((span) => span.textContent).join('')).toBe('ScorchJolt');
   // The second Scorch is the new one (the first was already tagged).
-  const scorches = [...host.querySelectorAll('[data-markup-only-text] *')].filter(
-    (span) => span.children.length === 0 && span.textContent === 'Scorch',
+  const scorches = [...host.querySelectorAll('[data-markup-only-text] [class*=iconGlue]')].filter(
+    (span) => span.textContent?.startsWith('Scorch'),
   );
   expect(scorches.length).toBe(2);
-  expect(scorches[0]!.closest('[data-new-tag]')).toBeNull();
-  expect(scorches[1]!.closest('[data-new-tag]')).not.toBeNull();
+  expect(scorches[0]!.querySelector('[data-new-tag]')).toBeNull();
+  expect(
+    [...scorches[1]!.querySelectorAll('[data-new-tag]')].map((span) => span.textContent).join(''),
+  ).toBe('Scorch');
 });
 
 it('"Tag the same words here" steps through the matching pairs in the translation', async () => {

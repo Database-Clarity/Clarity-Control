@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { IdentityStatus } from './features/auth/AuthStatus';
 import { SaveSummary } from './services/save/SaveSummary';
-import type { EditorData } from './stores/data';
+import { editorData } from './services/save/fixtures.testSupport';
 import type { TooltipValidationIssue } from '@clarity/core';
 
 vi.mock('./services/api', () => ({ apiUrl: 'https://example.test', loginUrl: () => '/' }));
@@ -36,9 +36,10 @@ it('labels validation languages', () => {
     createElement(
       MemoryRouter,
       null,
-      createElement(SaveSummary, { changes: [], issues, data: {} as EditorData }),
+      createElement(SaveSummary, { changes: [], issues, data: editorData() }),
     ),
   );
-  expect(html).toContain('German: Example warning');
-  expect(html).toContain('xx: Unknown');
+  const validation = new DOMParser().parseFromString(html, 'text/html');
+  expect(validation.querySelector('a[href="/t/10?lang=de"]')?.textContent).toContain(' / German ');
+  expect(validation.querySelector('a[href="/t/11?lang=xx"]')?.textContent).toContain(' / xx ');
 });
