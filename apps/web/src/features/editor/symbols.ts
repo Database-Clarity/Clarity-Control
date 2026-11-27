@@ -835,7 +835,12 @@ function selectedPair(state: EditorState): IconPair | null {
 }
 
 /** Groups the pair now (a joined pair) or after the author agrees (a spaced pair drops its space). */
-function groupPair(view: EditorView, pair: IconPair, confirmed: boolean): boolean {
+function groupPair(
+  view: EditorView,
+  pair: IconPair,
+  confirmed: boolean,
+  onRefuse?: (message: string) => void,
+): boolean {
   const change = groupChange(view.state, pair);
   if (!change) return false;
   if (change.dropsSpace && !confirmed) {
@@ -854,6 +859,7 @@ function groupPair(view: EditorView, pair: IconPair, confirmed: boolean): boolea
   const refusal = tagInsertionRefusal(source, change, view.state.facet(chipHost).globals, expected);
   if (refusal) {
     view.dispatch({ effects: EditorView.announce.of(insertionMessages[refusal]) });
+    onRefuse?.(insertionMessages[refusal]);
     return true;
   }
   view.dispatch(groupTransaction(view.state, change));
@@ -865,6 +871,14 @@ function groupPair(view: EditorView, pair: IconPair, confirmed: boolean): boolea
  * drops and the two answers right beside it (Enter groups, Escape cancels).
  */
 function groupActions(view: EditorView, pair: IconPair, asking: boolean): HTMLElement[] {
+  // A refusal replaces the answers with its reason, in the same place.
+  const refuse = (target: HTMLElement) => (message: string) => {
+    const reason = document.createElement('span');
+    reason.className = 'cm-symbol-ask';
+    reason.setAttribute('role', 'status');
+    reason.textContent = message;
+    target.replaceWith(reason);
+  };
   const button = (label: string, title: string, run: () => void) => {
     const element = document.createElement('button');
     element.type = 'button';
@@ -880,7 +894,7 @@ function groupActions(view: EditorView, pair: IconPair, asking: boolean): HTMLEl
   };
   if (!asking) {
     const group = button('Group with icon', `${groupTitle(pair)} (Alt+Enter)`, () =>
-      groupPair(view, pair, false),
+      groupPair(view, pair, false, refuse(group)),
     );
     group.dataset.group = '';
     group.setAttribute('aria-keyshortcuts', 'Alt+Enter');
@@ -890,7 +904,9 @@ function groupActions(view: EditorView, pair: IconPair, asking: boolean): HTMLEl
   question.className = 'cm-symbol-ask';
   question.setAttribute('role', 'status');
   question.textContent = `Drop the space before “${pair.text}”?`;
-  const yes = button('Group', `${groupTitle(pair)} (Enter)`, () => groupPair(view, pair, true));
+  const yes = button('Group', `${groupTitle(pair)} (Enter)`, () =>
+    groupPair(view, pair, true, refuse(answers)),
+  );
   yes.dataset.groupConfirm = '';
   yes.setAttribute('aria-keyshortcuts', 'Enter');
   const no = button('Cancel', 'Keep the space (Escape)', () =>

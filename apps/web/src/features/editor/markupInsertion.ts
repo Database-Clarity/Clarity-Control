@@ -235,7 +235,7 @@ function protectedRanges(
         tokens.push({
           from: line.from + match.index,
           to: line.from + match.index + match[0].length,
-          protectStart: true,
+          protectStart: !tagging,
           kind: 'cell',
         });
       }

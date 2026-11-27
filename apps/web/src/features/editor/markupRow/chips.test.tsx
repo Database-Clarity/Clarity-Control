@@ -481,6 +481,20 @@ describe('typed symbol placement', () => {
     expect(view.state.doc.toString()).toBe('You are <arc Blinded />');
   });
 
+  it('keeps a refused name chip on screen with its reason, and the next Enter dismisses it', () => {
+    catalogue();
+    const doc = 'Gain ${2+\n';
+    const view = mount(doc);
+    type(view, 'ember of torches');
+    expect(chipState(view.state)?.markup).toBe('<solar Ember of Torches />');
+    press(view, 'Enter');
+    expect(view.state.doc.toString()).toBe(`${doc}ember of torches`);
+    expect(chipState(view.state)?.text).toMatch(/unclosed maths block or comment/);
+    expect(chipNode()?.textContent).toMatch(/unclosed maths block or comment/);
+    press(view, 'Enter');
+    expect(chipState(view.state)).toBeNull();
+  });
+
   it('treats a supplementary-plane letter after the name as part of the word', () => {
     catalogue();
     const view = mount('\u{10400}');

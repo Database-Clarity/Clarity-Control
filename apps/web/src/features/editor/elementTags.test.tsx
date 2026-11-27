@@ -156,6 +156,29 @@ describe('wrap rules', () => {
     expect(tryWrapTransaction(select(doc, 'Scorch'), 'solar', open)).toEqual({
       rejection: 'tag-unclosed',
     });
+    // An unclosed draft elsewhere in the catalogue that this tooltip does not import is ignored.
+    const unrelated = { ...globals, imports: { '42': 'A', '11551321': '/* Check the duration' } };
+    expect(wrapTransaction(select(doc, 'Scorch'), 'solar', unrelated)?.state.doc.toString()).toBe(
+      doc.replace('Scorch', '<solar Scorch />'),
+    );
+  });
+
+  it('does not take a braced reference for the closing brace of a maths block', () => {
+    const open = 'var damage = 20\nApplies Scorch.\nDeals ${#{damage}% damage.';
+    expect(tryWrapTransaction(select(open, 'Scorch'), 'solar', globals)).toEqual({
+      rejection: 'tag-unclosed',
+    });
+    const closed = open.replace('#{damage}%', '#{damage}}%');
+    expect(wrapTransaction(select(closed, 'Scorch'), 'solar', globals)?.state.doc.toString()).toBe(
+      closed.replace('Scorch', '<solar Scorch />'),
+    );
+  });
+
+  it('judges a table selection that ends at the cell marker by its output', () => {
+    const doc = '< table wide >\n| <solar/>Scorch | 10%\n<$>';
+    const tagged = doc.replace('<solar/>Scorch ', '<solar Scorch  />');
+    expect(legacyText(tagged, '')).toBe(legacyText(doc, ''));
+    expect(wrapped(doc, 'Scorch ')).toBe(tagged);
   });
 
   it('detects the formula that a literal empty marker can form with a later brace', () => {

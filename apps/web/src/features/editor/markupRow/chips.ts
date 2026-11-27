@@ -58,6 +58,8 @@ export interface Chip {
   text: string;
   /** The first and last positions the chip must not cover (the selected text, or the typed word). */
   covers: { from: number; to: number };
+  /** Accepting was refused: the chip shows why, and accepting again only dismisses it. */
+  refused?: boolean;
 }
 
 export interface ChipHost {
@@ -84,6 +86,7 @@ interface ChipState {
 
 const dismissEffect = StateEffect.define<null>();
 const hideEffect = StateEffect.define<null>();
+const refuseEffect = StateEffect.define<string>();
 
 const typedTags = ['pve', 'pvp'] as const;
 const iconByName = new Map(markupIcons.map((name) => [name.toLowerCase(), name]));
@@ -311,6 +314,9 @@ export const chipField = StateField.define<ChipState>({
       return { chip: null, dismissed: value.chip?.key ?? value.dismissed };
     if (transaction.effects.some((effect) => effect.is(hideEffect)))
       return { chip: null, dismissed: value.dismissed };
+    const refusal = transaction.effects.find((effect) => effect.is(refuseEffect));
+    if (refusal && value.chip)
+      return { chip: { ...value.chip, text: refusal.value, refused: true }, dismissed: null };
     if (!transaction.docChanged && !transaction.selection) return value;
     const typedKey =
       transaction.docChanged &&
@@ -356,6 +362,7 @@ export function dismissChip(view: EditorView): boolean {
 export function acceptChip(view: EditorView): boolean {
   const chip = chipState(view.state);
   if (!chip || !chipVisible(view)) return false;
+  if (chip.refused) return dismissChip(view);
   const rejection = insertItem(view, chip.item, {
     typed: chip.typed,
     keepSelection: chip.keepSelection,
@@ -363,7 +370,10 @@ export function acceptChip(view: EditorView): boolean {
   if (rejection) {
     if (rejection.startsWith('tag-')) {
       view.dispatch({
-        effects: [dismissEffect.of(null), EditorView.announce.of(insertionMessages[rejection])],
+        effects: [
+          refuseEffect.of(insertionMessages[rejection]),
+          EditorView.announce.of(insertionMessages[rejection]),
+        ],
       });
       return true;
     }

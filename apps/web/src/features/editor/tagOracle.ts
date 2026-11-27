@@ -23,7 +23,9 @@ export type TagOracleRefusal = 'tag-output' | 'tag-unresolved' | 'tag-invisible'
  * tooltip or anything it imports. Closed blocks never block.
  */
 function hasUnclosedBlock(text: string) {
-  for (const line of text.split('\n')) {
+  for (const raw of text.split('\n')) {
+    // A braced reference's `}` closes the reference, not the maths block around it.
+    const line = raw.replace(/#\{(?:[a-zA-Z0-9]+|=[1-9]\d*)\}/g, '#');
     const open = line.lastIndexOf('${');
     if (open >= 0 && !line.includes('}', open + 2)) return true;
   }
@@ -180,19 +182,31 @@ function previewRender(source: string, globals: MarkupGlobals): Json {
 }
 
 /** The oracle is invoked only on acceptance. The two renderers are also the consumer paths. */
+/** The tooltip, the shared globals, and every document it imports (followed by reference). */
+export function unclosedBlockRefusal(source: string, globals: MarkupGlobals): boolean {
+  const seen = new Set<string>();
+  const pending = [source, globals.variables, globals.titles];
+  for (let text = pending.pop(); text !== undefined; text = pending.pop()) {
+    if (hasUnclosedBlock(text)) return true;
+    for (const match of text.matchAll(/^import .+ from (\d+|global)\b/gm)) {
+      const key = match[1]!;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const imported =
+        globals.imports?.[key] ?? (key === 'global' ? globals.imports?.['1'] : undefined);
+      if (imported !== undefined) pending.push(imported);
+    }
+  }
+  return false;
+}
+
 export function tagInsertionRefusal(
   before: string,
   change: Change,
   globals: MarkupGlobals,
   expected = before,
 ): TagOracleRefusal | null {
-  const sources = [
-    before,
-    globals.variables,
-    globals.titles,
-    ...Object.values(globals.imports ?? {}),
-  ];
-  if (sources.some(hasUnclosedBlock)) return 'tag-unclosed';
+  if (unclosedBlockRefusal(before, globals)) return 'tag-unclosed';
   const tag = findElementTags(change.insert)[0];
   if (!tag) return 'tag-invisible';
   const alternate = tag.element === 'solar' ? 'arc' : 'solar';
