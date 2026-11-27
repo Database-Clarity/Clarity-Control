@@ -157,6 +157,13 @@ it('keeps an icon with the word right after it, and only that word', async () =>
     // A space after the icon still breaks; a line without an icon-word pair is not wrapped.
     await act(async () => root.render(render('Gain <solar/> Scorch and plain text.')));
     expect(glued()).toEqual([]);
+    await act(async () =>
+      root.render(render('Gain <arc/><bold Ionic />Traces at 50%<arrow/>40% and 🡅50%.')),
+    );
+    expect(glued()).toEqual(['IonicTraces', '50%40%', '🡅50%.']);
+    expect(host.querySelector('[aria-label="leads to"]')?.parentElement?.textContent).toBe(
+      '50%40%',
+    );
   } finally {
     await act(async () => root.unmount());
   }

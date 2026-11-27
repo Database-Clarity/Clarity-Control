@@ -385,7 +385,7 @@ document.querySelector('#tooltip').replaceChildren(content);`;
     [
       'renderer',
       'Reference renderer and decoder',
-      `<p>The renderer is an ES module with no dependencies. It exports <code>decode</code>, <code>details</code>, <code>renderDom</code>, <code>renderDetails</code>, and <code>renderText</code>. It bundles light and dark SVG symbols. Supply <code>icon(id)</code> to override the artwork. Set the root's <code>data-theme</code> to light or dark, or omit it to follow the system.</p>${code(`details(lines); // [{ n, kind, label, note? , link? }]
+      `<p>The renderer is an ES module with no dependencies. It exports <code>decode</code>, <code>details</code>, <code>renderDom</code>, <code>renderDetails</code>, and <code>renderText</code>. It bundles light and dark SVG symbols. Supply <code>icon(id)</code> to override the artwork. Set the root's <code>data-theme</code> to light or dark, or omit it to follow the system.</p><p>Keep each symbol with the word that touches its right side. Keep the regular arrow with touching words on both sides. For example, put the group in an inline-block wrapper with a maximum width of 100%, and allow long words to break inside it.</p>${code(`details(lines); // [{ n, kind, label, note? , link? }]
 renderDom(lines, { notes: 'popover', interactive: true, icon: id => null });
 // notes: 'popover' | 'numbered' | 'expand' | 'inline'
 renderDetails(lines, { interactive: false }); // numbered <ol>

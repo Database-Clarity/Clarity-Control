@@ -19,13 +19,17 @@ const idleProgress: SaveProgress = { phase: 'idle', done: 0, total: 0, failed: n
 export const useSaveState = create<{
   locked: boolean;
   review: SaveReview | null;
+  session: number;
+  visitingTooltip: boolean;
   progress: SaveProgress;
   close(): void;
 }>((set) => ({
   locked: false,
   review: null,
+  session: 0,
+  visitingTooltip: false,
   progress: idleProgress,
-  close: () => set({ locked: false, review: null, progress: idleProgress }),
+  close: () => set({ locked: false, review: null, visitingTooltip: false, progress: idleProgress }),
 }));
 
 export const useSaveProgress = () => useSaveState((state) => state.progress);
@@ -33,5 +37,11 @@ export const useSaveProgress = () => useSaveState((state) => state.progress);
 export function reviewSaveChanges(changes: Change[], submitted: Drafts = {}): void {
   if (useSaveState.getState().locked) throw new Error('Finish the open save review first.');
   if (!changes.length) throw new Error('There are no changes to save.');
-  useSaveState.setState({ locked: true, review: { changes, submitted }, progress: idleProgress });
+  useSaveState.setState(({ session }) => ({
+    locked: true,
+    review: { changes, submitted },
+    session: session + 1,
+    visitingTooltip: false,
+    progress: idleProgress,
+  }));
 }

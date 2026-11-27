@@ -1,11 +1,67 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { SaveSummary } from './SaveSummary';
 import { editorData, tooltip } from './fixtures.testSupport';
 import { skeletonMinimumMs } from '../../ui/Skeleton';
+
+it('opens a named validation warning at its tooltip variant and language', async () => {
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const onVisit = vi.fn();
+  const Route = () => {
+    const { pathname, search } = useLocation();
+    return createElement('output', null, pathname + search);
+  };
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  try {
+    await act(async () =>
+      root.render(
+        createElement(
+          MemoryRouter,
+          null,
+          createElement(SaveSummary, {
+            changes: [
+              {
+                hash: 456,
+                base: null,
+                next: {
+                  ...tooltip,
+                  hash: 456,
+                  custom: { name: 'Custom variant', categoryId: 'perk' },
+                },
+              },
+            ],
+            issues: [
+              {
+                severity: 'warning',
+                message: 'Check this glyph.',
+                hash: 456,
+                lang: 'de',
+                from: 0,
+                to: 1,
+              },
+            ],
+            data: editorData(),
+            onVisit,
+          }),
+          createElement(Route),
+        ),
+      ),
+    );
+    const link = host.querySelector<HTMLAnchorElement>('details a')!;
+    expect(link.textContent).toBe('Custom variant (456) / German warning · Check this glyph.');
+    expect(link.getAttribute('href')).toBe('/t/123?lang=de&variant=456');
+    await act(async () => link.click());
+    expect(onVisit).toHaveBeenCalledOnce();
+    expect(host.querySelector('output')?.textContent).toBe('/t/123?lang=de&variant=456');
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
 
 it('finishes a large summary across frames, and cancels scheduled work on close', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

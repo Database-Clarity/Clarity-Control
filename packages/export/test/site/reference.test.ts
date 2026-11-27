@@ -92,6 +92,32 @@ test('untrusted data stays text, unsafe links never navigate, and unknown values
   expect(renderer.renderText(content)).toContain('Unsafe link omitted');
 });
 
+test('DOM symbol runs keep their touching words and leave spaced words outside', () => {
+  const content = [
+    {
+      parts: [
+        { text: 'Value 50%' },
+        { icon: 'arrow' },
+        { text: '40% and ' },
+        { icon: 'arc' },
+        { text: 'Ionic', style: ['bold'] },
+        { text: 'Traces ' },
+        { icon: 'enhancedArrow' },
+        { text: '10%' },
+        { icon: 'solar' },
+        { text: ' Scorch' },
+      ],
+    },
+  ];
+  const output = renderer.renderDom(content);
+  expect([...output.querySelectorAll('.clarity-glue')].map((run) => run.textContent)).toEqual([
+    '50%40%',
+    'IonicTraces',
+    '10%',
+  ]);
+  expect(output.textContent).toBe('Value 50%40% and IonicTraces 10% Scorch');
+});
+
 test('nested notes render inline, strings pass through, and icon overrides work', () => {
   const nested = [
     {

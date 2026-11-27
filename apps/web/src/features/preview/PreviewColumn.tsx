@@ -12,9 +12,9 @@ import {
 import { parseMarkup, type Lang, type MarkupGlobals, type MarkupSpan } from '@clarity/core';
 import { compareRenders, type CompareLine, type Comparison } from './compare';
 import { classNames, Lines, PreviewSpan, TooltipPreview } from './TooltipPreview';
+import { renderWrappedParts, TitleAnchor } from './MarkupRenderer';
 import styles from './PreviewColumn.module.scss';
 import previewStyles from './TooltipPreview.module.scss';
-import { TitleAnchor } from './MarkupRenderer';
 import { Segmented } from '../../ui/RightPane';
 
 import type { PreviewMode } from './previewMode';
@@ -328,33 +328,27 @@ export function CompareLines({ comparison }: { comparison: Comparison }) {
   );
 }
 
-/**
- * One changed value: struck base value, arrow, enhanced value. The arrow stays with the words on
- * either side of it, so a line never breaks between "5", the arrow and "4"; longer phrases still wrap.
- */
-function ChangeRun({ was, now }: { was: MarkupSpan[]; now: MarkupSpan[] }) {
-  const last = was.slice(-1);
-  const first = now.slice(0, 1);
-  const span = (parts: MarkupSpan[], className?: string) =>
-    parts.map((part, index) => (
-      <span key={index} className={className}>
+interface ComparisonSpan extends MarkupSpan {
+  compareClass?: string;
+  compareArrow?: string;
+}
+
+function compareParts(parts: MarkupSpan[]) {
+  return (parts as ComparisonSpan[]).map((part, index) =>
+    part.compareArrow ? (
+      <span
+        key={index}
+        className={previewStyles.enhancedArrow}
+        role="img"
+        aria-label={part.compareArrow}
+      />
+    ) : part.compareClass ? (
+      <span key={index} className={part.compareClass}>
         <PreviewSpan part={part} />
       </span>
-    ));
-  return (
-    <>
-      {span(was.slice(0, -1), previewStyles.was)}
-      <span className={styles.glue}>
-        {span(last, previewStyles.was)}
-        <span
-          className={previewStyles.enhancedArrow}
-          role="img"
-          aria-label={was.length ? 'becomes' : 'enhanced'}
-        />
-        {span(first, previewStyles.now)}
-      </span>
-      {span(now.slice(1), previewStyles.now)}
-    </>
+    ) : (
+      <PreviewSpan key={index} part={part} />
+    ),
   );
 }
 
@@ -363,17 +357,21 @@ const CompareRow = memo(
     // Tables are retired from the markup row but still render in older text.
     if (entry.line.table) return <Lines lines={[entry.line]} />;
     if (entry.kind === 'changed' && entry.segments) {
+      const parts = entry.segments.flatMap<ComparisonSpan>((segment) =>
+        segment.kind === 'same'
+          ? segment.spans
+          : [
+              ...segment.was.map((part) => ({ ...part, compareClass: previewStyles.was })),
+              {
+                classNames: ['enhancedArrow'],
+                compareArrow: segment.was.length ? 'becomes' : 'enhanced',
+              },
+              ...segment.now.map((part) => ({ ...part, compareClass: previewStyles.now })),
+            ],
+      );
       return (
         <div className={classNames(entry.line.classNames)} data-kind="changed">
-          {entry.segments.map((segment, index) =>
-            segment.kind === 'same' ? (
-              segment.spans.map((part, partIndex) => (
-                <PreviewSpan key={`${index}.${partIndex}`} part={part} />
-              ))
-            ) : (
-              <ChangeRun key={index} was={segment.was} now={segment.now} />
-            ),
-          )}
+          {renderWrappedParts(parts, compareParts)}
         </div>
       );
     }
@@ -386,9 +384,7 @@ const CompareRow = memo(
       .join(' ');
     return (
       <div className={className || undefined} data-kind={entry.kind}>
-        {entry.line.linesContent?.map((part, index) => (
-          <PreviewSpan key={index} part={part} />
-        ))}
+        {renderWrappedParts(entry.line.linesContent ?? [])}
       </div>
     );
   },
