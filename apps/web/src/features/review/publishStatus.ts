@@ -84,6 +84,7 @@ export function describeOp(
         ? tooltipCount
         : `${tooltipCount} · ${when(startedAt)}`;
   const base = { opId: op.opId, lead, waiting: false, finished: isTerminal(op.status) };
+  if (op.whole) return describeWhole(op, base, note, now, when);
   // What a finished request left out waits in Review; the rest is live.
   if (op.refusedGlobals?.length && (op.status === 'done' || op.status === 'unchanged'))
     return { ...base, tone: 'warn', chip: 'Partly live', detail: notPublished(op.refusedGlobals) };
@@ -163,6 +164,75 @@ export function describeOp(
         detail:
           op.error ?? 'The publish run failed. Check live status before publishing these again.',
       };
+  }
+}
+
+/**
+ * One request for the whole selection: the words of the fast-handoff plan. Once the Worker holds
+ * it the tab can close; held rows wait in Review with their reasons.
+ */
+function describeWhole(
+  op: PublishOp,
+  base: Pick<OpView, 'opId' | 'lead' | 'waiting' | 'finished'>,
+  note: string | undefined,
+  now: number,
+  when: When,
+): OpView {
+  const attention = (detail: string): OpView => ({
+    ...base,
+    tone: op.status === 'done' || op.status === 'unchanged' ? 'warn' : 'bad',
+    chip: op.status === 'done' || op.status === 'unchanged' ? 'Partly live' : 'Attention',
+    // The chip says it needs attention: the clamped line goes straight to what did not go live.
+    detail,
+  });
+  const notLive = [
+    ...(op.held ?? []).map(({ name, reason }) => ({ name, error: reason })),
+    ...(op.refusedGlobals ?? []),
+  ];
+  if (notLive.length)
+    return attention(
+      `${notPublished(notLive)}${
+        op.status === 'done' || op.status === 'unchanged' ? ' The rest is live.' : ''
+      }`,
+    );
+  switch (op.status) {
+    case 'created':
+      return {
+        ...base,
+        tone: 'busy',
+        chip: 'Sending…',
+        detail: note ?? 'Sending publish request…',
+      };
+    case 'pending': {
+      const acceptedAt = op.acceptedAt ?? op.createdAt;
+      return now - acceptedAt >= publishTiming.waitingMs
+        ? {
+            ...base,
+            waiting: true,
+            tone: 'warn',
+            chip: 'Waiting',
+            detail: note ?? `Publish is still queued (since ${when(acceptedAt)}).`,
+          }
+        : {
+            ...base,
+            tone: 'busy',
+            chip: 'Publishing',
+            detail: note ?? 'Publishing, safe to close.',
+          };
+    }
+    case 'done':
+      return {
+        ...base,
+        tone: 'ok',
+        chip: 'Published',
+        detail: `Confirmed live after ${elapsed(op.createdAt, op.updatedAt)}.`,
+      };
+    case 'unchanged':
+      return { ...base, tone: 'ok', chip: 'Already live', detail: 'Live already matched these.' };
+    default:
+      return attention(
+        op.error ?? op.refusal ?? 'Nothing from this request went live; review and publish again.',
+      );
   }
 }
 

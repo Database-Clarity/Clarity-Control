@@ -108,6 +108,19 @@ for (const marker of [
     throw new Error(
       `Publisher runtime lacks translation publication (${marker}); refusing its PIN`,
     );
+// `wholeSelectionV1` only for a runtime that holds failing rows of a whole-selection request,
+// verifies them again at RECORD, and updates the account publish index (the Worker admits such
+// requests without reading rows only while the PIN declares it).
+for (const marker of [
+  'wholeSelectionHeld(',
+  'Receipt held rows differ from the signed selection',
+  'recordAccountOutcome(',
+  'publish/accounts/',
+])
+  if (!runtime.includes(marker))
+    throw new Error(
+      `Publisher runtime lacks whole-selection publishes (${marker}); refusing its PIN`,
+    );
 writeFileSync(
   `${dist}/PIN`,
   JSON.stringify(
@@ -135,6 +148,9 @@ writeFileSync(
       // (the Worker refuses such a row while the PIN lacks it).
       // aliasGroupRemovals = config/alias-groups.json may carry a `removed` map (members a
       // maintainer took out of a group; the Worker refuses removeMember while the PIN lacks it).
+      // wholeSelectionV1 = `selection: 'whole'` requests: every row check runs here, failing rows
+      // are held with what depends on them, and the account publish index is kept (the Worker
+      // admits them without reading rows only while the PIN declares it).
       capabilities: [
         'elementTags',
         'sandboxPointers',
@@ -158,6 +174,7 @@ writeFileSync(
         'globalsInPlaceV1',
         'translationPublishV1',
         'clearedRemovals',
+        'wholeSelectionV1',
       ],
     },
     null,

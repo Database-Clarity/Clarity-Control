@@ -149,6 +149,21 @@ translations stay saved and unpublished. The bundle names the tooltips whose sav
 lost its English since their publish (`englishChanged`, absent while there are none). Batches never
 carry a clear, and a removed tooltip publishes again once it has English.
 
+A whole-selection request (`selection: 'whole'`, PIN capability `wholeSelectionV1`) carries a
+person's whole confirmed selection in one signed request. The Worker admits it without reading rows
+(access, shared-text fence and contract, this capability, opId window, schema, the 300 KiB cap,
+and at most 1,000 rows; a larger selection goes in ordinary parts) and writes the request and the account's publish index entry (`publish/accounts/<id>.json`)
+in one commit. The publisher runs every row check the ordinary route runs in the Worker, one row at
+a time with the Worker's own functions (`selection.ts`): a row that changed after review, has an
+activation conflict, or fails a check (the Worker's row checks, then the Action's own row guards:
+generator set bonuses, missing generator facts, shared-text references) is held with its reason,
+and so is every selected row that depends on a held row by Review's own rules
+(`publishDependencies`: the resolver's reads, associations, and a removal's live readers). The rest publishes as one publication; the receipt lists the held rows, and RECORD derives
+them again at the frozen source. Nothing left to publish closes the request as `stale` (a changed
+row) or `rejected`. A failure that cannot be tied to one row (export, converter, run) refuses the
+whole selection as before. RECORD updates the account index entry in the same commit. Translator
+publishes keep their 12-row parts.
+
 Request creation is head-bound CAS. A caller must consult `classifyPublishIntent` at each fresh head;
 creation timestamps are checked only for a new operation. No coalescing is implemented; scheduled
 batches (`kind: 'batch'`) are described in "Scheduled batches (P4)" below.
@@ -202,8 +217,8 @@ The plain Node 24 runtime includes packages/core and has no runtime npm dependen
 source HEAD. Commit source first, then build/commit the generated files so the source pin
 identifies the exact implementation. Do not edit generated publisher.mjs by hand.
 
-Current template source: `8bdb12bb6fb46b1dee64dab89295a2172230bd81` (v2).
-Runtime SHA-256: `603644eb90b4c9f2bd1a36f086e1ef2fbcaf4c93a920ee6258d7cee348ee62b6`.
+Current template source: `04a1dac8d6efcff7f397c9e6dd4c02e6bd021ffb` (v2).
+Runtime SHA-256: `6a987e5119b3ea9f147baf3c7957b771abd68a1e72db2857441c4ac5526a6302`.
 
 The `exoticTags` capability declares lowering of `<exotic … />` to the compatible
 `yellow` consumer style, including comment-split keywords. While publishing is enabled,

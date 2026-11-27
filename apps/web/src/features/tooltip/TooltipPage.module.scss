@@ -123,16 +123,6 @@
     box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.25);
   }
 }
-.key {
-  padding: 0 0.1875rem;
-  font: 0.6875rem/0.875rem var(--editor-font, Consolas, monospace);
-  border: 1px solid currentcolor;
-  border-radius: 0.125rem;
-  opacity: 0.7;
-  @include theme.mobile-or-coarse {
-    display: none;
-  }
-}
 .dot {
   width: 0.4375rem;
   height: 0.4375rem;
@@ -230,17 +220,11 @@
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
-// The control has to fit beside a draft's Discard in the narrowest editor (480px). As the header
-// narrows, queue mode first drops the shortcut hint; below 38.5rem (45.5rem where
-// the queue carries its list's action) the control takes a row of its own, as on a phone and in
-// toggle mode, so the language field keeps its usual width (v2's 9rem cap) and "Markup tools"
-// its full text. The row is there
-// for the whole visit: nothing moves when a draft appears.
-@container pane-header (max-width: 44rem) {
-  .paneHeader:has(> .queue) .key {
-    display: none;
-  }
-}
+// The control has to fit beside a draft's Discard in the narrowest editor (480px). Below 38.5rem
+// (45.5rem where the queue carries its list's action) the control takes a row of its own, as on a
+// phone and in toggle mode, so the language field keeps its usual width (v2's 9rem cap) and
+// "Markup tools" its full text. The row is there for the whole visit: nothing moves when a draft
+// appears.
 @media (min-width: 701px) {
   // The header is its own container, so its wrapping is set here; only the query's children
   // change with its width (the queue takes the second row below 38.5rem).
@@ -277,26 +261,10 @@
   }
 }
 // A narrow editor that also carries the Compendium/Reports toggles (a preview column open at 768px,
-// a large interface scale): the line drops the shortcut hint first, then shows "Grouped N" as its
-// icon and N, so the right-hand buttons never slide over one another or out of the header.
-@container pane-header (max-width: 40rem) {
-  .workspace[data-mode='toggle'] .paneHeader .key {
-    display: none;
-  }
-}
+// a large interface scale): the language field shortens, so the right-hand buttons never slide
+// over one another or out of the header.
 @container pane-header (max-width: 34rem) {
   .workspace[data-mode='toggle'] .paneHeader {
-    .groupedIcon {
-      display: inline-block;
-    }
-    .groupedWord {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-      white-space: nowrap;
-    }
     .langSelect {
       max-width: 7rem;
       text-overflow: ellipsis;
@@ -330,39 +298,20 @@
 }
 // An open override adds "↑ Enhanced" to the line, which ran the right-hand buttons out of
 // the header or under the Compendium/Reports toggles. The line now gives way one step at a time, each
-// only once the line no longer fits: the shortcut hint goes, "Grouped N" becomes its icon and N, the
-// language field shortens, it shortens again, "Markup tools" says "Markup", and "Back to base" says
-// "Back". The buttons never shrink.
+// only once the line no longer fits: the language field shortens, it shortens again, "Markup tools"
+// says "Markup", and "Back to base" says "Back". The buttons never shrink.
 // A container query cannot see what the line holds, so each step's width is set per content: the
 // natural widths at UI 100 (they scale with the rem) of the full line with a draft's dot and
-// Discard, Grouped N (maintainers), and the toggles, plus a little slack for text rendering.
-$override-full: 47.1rem; // language 9, tag 5.3, draft 5.1, Markup 8.6, Marks (2) 4.3, Grouped + inactive 7.3, Back 5.5, gaps
+// Discard, More, and the toggles, plus a little slack for text rendering.
+$override-full: 38.2rem; // language 9, tag 5.3, draft 5.1, Markup tools, Marks (2), More, Back to base, gaps
 $override-draft: 5.1rem; // the dot, Discard, and their gaps
-$override-grouped: 5.8rem; // "Grouped N", inactive icon, and their gaps, less the More they leave behind
 $override-toggles: 10.2rem; // Compendium, Reports, and their gaps
 $override-three-toggles: 14.2rem; // and English
-// Each step and the width it saves; "grouped" saves nothing without the control.
-$override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 1.625rem)
-  (markup 1.875rem) (back 2.75rem);
+// Each step and the width it saves.
+$override-steps: (lang 2rem) (lang-narrow 1.625rem) (markup 1.875rem) (back 2.75rem);
 
 @mixin override-step($step) {
-  @if $step == key {
-    .key {
-      display: none;
-    }
-  } @else if $step == grouped {
-    .groupedWord {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-    }
-    .groupedIcon {
-      display: inline-block;
-      margin-right: 0.3125rem;
-    }
-  } @else if $step == lang {
+  @if $step == lang {
     .langSelect {
       max-width: 7rem;
       text-overflow: ellipsis;
@@ -393,9 +342,6 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 1.625r
     flex-shrink: 0;
   }
 }
-.inactiveControl {
-  flex: none;
-}
 // The desktop line keeps one row: tools that do not fit go to More (EditorPaneHeader useRowFit).
 // Only a line that still does not fit (the narrowest panes, a large interface scale) takes a
 // second row, so every action stays reachable instead of being clipped.
@@ -423,60 +369,47 @@ $override-steps: (key 3.125rem) (grouped 1.8rem) (lang 2rem) (lang-narrow 1.625r
   }
 }
 @each $draft in (true, false) {
-  @each $grouped in (true, false) {
-    @each $toggles in (0, 2, 3) {
-      $state: ':has(> .overrideTag)';
-      $needed: $override-full;
-      @if $draft {
-        $state: $state + ':has(> .dot)';
-      } @else {
-        $state: $state + ':not(:has(> .dot))';
-        $needed: $needed - $override-draft;
-      }
-      @if $grouped {
-        $state: $state + ':has(.groupedWord)';
-      } @else {
-        $state: $state + ':not(:has(.groupedWord))';
-        $needed: $needed - $override-grouped;
-      }
-      // The toggles stay in the line (hidden) outside toggle mode: the workspace's mode says.
-      $mode: ".workspace:not([data-mode='toggle'], [data-mode='phone'])";
-      @if $toggles == 2 {
-        $mode: ".workspace[data-mode='toggle']";
-        $needed: $needed + $override-toggles;
-      } @else if $toggles == 3 {
-        $mode: ".workspace[data-mode='toggle']";
-        $state: $state + ':has(> .paneToggles > :nth-child(3))';
-        $needed: $needed + $override-three-toggles;
-      }
-      @each $step, $saves in $override-steps {
-        @if $step != grouped or $grouped {
-          // The step applies once the line, with every earlier step, no longer fits.
-          @container pane-header (max-width: #{$needed - 0.01rem}) {
-            #{$mode} .paneHeader#{$state} {
-              @include override-step($step);
-            }
-          }
-          $needed: $needed - $saves;
+  @each $toggles in (0, 2, 3) {
+    $state: ':has(> .overrideTag)';
+    $needed: $override-full;
+    @if $draft {
+      $state: $state + ':has(> .dot)';
+    } @else {
+      $state: $state + ':not(:has(> .dot))';
+      $needed: $needed - $override-draft;
+    }
+    // The toggles stay in the line (hidden) outside toggle mode: the workspace's mode says.
+    $mode: ".workspace:not([data-mode='toggle'], [data-mode='phone'])";
+    @if $toggles == 2 {
+      $mode: ".workspace[data-mode='toggle']";
+      $needed: $needed + $override-toggles;
+    } @else if $toggles == 3 {
+      $mode: ".workspace[data-mode='toggle']";
+      $state: $state + ':has(> .paneToggles > :nth-child(3))';
+      $needed: $needed + $override-three-toggles;
+    }
+    @each $step, $saves in $override-steps {
+      // The step applies once the line, with every earlier step, no longer fits.
+      @container pane-header (max-width: #{$needed - 0.01rem}) {
+        #{$mode} .paneHeader#{$state} {
+          @include override-step($step);
         }
       }
+      $needed: $needed - $saves;
     }
   }
 }
 // Queue mode with a version open: where the control shares the line (38.5rem up), the same steps
 // from the width its widest control needs ("Bungie drift 12 of 40 Bungie change < >").
-$queue-needed: 60rem;
+$queue-needed: 56.9rem;
 @each $step, $saves in $override-steps {
-  @if $step != grouped {
-    @container pane-header (max-width: #{$queue-needed}) {
-      // :has(> .paneRight) only matches the steps' specificity above.
-      .workspace[data-mode='split']
-        .paneHeader:has(> .overrideTag):has(> .queue):has(> .paneRight) {
-        @include override-step($step);
-      }
+  @container pane-header (max-width: #{$queue-needed}) {
+    // :has(> .paneRight) only matches the steps' specificity above.
+    .workspace[data-mode='split'] .paneHeader:has(> .overrideTag):has(> .queue):has(> .paneRight) {
+      @include override-step($step);
     }
-    $queue-needed: $queue-needed - $saves !global;
   }
+  $queue-needed: $queue-needed - $saves !global;
 }
 // A queued entry that no longer exists: one line, with the way on.
 .queueGone {
@@ -489,40 +422,6 @@ $queue-needed: 60rem;
   .queue {
     margin-left: 0;
   }
-}
-// Toggle mode puts English, Compendium, and Reports on the editor's tool line. When that line is
-// narrow (a tablet, a large UI scale) the tools give way instead of running under those buttons:
-// the shortcut hint goes, and "Grouped N" becomes its icon and N (its title still says it).
-@container pane-header (max-width: 46rem) {
-  .paneHeader:has(> .paneToggles) {
-    .key {
-      display: none;
-    }
-    .groupedWord {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-    }
-    .groupedIcon {
-      display: inline-block;
-      margin-right: 0.3125rem;
-    }
-  }
-}
-// Maintainers' grouped-perks trigger: "Grouped N"; on a phone two stacked squares and N, so the
-// editor's header row keeps to one line (the word stays for screen readers).
-.groupedIcon {
-  display: none;
-  position: relative;
-  width: 0.75rem;
-  height: 0.75rem;
-  border: 1.5px solid currentColor;
-  border-radius: 2px;
-  box-shadow:
-    3px -3px 0 -1.5px var(--page),
-    3px -3px 0 0 currentColor;
 }
 .paneToggles {
   display: inline-flex;

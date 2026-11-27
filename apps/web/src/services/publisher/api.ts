@@ -23,6 +23,8 @@ export interface PublishAnswer {
   globals?: { live: string[]; refused: { id: string; error: string }[] };
   /** A translator's refused request: the rows that refused it, with the shared reason text. */
   rows?: RefusedRow[];
+  /** A whole request: the rows the publisher held back, with why (the rest went live). */
+  held?: { hash: number; reason: string }[];
 }
 export interface RefusedRow {
   key: string;
@@ -36,12 +38,20 @@ export interface PublishBody {
   hashes: number[];
   expected: Record<string, string>;
   globals?: { id: string; expected: string }[];
+  selection?: 'whole';
 }
-export const publishBody = ({ opId, hashes, expected, globals }: PublishBody): PublishBody => ({
+export const publishBody = ({
+  opId,
+  hashes,
+  expected,
+  globals,
+  ...op
+}: PublishBody & { whole?: true }): PublishBody => ({
   opId,
   hashes,
   expected,
   ...(globals ? { globals: globals.map(({ id, expected }) => ({ id, expected })) } : {}),
+  ...(op.whole || op.selection === 'whole' ? { selection: 'whole' as const } : {}),
 });
 
 /** A translator's request: the rows of their languages, with exactly the signed facts. */
@@ -182,6 +192,26 @@ export async function postPublish(body: PublishBody, switched = false): Promise<
     .safeParse(complete.data.result);
   // A completed log whose status we do not understand is still a finished operation.
   const resolved = result.success ? result.data.status : 'failed';
+  if (body.selection === 'whole') {
+    const held = heldRows(complete.data.result);
+    // A held list that cannot be read must never read as "everything went live".
+    if (held === undefined)
+      return {
+        status: 'failed',
+        refusal: 'The publish finished, but which tooltips it held could not be read.',
+      };
+    const error = typeof result.data?.error === 'string' ? result.data.error : undefined;
+    return {
+      status: resolved,
+      ...(held.length ? { held } : {}),
+      ...(!held.length && resolved === 'rejected' && error
+        ? { refusal: error.replace(/^ConsumerOutputRejected: /, ''), regroupable: false as const }
+        : {}),
+      ...(body.globals && (resolved === 'done' || resolved === 'unchanged')
+        ? { globals: globalResult(complete.data.result, body.globals) }
+        : {}),
+    };
+  }
   const error = result.data?.error;
   if (
     resolved === 'rejected' &&
@@ -220,6 +250,38 @@ export async function postTranslations(body: TranslationPublishBody): Promise<Pu
   };
 }
 
+/** What a finished whole request left out, by its status (editors and maintainers only). */
+export async function getPublishOutcome(
+  opId: string,
+): Promise<{ held: { hash: number; reason: string }[]; globals: { id: string; error: string }[] }> {
+  const { value } = await send(`/publish/status?opId=${encodeURIComponent(opId)}`);
+  const entry = z
+    .object({ operations: z.array(z.unknown()) })
+    .safeParse(value)
+    .data?.operations.map(
+      (operation) =>
+        z
+          .object({
+            opId: z.string(),
+            held: z
+              .array(z.object({ hash: hashSchema, reason: z.string().max(1000) }))
+              .max(3000)
+              .optional(),
+            globalRefusals: z
+              .array(z.object({ id: z.string(), error: z.string().max(2000) }))
+              .max(3000)
+              .optional(),
+          })
+          .safeParse(operation).data,
+    )
+    .find((operation) => operation?.opId === opId);
+  if (!entry) throw new PublishHttpError(502, 'Unexpected status response');
+  return {
+    held: entry.held?.map(({ hash, reason }) => ({ hash, reason })) ?? [],
+    globals: entry.globalRefusals?.map(({ id, error }) => ({ id, error })) ?? [],
+  };
+}
+
 /** `unknown` = the Worker has neither a request nor a log for this opId (a lost 202, or a typo). */
 export async function getPublishStatus(opId: string): Promise<RemoteStatus | 'unknown'> {
   const { value } = await send(`/publish/status?opId=${encodeURIComponent(opId)}`);
@@ -252,6 +314,61 @@ export async function getTranslationStatus(
     status: known,
     ...(known === 'done' || known === 'unchanged' ? {} : { rows: refusedRows(operation) }),
   };
+}
+
+/** The rows a whole request's result held back; undefined when a held list is there but unreadable. */
+function heldRows(result: unknown): { hash: number; reason: string }[] | undefined {
+  if ((result as { held?: unknown } | null)?.held === undefined) return [];
+  const parsed = z
+    .object({
+      held: z.array(z.object({ hash: hashSchema, reason: z.string().max(1000) })).max(3000),
+    })
+    .safeParse(result).data;
+  return parsed?.held.map(({ hash, reason }) => ({ hash, reason }));
+}
+
+/** This account's whole publishes on any device, and which of them it acknowledged. */
+export interface AccountPublishes {
+  entries: {
+    opId: string;
+    createdAt: string;
+    rows: number;
+    globals: number;
+    status: 'pending' | 'done' | 'unchanged' | 'stale' | 'rejected';
+    held: number;
+  }[];
+  /** null: the acknowledgments could not be read (every notice then shows). */
+  acknowledged: string[] | null;
+}
+const accountSchema = z.object({
+  entries: z
+    .array(
+      z.object({
+        opId: z.string(),
+        createdAt: z.string(),
+        rows: z.number(),
+        globals: z.number(),
+        status: z.enum(['pending', 'done', 'unchanged', 'stale', 'rejected']),
+        held: z.number(),
+      }),
+    )
+    .max(50),
+  acknowledged: z.array(z.string()).nullable(),
+});
+export async function getAccountPublishes(): Promise<AccountPublishes> {
+  const { value } = await send('/publish/mine');
+  const parsed = accountSchema.safeParse(value);
+  if (!parsed.success) throw new PublishHttpError(502, 'Unexpected publish index response');
+  return parsed.data;
+}
+
+/** This account has seen a publish's outcome, on every device. */
+export async function acknowledgePublish(opId: string): Promise<void> {
+  await send('/publish/ack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ opId }),
+  });
 }
 
 export async function kickPublish(opId: string): Promise<void> {

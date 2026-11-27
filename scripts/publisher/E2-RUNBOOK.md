@@ -28,6 +28,11 @@ Before installing an `arrowSymbol` PIN, satisfy the [Arrow symbol rollout precon
 For a `numberTokens` PIN, also satisfy the [Number tokens rollout precondition](README.md#number-tokens-rollout-precondition).
 Install an `exoticTags`-capable publisher before saving Exotic text or starting the gated Yellow-to-Exotic data rewrite; older PINs refuse it.
 While `config/inactive.json` is non-empty, never roll back to a PIN without `inactiveMoves`.
+For `wholeSelectionV1`, install the publisher first, apply the settings D1 migration
+`apps/worker/migrations/settings/0004_publish_acks.sql`, then deploy the Worker, then the web build.
+Roll back web, then Worker; keep the publisher (it still drains ordinary parts). A pushed or
+kicked request still needs a pipeline trigger: an unattended re-kick sweep is a separate,
+owner-gated step.
 For `clearedRemovals`, install the publisher first, then deploy the Worker, then the web build.
 Roll back web, then Worker. Keep the publisher: the installer refuses to drop a capability, and an
 older one, like an older Worker and web, treats the translations of a cleared tooltip as an ordinary
@@ -56,8 +61,8 @@ Blacksmith is the default runner; workflow_dispatch with ubuntu-latest is the ma
 when a job never starts. Both share editor-data-pipeline concurrency with cancellation disabled.
 No installation, activation, or external data write is authorized by generating this template.
 
-Template source PIN: `8bdb12bb6fb46b1dee64dab89295a2172230bd81`.
-Expected publisher.mjs SHA-256: `603644eb90b4c9f2bd1a36f086e1ef2fbcaf4c93a920ee6258d7cee348ee62b6`.
+Template source PIN: `04a1dac8d6efcff7f397c9e6dd4c02e6bd021ffb`.
+Expected publisher.mjs SHA-256: `6a987e5119b3ea9f147baf3c7957b771abd68a1e72db2857441c4ac5526a6302`.
 
 ### In-place shared text dry run
 

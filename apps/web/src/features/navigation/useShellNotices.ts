@@ -12,6 +12,12 @@ import { useSettingsNotices } from '../settings/SettingsChoice';
 import { useSettingsPanel } from '../settings/panel';
 import { count, type ShellNotice } from './notices';
 import { useGlobalDraftStorage } from '../globals/globalDrafts';
+import {
+  attentionTarget,
+  attentionText,
+  usePublishAttention,
+  usePublishAttentionLoader,
+} from '../review/publishAttention';
 
 /** Brief storage writes never mount an invisible notice or update the shell. */
 function useSlowDraftSaving() {
@@ -86,6 +92,9 @@ export function useShellNotices(): ShellNotice[] {
   const pausedForOtherTab = usePausedForOtherTab();
   const rowConflicts = useOpenConflicts().filter((conflict) => conflict.rows > 0);
   const navigate = useNavigate();
+  usePublishAttentionLoader();
+  const publishAttention = usePublishAttention((state) => state.entries);
+  const dismissPublishAttention = usePublishAttention((state) => state.dismiss);
   const notices: ShellNotice[] = [];
 
   // A conflict that is not text (a deleted tooltip, the Compendium link…) is answered in a row under
@@ -198,6 +207,18 @@ export function useShellNotices(): ShellNotice[] {
             ],
           }
         : {}),
+    });
+  // A publish whose rows were held, or that went nowhere, on this or any other device of the
+  // account: shown until acknowledged here or there.
+  if (publishAttention.length)
+    notices.push({
+      id: 'publish-attention',
+      level: 'warning',
+      text: attentionText(publishAttention),
+      onDismiss: dismissPublishAttention,
+      actions: [
+        { label: 'Review changes', onClick: () => navigate(attentionTarget(publishAttention)) },
+      ],
     });
   if (savingDrafts)
     // Local writes finish in a blink while typing; only a slow one is worth saying anything about.

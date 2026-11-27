@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { dependencyChunks } from '../../services/dependencyChunks';
-import type { TranslationPublishBody, TranslationPublishRow } from '@clarity/core';
+import {
+  wholeSelectionMaxRows,
+  type TranslationPublishBody,
+  type TranslationPublishRow,
+} from '@clarity/core';
 import type {
   PublishAnswer,
   PublishBody,
@@ -39,12 +43,36 @@ export const publishTiming = {
   ackWindowMs: 15 * 60_000,
   /** A pending operation older than this stops being polled; the line says to check live status. */
   pollGiveUpMs: 24 * 3_600_000,
+  /** A whole request is never given up: past the day above it is checked this often. */
+  slowPollMs: 10 * 60_000,
   /** Conservative local CPU measurement; deployed tail gate still required. */
   chunkHashes: 50,
   /** Same ceiling as maxPublicationConsumers in the Worker globals reader. */
   maxConsumers: 500,
   maxBodyBytes: 300 * 1024,
 } as const;
+
+/** Status poll gap of an operation accepted `age` ago. */
+const pollGap = (op: PublishOp, age: number) =>
+  op.whole && age > publishTiming.pollGiveUpMs
+    ? publishTiming.slowPollMs
+    : publishTiming.pollMs(age);
+
+/** A whole request whose outcome still needs the person: kept until dismissed. */
+const wholeAttention = (op: PublishOp) =>
+  !!op.whole &&
+  !op.dismissed &&
+  (!!op.held?.length ||
+    !!op.refusedGlobals?.length ||
+    (isTerminal(op.status) && op.status !== 'done' && op.status !== 'unchanged'));
+
+/**
+ * Whether a confirmed selection goes as one whole request (the publisher splits nothing): up to
+ * the Worker's row limit for one request, tooltips and shared definitions together. A larger
+ * selection goes in today's parts.
+ */
+export const fitsWhole = (inputs: readonly unknown[], globals = 0) =>
+  inputs.length + globals <= wholeSelectionMaxRows;
 
 export interface PublishApi {
   post(body: PublishBody, switched?: true): Promise<PublishAnswer>;
@@ -53,6 +81,8 @@ export interface PublishApi {
   /** A translators' operation, with the reason of each row that refused it. */
   translationStatus(opId: string): Promise<PublishAnswer | { status: 'unknown' }>;
   kick(opId: string): Promise<void>;
+  /** Marks a whole request's outcome seen on every device of the account (best effort). */
+  ack?(opId: string): Promise<void>;
 }
 
 export interface DriverDeps {
@@ -69,6 +99,11 @@ export interface DriverDeps {
   acknowledge(op: PublishOp): void;
   /** The Worker refused this account: its languages may have changed. */
   forbidden?(): void;
+  /**
+   * Send each confirmed selection as one whole request (installed publisher `wholeSelectionV1`).
+   * Off: today's parts. Stored parts of either kind always resume.
+   */
+  wholeSelection?: boolean;
 }
 
 export interface PublishState {
@@ -101,6 +136,8 @@ export interface PublishInput {
   removal?: boolean;
   /** Reviewed imports and live readers that must publish ahead of a removal. */
   dependencies?: readonly number[];
+  /** Display name, for the rows a whole request holds back. */
+  name?: string;
 }
 
 export const publishingAlready =
@@ -246,6 +283,11 @@ export class PublishDriver {
 
   constructor(private readonly deps: DriverDeps) {}
 
+  /** Whether new selections go as one whole request. */
+  get whole(): boolean {
+    return !!this.deps.wholeSelection;
+  }
+
   /**
    * Switch to an account (or null). Resumes that account's stored operations: a translator's own
    * rows, or an editor's whole publishes, never those of a role the account no longer has.
@@ -303,8 +345,9 @@ export class PublishDriver {
     if (!userId) throw new Error('Sign in to publish.');
     if (!inputs.length && !globals.length) throw new Error('Nothing to publish.');
     const now = this.deps.now();
-    const planned = inputs.length ? publishChunks(inputs) : [[]];
-    const groupId = newOpId(now);
+    const whole = this.wholeOp(userId, now, inputs, globals, switched);
+    const planned = whole ? [] : inputs.length ? publishChunks(inputs) : [[]];
+    const groupId = whole?.opId ?? newOpId(now);
     const chunks: PublishOp[] = [];
     for (const chunk of planned) {
       const op: PublishOp = {
@@ -342,6 +385,7 @@ export class PublishDriver {
         throw new Error('This publish is too large to send. Nothing was sent.');
       chunks.push(op);
     }
+    if (whole) chunks.push(whole);
     let busy = false;
     try {
       // A publish stored since Review listed these rows (or one still recovering) holds them.
@@ -366,6 +410,44 @@ export class PublishDriver {
     // Send in sequence to avoid a burst of CAS collisions between our own chunks.
     void this.sendChunks(chunks);
     return chunks[0]!;
+  }
+
+  /**
+   * The whole selection as one request, or undefined when it is larger than one request takes
+   * (then it goes in today's parts).
+   */
+  private wholeOp(
+    userId: string,
+    now: number,
+    inputs: readonly PublishInput[],
+    globals: NonNullable<PublishOp['globals']>,
+    switched: boolean,
+  ): PublishOp | undefined {
+    if (!this.whole || !fitsWhole(inputs, globals.length)) return undefined;
+    const op: PublishOp = {
+      opId: newOpId(now),
+      round: 0,
+      userId,
+      createdAt: now,
+      hashes: inputs.map((input) => input.hash),
+      expected: Object.fromEntries(inputs.map((input) => [input.hash, input.digest])),
+      previous: Object.fromEntries(inputs.map((input) => [input.hash, input.previous ?? null])),
+      ...(inputs.some(({ marker }) => marker)
+        ? {
+            markers: Object.fromEntries(
+              inputs.flatMap(({ hash, marker }) => (marker ? [[hash, marker]] : [])),
+            ),
+          }
+        : {}),
+      ...(globals.length ? { globals } : {}),
+      ...(switched ? { switched: true as const } : {}),
+      whole: true,
+      names: Object.fromEntries(inputs.flatMap(({ hash, name }) => (name ? [[hash, name]] : []))),
+      status: 'created',
+      updatedAt: now,
+    };
+    const bodyBytes = new TextEncoder().encode(JSON.stringify(publishBody(op))).length;
+    return bodyBytes <= publishTiming.maxBodyBytes ? op : undefined;
   }
 
   /** A translator's publish: independent rows, sent in parts of the size the Worker takes. */
@@ -466,6 +548,14 @@ export class PublishDriver {
     const op = this.current(opId);
     if (!op || !isTerminal(op.status)) return;
     await this.deps.store.update(opId, (current) => ({ ...current, dismissed: true }));
+    // A whole request's late failure also shows on the account's other devices until seen.
+    if (
+      op.whole &&
+      (op.held?.length ||
+        op.refusedGlobals?.length ||
+        (op.status !== 'done' && op.status !== 'unchanged'))
+    )
+      void this.deps.api.ack?.(opId).catch(() => undefined);
     usePublishState.setState((state) => ({
       ops: state.ops.filter((entry) => entry.opId !== opId),
     }));
@@ -525,6 +615,7 @@ export class PublishDriver {
       (op) =>
         !liveGroups.has(op.groupId ?? op.opId) &&
         isTerminal(op.status) &&
+        !wholeAttention(op) &&
         stored
           .filter((entry) => (entry.groupId ?? entry.opId) === (op.groupId ?? op.opId))
           .every((entry) => now - entry.updatedAt > publishTiming.retainMs),
@@ -611,14 +702,14 @@ export class PublishDriver {
         if (due <= now) await this.send(op.opId);
       } else if (op.status === 'pending') {
         const accepted = op.acceptedAt ?? op.createdAt;
-        if (now - accepted > publishTiming.pollGiveUpMs) {
+        if (!op.whole && now - accepted > publishTiming.pollGiveUpMs) {
           this.note(
             op.opId,
             'Still waiting after 24 hours. Check live status; this is no longer polled.',
           );
           continue;
         }
-        const gap = publishTiming.pollMs(now - accepted) * 0.8;
+        const gap = pollGap(op, now - accepted) * 0.8;
         const polled = await this.claim(op.opId, (current, at) =>
           current.polledAt !== undefined && at - current.polledAt < gap
             ? undefined
@@ -732,6 +823,7 @@ export class PublishDriver {
       if (isTerminal(op.status) || this.paused.has(op.opId) || this.inFlight.has(op.opId)) continue;
       if (
         op.status === 'pending' &&
+        !op.whole &&
         now - (op.acceptedAt ?? op.createdAt) > publishTiming.pollGiveUpMs
       )
         continue;
@@ -744,7 +836,7 @@ export class PublishDriver {
         );
       } else {
         const accepted = op.acceptedAt ?? op.createdAt;
-        next = Math.min(next, (op.polledAt ?? 0) + publishTiming.pollMs(now - accepted));
+        next = Math.min(next, (op.polledAt ?? 0) + pollGap(op, now - accepted));
       }
     }
     if (next === Infinity) return;
@@ -803,6 +895,33 @@ export class PublishDriver {
   private async adopt(opId: string, remote: RemoteStatus, answer?: PublishAnswer) {
     const op = this.current(opId);
     if (!op) return;
+    if (op.whole && !answer && remote !== 'pending') {
+      // The status projection carries no reasons: the exact POST replays this intent's result,
+      // with the rows it held and why, and never creates anything.
+      const generation = this.generation;
+      try {
+        answer = await this.post(op);
+      } catch (reason) {
+        if (generation !== this.generation) return;
+        const status = reason instanceof PublishHttpError ? reason.status : 0;
+        if (status === 401) {
+          this.paused.add(opId);
+          this.note(opId, 'Sign in again to continue; nothing is lost.');
+        } else if (status === 403 || status === 409) {
+          if (status === 403) this.deps.forbidden?.();
+          return this.settle(opId, {
+            status: remote === 'done' || remote === 'unchanged' ? 'failed' : remote,
+            acceptedAt: op.acceptedAt ?? this.deps.now(),
+            receiptChecked: true,
+            error:
+              'The publish finished, but its result could not be read. Check live status before publishing these again.',
+          });
+        } else this.note(opId, 'Checking the publish result.');
+        return;
+      }
+      if (generation !== this.generation || answer.status === 'pending') return;
+      remote = answer.status;
+    }
     let refusedGlobals: NonNullable<PublishOp['refusedGlobals']> = [];
     if (op.globals && (remote === 'done' || remote === 'unchanged')) {
       // Finished says nothing about single globals: only the receipt's own outcomes do.
@@ -855,7 +974,16 @@ export class PublishDriver {
     }
     if (op.translations && answer?.rows) return this.refuseRows(op, answer.rows);
     const refusal = remote === 'rejected' ? answer?.refusal : undefined;
+    const held = op.whole
+      ? answer?.held?.map(({ hash, reason }) => ({
+          hash,
+          name: op.names?.[hash] ?? `Tooltip ${hash}`,
+          reason,
+        }))
+      : undefined;
     return this.settle(opId, {
+      ...(held?.length ? { held } : {}),
+      ...(op.whole && remote === 'failed' && answer?.refusal ? { error: answer.refusal } : {}),
       status: remote,
       acceptedAt: op.acceptedAt ?? this.deps.now(),
       ...(remote === 'rejected' && (answer || op.translations) ? { receiptChecked: true } : {}),
@@ -1174,11 +1302,13 @@ export class PublishDriver {
     }
     this.note(
       op.opId,
-      status === 0
-        ? 'Offline; retrying.'
-        : workerError
-          ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
-          : `Worker busy (HTTP ${status}); retrying.`,
+      op.whole
+        ? 'Checking whether the publish was received.'
+        : status === 0
+          ? 'Offline; retrying.'
+          : workerError
+            ? `Worker error (HTTP ${status}: ${message.slice(0, 160)}); retrying.`
+            : `Worker busy (HTTP ${status}); retrying.`,
     );
   }
 

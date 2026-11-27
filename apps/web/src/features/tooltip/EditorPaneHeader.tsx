@@ -1,9 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { languages, langSchema, type Lang } from '@clarity/core';
 import { languageLabel } from '../../languageLabels';
-import { Popover } from '../../ui/Popover';
-import { scaledPx } from '../../ui/scale';
-import { GroupedPerks, groupedLabel, groupedTitle } from './GroupedPerks';
+import { GroupedPerks } from './GroupedPerks';
 import { EnhancedArrow } from '../../ui/EnhancedArrow';
 import { phoneQuery, useMedia } from '../../ui/useMedia';
 import { DiscardConfirm, EditorMore, PhoneTools, type QueueBack, type ToolId } from './EditorMore';
@@ -41,8 +39,7 @@ export function EditorPaneHeader({
   draftLoader,
   destination,
   worklistControl,
-  inactiveControl,
-  inactiveMenuControl,
+  moreControls,
   inactiveHash,
   markHash,
   reserveDraft = false,
@@ -73,11 +70,10 @@ export function EditorPaneHeader({
   draftLoader?: React.ReactNode;
   /** Scheduled changes: the badge naming the open batch this tooltip is in. */
   destination?: React.ReactNode;
-  /** Maintainer-only inactive move, with its own deliberate confirmation. */
-  inactiveControl?: React.ReactNode;
-  /** The same action with its words, for More when the desktop line has no room for it. */
-  inactiveMenuControl?: React.ReactNode;
+  /** An action at the line's end (Globals: Actions); in More only when the line has no room. */
   worklistControl?: React.ReactNode;
+  /** Rare actions that always sit in More (Add to worklist, Move to Inactive), at every width. */
+  moreControls?: React.ReactNode;
   /** Undefined on batch visits, where global move actions are unavailable. */
   inactiveHash?: number;
   markHash?: number;
@@ -100,7 +96,7 @@ export function EditorPaneHeader({
           draftLoader,
           destination,
           worklistControl,
-          inactiveControl,
+          moreControls,
           inactiveHash,
           markHash,
           reserveDraft,
@@ -122,8 +118,7 @@ export function EditorPaneHeader({
         draftLoader,
         destination,
         worklistControl,
-        inactiveControl,
-        inactiveMenuControl,
+        moreControls,
         inactiveHash,
         markHash,
         reserveDraft,
@@ -134,16 +129,10 @@ export function EditorPaneHeader({
 
 /**
  * The desktop tools More can take, in the order they go there (the rarest first). "marksLabels" is
- * a step, not a tool: the marks' names become a count ("Marks (2)") on the line.
+ * a step, not a tool: the marks' names become a count ("Marks (2)") on the line. Grouped, Add to
+ * worklist, and Move to Inactive are not here: they are always in More.
  */
-export const spillOrder = [
-  'grouped',
-  'inactive',
-  'worklist',
-  'marksLabels',
-  'overrides',
-  'marks',
-] as const;
+export const spillOrder = ['worklist', 'marksLabels', 'overrides', 'marks'] as const;
 export type SpillTool = (typeof spillOrder)[number];
 /** How many of the line's spare tools sit in More, and whether the line still wraps. */
 export interface RowFit {
@@ -236,12 +225,23 @@ function useRowFit(
   key: string,
   /** The marks' names: other marks are measured again. */
   marksKey: string,
+  /** More is on the line whatever fits (Grouped, rare actions): its width is already counted. */
+  moreAlways: boolean,
 ) {
-  const [fit, setFit] = useState<RowFit>({ moved: 0, wrap: false });
+  // The tools in More are kept by name: when one leaves the list (the last mark resolved takes
+  // "marksLabels" away), the others stay where they are instead of shifting into More, so an open
+  // Marks popover is not remounted mid-save.
+  const [fit, setFit] = useState<RowFit & { names: readonly SpillTool[] }>({
+    moved: 0,
+    wrap: false,
+    names: [],
+  });
   const fitRef = useRef(fit);
   fitRef.current = fit;
   const toolsRef = useRef(tools);
   toolsRef.current = tools;
+  const alwaysRef = useRef(moreAlways);
+  alwaysRef.current = moreAlways;
   // Kept in rem, so a new interface scale does not leave a stale width.
   const widths = useRef<Partial<Record<SpillTool, number>>>({});
   const more = useRef(0);
@@ -255,7 +255,7 @@ function useRowFit(
     for (const tool of element.querySelectorAll<HTMLElement>(':scope > [data-spill]'))
       widths.current[tool.dataset.spill as SpillTool] =
         (tool.getBoundingClientRect().width + gap) / rem;
-    const { moved } = fitRef.current;
+    const moved = toolsRef.current.filter((tool) => fitRef.current.names.includes(tool)).length;
     const inPlace = toolsRef.current[0] === 'marksLabels' ? 1 : 0;
     const trigger = moved > inPlace ? (element.lastElementChild as HTMLElement | null) : null;
     if (trigger) more.current = (trigger.getBoundingClientRect().width + gap) / rem;
@@ -272,13 +272,14 @@ function useRowFit(
         // The names only become the count: about as wide as "Marks (2)" until that was seen.
         return Math.max(0, width - (widths.current.marks ?? 4.5)) * rem;
       }),
-      Math.min(moved, toolsRef.current.length),
-      (more.current || 1.5 + gap / rem) * rem,
+      moved,
+      alwaysRef.current ? 0 : (more.current || 1.5 + gap / rem) * rem,
       inPlace,
     );
-    if (next.moved !== fitRef.current.moved || next.wrap !== fitRef.current.wrap) {
-      fitRef.current = next;
-      setFit(next);
+    const names = toolsRef.current.slice(0, next.moved);
+    if (names.join() !== fitRef.current.names.join() || next.wrap !== fitRef.current.wrap) {
+      fitRef.current = { ...next, names };
+      setFit(fitRef.current);
     }
   };
   // What the line holds changed: measure before paint, so it never shows a clipped frame.
@@ -330,8 +331,7 @@ function DesktopToolRow({
   draftLoader,
   destination,
   worklistControl,
-  inactiveControl,
-  inactiveMenuControl,
+  moreControls,
   inactiveHash,
   markHash,
   reserveDraft: reserve = false,
@@ -342,9 +342,8 @@ function DesktopToolRow({
   const marked = useMarksStore((state) => (markHash ? state.index.get(markHash) : undefined));
   const marksKey = marked?.map((mark) => mark.label).join('|') ?? '';
   const right = useRef<HTMLSpanElement>(null);
+  const moreAlways = !!grouped || !!moreControls;
   const present: Record<SpillTool, boolean> = {
-    grouped: !!grouped,
-    inactive: !!inactiveControl,
     worklist: !!worklistControl,
     // Beside an open version the marks are always a count.
     marksLabels: marksShown && !!marksKey && !activeOverride,
@@ -364,36 +363,18 @@ function DesktopToolRow({
       switchTo,
       activeOverride?.hash,
       overrides.length,
-      grouped?.length,
+      moreAlways,
       Boolean(queue),
       Boolean(draftLoader),
       Boolean(markup),
       Boolean(worklistControl),
-      Boolean(inactiveControl),
       marksShown,
     ].join('|'),
     marksKey,
+    moreAlways,
   );
-  const inMore = new Set(tools.slice(0, fit.moved));
+  const inMore = new Set(tools.filter((tool) => fit.names.includes(tool)));
   const marksCount = inMore.delete('marksLabels') || !!activeOverride;
-  const groupedControl = grouped && (
-    <Popover
-      label={groupedLabel}
-      width={scaledPx(640)}
-      triggerLabel={`Grouped ${grouped.length}: ${groupedLabel.toLowerCase()}`}
-      className={styles.ghost}
-      trigger={
-        <>
-          <span className={styles.groupedIcon} aria-hidden="true" />
-          <span className={styles.groupedWord}>Grouped </span>
-          {grouped.length}
-        </>
-      }
-      triggerTitle={groupedTitle}
-    >
-      <GroupedPerks perks={grouped} currentHash={inactiveHash} />
-    </Popover>
-  );
   const marksControl = marksShown && markHash !== undefined && (
     <MarksControl hash={markHash} className={styles.ghost} compact={marksCount} />
   );
@@ -403,14 +384,13 @@ function DesktopToolRow({
       className={styles.ghost}
       aria-pressed={markup.open}
       aria-keyshortcuts="Control+."
-      title="Show or hide the markup row at the top of the editor"
+      title="Show or hide the markup row at the top of the editor (Ctrl+.)"
       onClick={markup.toggle}
     >
       {/* One flex item: the button's gap must not land between the two words. */}
       <span>
         Markup<span className={styles.markupWord}> tools</span>
-      </span>{' '}
-      <kbd className={styles.key}>Ctrl+.</kbd>
+      </span>
     </button>
   );
   return (
@@ -463,7 +443,7 @@ function DesktopToolRow({
       <span
         ref={right}
         className={styles.paneRight}
-        data-tool-fit={inMore.size ? 'spill' : 'full'}
+        data-tool-fit={inMore.size || moreAlways ? 'spill' : 'full'}
         data-wrap={fit.wrap || undefined}
       >
         {worklistControl && !inMore.has('worklist') && (
@@ -471,12 +451,6 @@ function DesktopToolRow({
         )}
         {marksControl && !inMore.has('marks') && (
           <span data-spill={marksCount || !marksKey ? 'marks' : 'marksLabels'}>{marksControl}</span>
-        )}
-        {inactiveControl && !inMore.has('inactive') && (
-          <span data-spill="inactive">{inactiveControl}</span>
-        )}
-        {groupedControl && !inMore.has('grouped') && (
-          <span data-spill="grouped">{groupedControl}</span>
         )}
         {activeOverride ? (
           <BackToBase onBack={onBack} />
@@ -497,8 +471,9 @@ function DesktopToolRow({
             </span>
           )
         )}
-        {inMore.size > 0 && (
-          // The tools that did not fit, in the phone's More (same rows, same handlers).
+        {(inMore.size > 0 || moreAlways) && (
+          // Grouped, the rare actions, and the tools that did not fit, in the phone's More (same
+          // rows, same handlers).
           <EditorMore
             draft={false}
             saving={saving}
@@ -509,18 +484,18 @@ function DesktopToolRow({
             renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
             rows={
               new Set<ToolId>([
-                ...(inMore.has('grouped') ? (['grouped'] as const) : []),
+                ...(grouped ? (['grouped'] as const) : []),
                 ...(inMore.has('overrides')
                   ? overrides.map((target) => `override:${target.hash}` as const)
                   : []),
               ])
             }
             extra={
-              inMore.has('worklist') || inMore.has('inactive') || inMore.has('marks') ? (
+              inMore.has('worklist') || inMore.has('marks') || moreControls ? (
                 <>
                   {inMore.has('marks') && marksControl}
                   {inMore.has('worklist') && worklistControl}
-                  {inMore.has('inactive') && (inactiveMenuControl || inactiveControl)}
+                  {moreControls}
                 </>
               ) : undefined
             }
@@ -604,7 +579,7 @@ function PhoneToolRow({
   draftLoader,
   destination,
   worklistControl,
-  inactiveControl,
+  moreControls,
   inactiveHash,
   markHash,
   reserveDraft: reserve = false,
@@ -648,11 +623,11 @@ function PhoneToolRow({
         queue={queue}
         renderGrouped={(perks) => <GroupedPerks perks={perks} currentHash={inactiveHash} />}
         extra={
-          worklistControl || inactiveControl || (activeOverride && marksControl) ? (
+          worklistControl || moreControls || (activeOverride && marksControl) ? (
             <>
               {activeOverride && marksControl}
               {worklistControl}
-              {inactiveControl}
+              {moreControls}
             </>
           ) : undefined
         }

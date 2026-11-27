@@ -208,6 +208,11 @@
   }
 }
 
+// The rare actions share one item: each is a row of its own, divided like the others.
+.rows > .extra > * + * {
+  border-top: 1px solid var(--hair);
+}
+
 .nested {
   padding: 0 var(--page-x, 0.5rem) 0.5rem;
   font-size: 0.8125rem;

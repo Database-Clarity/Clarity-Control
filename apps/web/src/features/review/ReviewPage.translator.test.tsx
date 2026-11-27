@@ -707,7 +707,10 @@ it('never restores an editor’s ticks, or continues its publish, for the transl
   expect(dialog()).toBeNull();
   await publishDriver.refresh();
   expect(usePublishState.getState().ops).toEqual([]);
-  expect(calls.filter(({ path }) => path.startsWith('/publish'))).toEqual([]);
+  // Only the account's own publish index is read (for a late failure it may still have).
+  expect(
+    calls.filter(({ path }) => path.startsWith('/publish') && path !== '/publish/mine'),
+  ).toEqual([]);
 });
 
 it('leaves no row or tick behind at sign-out or for another account', async () => {

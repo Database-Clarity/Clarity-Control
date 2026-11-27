@@ -88,7 +88,7 @@ export function EditorMore({
             </button>
           </header>
           <ul className={styles.rows}>
-            {extra && <li>{extra}</li>}
+            {extra && <li className={styles.extra}>{extra}</li>}
             {markup && (
               <li>
                 <button
@@ -350,7 +350,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
   const all: Tool[] = [
     ...(markup ? [{ id: 'markup' as const, label: 'Markup' }] : []),
     { id: 'discard', label: 'Discard' },
-    ...(grouped ? [{ id: 'grouped' as const, label: `Grouped ${grouped.length}` }] : []),
+    // Grouped is never inline: it is always a row of More.
     ...overrides.map((target) => ({
       id: `override:${target.hash}` as const,
       label: editLabel(target, overrides.length > 1),
@@ -416,7 +416,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
   }, [key, hasQueue]);
   // Unmeasured (no layout yet, or no ResizeObserver): every tool in More (a lone one inline).
   const widths = tools.map((tool) => layout?.widths[tool.label] ?? 0);
-  const alwaysMore = Boolean(props.extra);
+  const alwaysMore = Boolean(props.extra || grouped);
   let count = layout ? phoneFit(widths, layout, alwaysMore) : tools.length <= 1 ? tools.length : 0;
   const wrap =
     !!layout &&
@@ -425,7 +425,8 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
     (tools.length > 0 || alwaysMore) &&
     layout.more > layout.room;
   if (wrap) count = phoneFit(widths, { ...layout, room: layout.rowWidth }, alwaysMore);
-  const overflow = new Set(tools.slice(count).map((tool) => tool.id));
+  const overflow = new Set<ToolId>(tools.slice(count).map((tool) => tool.id));
+  if (grouped) overflow.add('grouped');
   return (
     <span
       className={styles.phoneRow}
@@ -451,7 +452,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
             {props.queue}
           </span>
         )}
-        {(overflow.size > 0 || props.extra) && (
+        {(overflow.size > 0 || alwaysMore) && (
           <EditorMore
             {...{ markup, draft, saving, onDiscard, grouped, overrides, onEditOverride }}
             renderGrouped={renderGrouped}
@@ -466,7 +467,7 @@ export function PhoneTools(props: MoreProps & { queue?: React.ReactNode; reserve
 }
 
 function InlineTool({ tool, ...props }: { tool: Tool } & MoreProps) {
-  const { markup, saving, onDiscard, grouped, onEditOverride, renderGrouped } = props;
+  const { markup, saving, onDiscard, onEditOverride } = props;
   if (tool.id === 'markup' && markup)
     return (
       <button
@@ -494,18 +495,6 @@ function InlineTool({ tool, ...props }: { tool: Tool } & MoreProps) {
         saving={saving}
         onDiscard={onDiscard}
       />
-    );
-  if (tool.id === 'grouped' && grouped)
-    return (
-      <Popover
-        label={groupedLabel}
-        className={styles.tool}
-        contain
-        trigger={tool.label}
-        triggerTitle={groupedTitle}
-      >
-        {renderGrouped(grouped)}
-      </Popover>
     );
   const hash = Number(tool.id.slice('override:'.length));
   return (

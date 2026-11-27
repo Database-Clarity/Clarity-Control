@@ -227,6 +227,22 @@
   justify-content: flex-end;
 }
 
+// A line that needs attention opens on click, tap, Enter, or Space to show every held row and reason.
+.activityText[role='button'] {
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-ink);
+    outline-offset: 2px;
+  }
+}
+
+.activityText[data-open] {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+
 @media (max-width: 700px) {
   .activity li {
     grid-template-columns: 6.5rem minmax(0, 1fr) 4.25rem;

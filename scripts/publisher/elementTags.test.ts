@@ -61,6 +61,7 @@ it('preserves the current capabilities and declares numberTokens in its PIN', ()
     'globalsInPlaceV1',
     'translationPublishV1',
     'clearedRemovals',
+    'wholeSelectionV1',
   ]);
 });
 

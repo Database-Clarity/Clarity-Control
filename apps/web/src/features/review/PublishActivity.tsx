@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { isTerminal } from '../../services/publisher/opStore';
 import { publishDriver } from './publisher';
 import { usePublishState } from './publishDriver';
@@ -27,6 +27,14 @@ function useNow(running: boolean): number {
  */
 export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
   const { ops, notes, storageError } = usePublishState();
+  // Lines whose full reason is open (touch and keyboard have no hover title).
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (opId: string) =>
+    setOpen((current) => {
+      const next = new Set(current);
+      if (!next.delete(opId)) next.add(opId);
+      return next;
+    });
   const running = ops.some((op) => !isTerminal(op.status)) || Boolean(queue?.length);
   const now = useNow(running);
   const settings = useSyncedSettings();
@@ -39,7 +47,8 @@ export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
   return (
     <section className={styles.activity} aria-label="Publish activity">
       {storageError && <p role="alert">{storageError}</p>}
-      <ul>
+      {/* Polite: "Publishing, safe to close" and each outcome are announced as they change. */}
+      <ul aria-live="polite">
         {groupPublishes(ops, now).map(({ op, members, liveCount, checking }) => {
           const pending = members.find((member) => member.status === 'pending');
           const active = pending ?? members.find((member) => member.status === 'created');
@@ -54,6 +63,20 @@ export function PublishActivity({ queue }: { queue: Bundle['publishQueue'] }) {
               <span
                 className={styles.activityText}
                 title={`${view.lead} (${startedAt}) — ${view.detail}`}
+                {...(view.tone === 'warn' || view.tone === 'bad'
+                  ? {
+                      role: 'button',
+                      tabIndex: 0,
+                      'aria-expanded': open.has(op.opId),
+                      'data-open': open.has(op.opId) || undefined,
+                      onClick: () => toggle(op.opId),
+                      onKeyDown: (event: KeyboardEvent) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        toggle(op.opId);
+                      },
+                    }
+                  : {})}
               >
                 <b>{view.lead}</b> {view.detail}
               </span>

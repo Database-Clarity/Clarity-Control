@@ -125,3 +125,30 @@ for (const [name, make] of [
     expect(await reloaded.claimKick('A', 400, (_, bundleAt) => bundleAt === 350)).toBe(true);
   });
 }
+
+it('IndexedDB: a whole request is invisible to a previous-client tab and reads back unchanged', async () => {
+  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() });
+  const store = createIndexedDbOpStore();
+  const whole = op('W', { whole: true, hashes: [10, 20] });
+  await store.addMany([op('A'), whole]);
+  // What the previous client lists: records whose userId is exactly the account id.
+  const raw = await new Promise<PublishOp[]>((resolve, reject) => {
+    const open = indexedDB.open('clarity-publisher', 1);
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const all = open.result.transaction('operations').objectStore('operations').getAll();
+      all.onsuccess = () => {
+        open.result.close();
+        resolve(all.result as PublishOp[]);
+      };
+    };
+  });
+  expect(raw.filter(({ userId }) => userId === '1').map(({ opId }) => opId)).toEqual(['A']);
+  expect((await store.list('1')).map(({ opId, userId }) => [opId, userId])).toEqual([
+    ['A', '1'],
+    ['W', '1'],
+  ]);
+  const updated = await store.update('W', (current) => ({ ...current, status: 'pending' }));
+  expect(updated).toMatchObject({ userId: '1', status: 'pending', whole: true });
+  expect((await store.list('1')).find(({ opId }) => opId === 'W')?.status).toBe('pending');
+});

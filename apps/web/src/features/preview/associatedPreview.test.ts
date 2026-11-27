@@ -22,33 +22,68 @@ afterEach(() => {
   shared.data = null;
 });
 
-test('associated previews retain full descriptions under ordinary headings', () => {
+const toggle = (host: HTMLElement, name: string) =>
+  act(async () =>
+    [...host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.hasAttribute('aria-expanded') && button.textContent === name)!
+      .click(),
+  );
+
+test('associated tooltips are one line of names until one opens its full description', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   const data = editorData();
-  data.bundle.tooltips[123] = { ...data.bundle.tooltips[123], associated: [321] };
+  data.bundle.tooltips[123] = { ...data.bundle.tooltips[123], associated: [321, 322] };
   data.items[321] = { ...data.items[123], hash: 321, name: 'Associated' };
+  data.items[322] = { ...data.items[123], hash: 322, name: 'Second' };
   data.bundle.tooltips[321] = {
     hash: 321,
     associated: [],
     text: { de: { ...english, text: '<weapons Sword>\nBody\n</weapons>' } },
   };
+  data.bundle.tooltips[322] = { hash: 322, associated: [], text: {} };
   shared.data = data;
-  const html = renderToStaticMarkup(
-    createElement(
-      MemoryRouter,
-      {},
-      createElement(TooltipPreview, {
-        text: 'Main',
-        lang: 'de',
-        name: 'Parent',
-        tooltipHash: 123,
-        globals: { variables: '', titles: '' },
-      }),
-    ),
+  const element = createElement(
+    MemoryRouter,
+    {},
+    createElement(TooltipPreview, {
+      text: 'Main',
+      lang: 'de',
+      name: 'Parent',
+      tooltipHash: 123,
+      globals: { variables: '', titles: '' },
+    }),
   );
+  const html = renderToStaticMarkup(element);
   expect(html).toContain('Associated tooltip previews');
-  expect(html).toContain('Sword');
-  expect(html).toContain('Body');
-  expect(html).not.toContain('<select');
+  expect(html).toContain('Associated');
+  expect(html).toContain('Second');
+  // Closed: names only, no description.
+  expect(html).not.toContain('Body');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(element));
+    await toggle(host, 'Associated');
+    expect(host.textContent).toContain('Sword');
+    expect(host.textContent).toContain('Body');
+    expect(host.querySelector('select')).toBeNull();
+    expect(host.querySelector('[aria-expanded="true"]')?.textContent).toBe('Associated');
+    // The open preview links to the tooltip itself.
+    expect(
+      [...host.querySelectorAll('a')].find((link) => link.textContent === 'Open Associated'),
+    ).toBeDefined();
+    // One open at a time.
+    await toggle(host, 'Second');
+    expect(host.textContent).not.toContain('Body');
+    expect(host.textContent).toContain('No German text yet.');
+    await toggle(host, 'Second');
+    expect(host.querySelector('[data-associated]')).toBeNull();
+    expect(host.querySelector('[aria-expanded="true"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });
 
 test('typing leaves associated previews alone while their own text and membership stay live', async () => {
@@ -85,6 +120,7 @@ test('typing leaves associated previews alone while their own text and membershi
         ),
       ),
     );
+    await toggle(host, 'Associated');
     expect(host.textContent).toContain('Associated body');
     vi.mocked(parseMarkup).mockClear();
     await act(async () =>
@@ -119,6 +155,17 @@ test('typing leaves associated previews alone while their own text and membershi
       }),
     );
     expect(host.querySelector('[aria-label="Associated tooltip previews"]')).toBeNull();
+    // Added back, it starts closed: the open one was forgotten when it left the list.
+    await act(async () =>
+      useDraftStore.setState({
+        drafts: {
+          ...useDraftStore.getState().drafts,
+          123: { base: parent, next: { ...parent, associated: [321] } },
+        },
+      }),
+    );
+    expect(host.querySelector('[aria-label="Associated tooltip previews"]')).not.toBeNull();
+    expect(host.querySelector('[data-associated]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     host.remove();

@@ -20,6 +20,7 @@ import { publishDependencies } from './publishDependencies';
 import {
   activeGlobals,
   activeHashes,
+  fitsWhole,
   publishChunks,
   PublishClosureLimitError,
   publishingAlready,
@@ -68,9 +69,10 @@ export function planReviewedPublish(
       .filter((entry) => !entry.markerOnly && !entry.part?.pending)
       .map((entry) => [entry.tooltip.hash, entry]),
   );
-  const inputs = entries.map(({ tooltip, pushed, inactiveChange, inactiveAliases }) => ({
+  const inputs = entries.map(({ tooltip, name, pushed, inactiveChange, inactiveAliases }) => ({
     tooltip,
     hash: tooltip.hash,
+    name,
     pushed,
     previous: bundle.pushed[tooltip.hash],
     consumers: inactiveChange === 'remove' ? 1 : Object.keys(tooltip.text).length,
@@ -117,7 +119,9 @@ export function planReviewedPublish(
     dependencies: dependencies.get(input.hash),
   }));
   try {
-    publishChunks(planned);
+    // One whole request needs no split; only a selection beyond it goes in today's parts.
+    if (!publishDriver.whole || !fitsWhole(planned, chosen.length - entries.length))
+      publishChunks(planned);
   } catch (reason) {
     if (reason instanceof PublishClosureLimitError) {
       const names = new Map(entries.map(({ tooltip, name }) => [tooltip.hash, name]));

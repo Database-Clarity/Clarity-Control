@@ -208,6 +208,7 @@ beforeEach(async () => {
         return Response.json({ operations: [{ opId, status: statusAnswer }] });
       }
       if (path === '/publish/kick') return Response.json({ status: 'pending' }, { status: 202 });
+      if (path === '/publish/ack') return Response.json({ acknowledged: true });
       throw Error(`Blocked network: ${url}`);
     }),
   );
@@ -353,14 +354,16 @@ it('follows one reviewed request through Queued and Published', async () => {
   await click('Publish 1');
   await waitFor(() => expect(posts()).toHaveLength(1));
   const body = posts()[0]!.body as { opId: string; hashes: number[]; expected: object };
-  expect(Object.keys(body).sort()).toEqual(['expected', 'hashes', 'opId']);
+  // One request for the whole confirmed selection.
+  expect(Object.keys(body).sort()).toEqual(['expected', 'hashes', 'opId', 'selection']);
+  expect(body).toMatchObject({ selection: 'whole' });
   expect(body.hashes).toEqual([10]);
   expect(body.expected).toEqual({ 10: await publishableHash(tooltip) });
   // The legacy path is never used with the flag on.
   expect(calls.some((c) => c.path === '/push-live')).toBe(false);
   await waitFor(() => {
     const activity = host.querySelector('[aria-label="Publish activity"]')!;
-    expect(activity.textContent).toContain('Queued');
+    expect(activity.textContent).toContain('Publishing, safe to close.');
     expect(activity.textContent).toContain('1 tooltip');
   });
   // Still pending in the list, but cannot be picked again.
@@ -369,6 +372,7 @@ it('follows one reviewed request through Queued and Published', async () => {
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
   // The Worker finishes: the next status poll turns it into Published and clears the pending count.
   statusAnswer = 'done';
+  postAnswer = () => Response.json({ opId: 'x', result: { status: 'done' } });
   vi.setSystemTime(Date.now() + publishTiming.pollMs(0) + 500);
   await act(async () => void (await publishDriver.refresh()));
   await waitFor(() => {
@@ -406,7 +410,7 @@ it('names an unselected pending import before confirmation, then publishes its r
   await openPublish();
   await click('Publish 2');
   await waitFor(() => expect(posts()).toHaveLength(1));
-  expect((posts()[0]!.body as { hashes: number[] }).hashes).toEqual([10, 20]);
+  expect((posts()[0]!.body as { hashes: number[] }).hashes.sort()).toEqual([10, 20]);
   expect(useReviewSession.getState().error).toBeUndefined();
 });
 
@@ -418,16 +422,81 @@ it('shows stale and failed outcomes and leaves the tooltips pending', async () =
   await click('Publish 1');
   await waitFor(() => expect(posts()).toHaveLength(1));
   statusAnswer = 'stale';
+  // The status carries no reasons: the exact POST replays the terminal result.
+  postAnswer = () =>
+    Response.json({
+      opId: 'x',
+      result: {
+        status: 'stale',
+        held: [{ hash: 10, code: 'changed', reason: 'Saved text changed after review.' }],
+      },
+    });
   vi.setSystemTime(Date.now() + publishTiming.pollMs(0) + 500);
   await act(async () => void (await publishDriver.refresh()));
   await waitFor(() => {
     const activity = host.querySelector('[aria-label="Publish activity"]')!;
-    expect(activity.textContent).toContain('Changed');
-    expect(activity.textContent).toContain('Nothing from this request went live');
+    expect(activity.textContent).toContain('Attention');
+    expect(activity.textContent).toContain(
+      'Not published: Tooltip 10 (Saved text changed after review).',
+    );
   });
   expect(host.textContent).toContain('1 change waiting to go live');
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(false);
   expect(useReviewSession.getState().acknowledgments).toEqual({});
+});
+
+it('publishes the rest of a whole selection and keeps a held row pending and selectable', async () => {
+  bundle.tooltips[20] = {
+    ...structuredClone(tooltip),
+    hash: 20,
+    custom: { name: 'Second', categoryId: 'other' },
+  };
+  await mount();
+  await selectAll();
+  await openPublish();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  await click('Publish 2');
+  await waitFor(() => expect(posts()).toHaveLength(1));
+  statusAnswer = 'done';
+  postAnswer = () =>
+    Response.json({
+      opId: 'x',
+      result: {
+        status: 'done',
+        held: [{ hash: 20, code: 'changed', reason: 'Saved text changed after review.' }],
+      },
+    });
+  vi.setSystemTime(Date.now() + publishTiming.pollMs(0) + 500);
+  await act(async () => void (await publishDriver.refresh()));
+  await waitFor(() => {
+    const activity = host.querySelector('[aria-label="Publish activity"]')!;
+    expect(activity.textContent).toContain('Partly live');
+    expect(activity.textContent).toContain(
+      'Not published: Second (Saved text changed after review). The rest is live.',
+    );
+    expect(host.textContent).toContain('1 change waiting to go live');
+  });
+  expect(Object.keys(useReviewSession.getState().acknowledgments)).toEqual(['10']);
+  // Touch and keyboard open the full reasons (no hover title there).
+  const reasons = host.querySelector<HTMLElement>(
+    '[aria-label="Publish activity"] [role="button"]',
+  )!;
+  expect(reasons.getAttribute('aria-expanded')).toBe('false');
+  await act(async () => reasons.click());
+  expect(reasons.getAttribute('aria-expanded')).toBe('true');
+  expect(host.querySelector('[aria-label="Publish activity"] ul')!.getAttribute('aria-live')).toBe(
+    'polite',
+  );
+  expect(host.querySelector<HTMLInputElement>('input[data-review-toggle="20"]')!.disabled).toBe(
+    false,
+  );
+  // Dismissing a partly held publish acknowledges it for the account's other devices.
+  await click('Dismiss');
+  await waitFor(() =>
+    expect(calls.find((c) => c.path === '/publish/ack')?.body).toMatchObject({
+      opId: (posts()[0]!.body as { opId: string }).opId,
+    }),
+  );
 });
 
 it('retains the tick on unchanged text if the Worker refuses the queued publish', async () => {
@@ -437,7 +506,9 @@ it('retains the tick on unchanged text if the Worker refuses the queued publish'
   await openPublish();
   await click('Publish 1');
   await waitFor(() =>
-    expect(host.querySelector('[aria-label="Publish activity"]')?.textContent).toContain('HTTP 423'),
+    expect(host.querySelector('[aria-label="Publish activity"]')?.textContent).toContain(
+      'HTTP 423',
+    ),
   );
   expect(useReviewQueue.getState().selected.has(10)).toBe(true);
 });
@@ -500,7 +571,9 @@ it('rebuilds the in-flight state from storage after a reload and never mints a s
   await mount();
   await waitFor(() => expect(posts().length).toBeGreaterThanOrEqual(2));
   expect(new Set(posts().map((c) => (c.body as { opId: string }).opId))).toEqual(new Set([first]));
-  expect(host.querySelector('[aria-label="Publish activity"]')!.textContent).toContain('Queued');
+  expect(host.querySelector('[aria-label="Publish activity"]')!.textContent).toContain(
+    'Publishing, safe to close.',
+  );
 });
 
 it('shows no publish controls or activity to accounts that cannot publish', async () => {

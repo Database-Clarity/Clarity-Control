@@ -32,6 +32,15 @@ export interface PublishOp {
   globals?: { id: string; expected: string; name: string }[];
   /** Use the shared-definition publish contract on every attempt, even after reload. */
   switched?: true;
+  /**
+   * One request for the whole confirmed selection (`selection: 'whole'`): the publisher holds the
+   * rows that fail a check, with what depends on them, and publishes the rest.
+   */
+  whole?: true;
+  /** Display names of a whole request's tooltips, for the rows it held. */
+  names?: Record<string, string>;
+  /** The rows a finished whole request held back, with why; they wait in Review. */
+  held?: { hash: number; name: string; reason: string }[];
   /** Globals a finished request left out; the rest of it went live. */
   refusedGlobals?: { id: string; name: string; error: string }[];
   /** A translator's request: exactly these rows of their languages, and the names for display. */
@@ -103,6 +112,19 @@ interface BundleObservation {
 type BundleProgress = BundleObservation & { opId: typeof bundleKey };
 type StoredRecord = PublishOp | BundleProgress;
 const isPublishOp = (record: StoredRecord): record is PublishOp => 'userId' in record;
+/**
+ * A whole-selection request is stored under its account id plus this tag, so a tab still running
+ * the previous client (same database, same broadcast channel) never lists, sends, polls, or
+ * finishes it: that client would send it without `selection` or confirm held rows as live.
+ */
+const wholeTag = ':whole';
+const toStored = (op: PublishOp): PublishOp =>
+  op.whole ? { ...op, userId: op.userId + wholeTag } : op;
+const fromStored = (op: PublishOp): PublishOp =>
+  op.whole && op.userId.endsWith(wholeTag)
+    ? { ...op, userId: op.userId.slice(0, -wholeTag.length) }
+    : op;
+const ownerOf = (op: PublishOp) => fromStored(op).userId;
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -141,9 +163,11 @@ export function createIndexedDbOpStore(): OpStore {
       run<PublishOp[]>('readonly', (store, done) => {
         store.getAll().onsuccess = (event) =>
           done(
-            ((event.target as IDBRequest<StoredRecord[]>).result ?? []).filter(
-              (record): record is PublishOp => isPublishOp(record) && record.userId === userId,
-            ),
+            ((event.target as IDBRequest<StoredRecord[]>).result ?? [])
+              .filter(
+                (record): record is PublishOp => isPublishOp(record) && ownerOf(record) === userId,
+              )
+              .map(fromStored),
           );
       }),
     addMany: (ops, busy) =>
@@ -152,10 +176,11 @@ export function createIndexedDbOpStore(): OpStore {
         found.onsuccess = () => {
           const stored = (found.result as StoredRecord[])
             .filter(isPublishOp)
-            .filter(({ userId }) => userId === ops[0]?.userId);
+            .filter((op) => ownerOf(op) === ops[0]?.userId)
+            .map(fromStored);
           if (busy?.(stored)) return done(false);
           // add() fails (ConstraintError, aborting the transaction) rather than replacing an opId.
-          for (const op of ops) store.add(op);
+          for (const op of ops) store.add(toStored(op));
           done(true);
         };
       }),
@@ -175,11 +200,12 @@ export function createIndexedDbOpStore(): OpStore {
     update: (opId, change) =>
       run<PublishOp | undefined>('readwrite', (store, done) => {
         store.get(opId).onsuccess = (event) => {
-          const current = (event.target as IDBRequest<PublishOp | undefined>).result;
-          if (!current) return;
+          const stored = (event.target as IDBRequest<PublishOp | undefined>).result;
+          if (!stored) return;
+          const current = fromStored(stored);
           const next = change(current);
           if (!next) return done(current);
-          store.put(guardTerminal(current, next));
+          store.put(toStored(guardTerminal(current, next)));
           done(guardTerminal(current, next));
         };
       }),
@@ -197,10 +223,10 @@ export function createIndexedDbOpStore(): OpStore {
         records.onsuccess = () => {
           const stored = records.result as StoredRecord[];
           const bundle = stored.find((record): record is BundleProgress => !isPublishOp(record));
-          const op = kickable(stored.filter(isPublishOp), opId, (group) =>
+          const op = kickable(stored.filter(isPublishOp).map(fromStored), opId, (group) =>
             ready(group, bundle?.seenAt ?? 0),
           );
-          if (op) store.put({ ...op, kickedAt });
+          if (op) store.put(toStored({ ...op, kickedAt }));
           done(op !== undefined);
         };
       }),
