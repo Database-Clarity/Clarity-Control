@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, test } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -619,7 +620,9 @@ describe('markup insertion', () => {
         expect(transaction, `${id}: ${fixture.doc}`).not.toBeNull();
         const next = transaction!.state;
         const html = preview(next.doc.toString(), fixture.globals);
-        expect(html).toContain('plain');
+        expect(new DOMParser().parseFromString(html, 'text/html').body.textContent).toContain(
+          'plain',
+        );
         if (fixture.expected) expect(html).toContain(fixture.expected);
         expect(undoDepth(next)).toBe(1);
       }
@@ -752,7 +755,9 @@ describe('markup insertion', () => {
         const state = EditorState.create({ doc, selection: { anchor: point, head: point + 5 } });
         const next = insert(state, option(id));
         const html = preview(next.doc.toString());
-        expect(html).toContain('plain');
+        expect(new DOMParser().parseFromString(html, 'text/html').body.textContent).toContain(
+          'plain',
+        );
         if (id === 'title') {
           expect(html).toContain('role="tooltip"');
           expect(html).toContain('Description');

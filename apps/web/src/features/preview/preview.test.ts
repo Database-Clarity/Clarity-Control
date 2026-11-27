@@ -60,11 +60,15 @@ test('preview draws element-tagged text as the icon, then the tinted text, with 
   const tagged = render('Gain <solar Scorch /> stacks.');
   const lowered = render('Gain <solar/>Scorch stacks.');
   const icon = /<span class="([^"]*solar[^"]*)"><span><\/span><\/span>/;
-  const text = /<span class="([^"]*)"><span>Scorch<\/span><\/span>/;
+  const text = /<span class="([^"]*)"><span>(S|corch)<\/span><\/span>/g;
   // The icon span is the same as the lowered form's; the text span carries the tint classes.
   expect(tagged.match(icon)?.[1]).toBe(lowered.match(icon)?.[1]);
-  const tint = tagged.match(text)?.[1].split(' ') ?? [];
-  expect(tint).toHaveLength(2);
-  expect(tint).toContain(lowered.match(icon)?.[1]);
+  expect([...tagged.matchAll(new RegExp(icon.source, 'g'))]).toHaveLength(1);
+  const fragments = [...tagged.matchAll(text)];
+  expect(fragments.map((match) => match[2]).join('')).toBe('Scorch');
+  for (const [, classes] of fragments) {
+    expect(classes.split(' ')).toHaveLength(2);
+    expect(classes.split(' ')).toContain(lowered.match(icon)?.[1]);
+  }
   expect(tagged).not.toContain('&lt;solar');
 });

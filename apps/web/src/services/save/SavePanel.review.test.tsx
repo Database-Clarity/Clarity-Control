@@ -2,8 +2,9 @@ import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SaveController } from './SavePanel';
-import { useSaveState } from './state';
+import { reviewSaveChanges, useSaveState, visitSaveTooltip } from './state';
 import { useAuthStore } from '../../stores/auth';
+import { tooltip } from './fixtures.testSupport';
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
@@ -51,9 +52,23 @@ describe('SaveController review dialog', () => {
   });
   afterEach(() => {
     useAuthStore.setState(originalAuth);
-    useSaveState.setState({ locked: false, review: null });
+    useSaveState.getState().close();
   });
   const render = () => renderToStaticMarkup(createElement(SaveController));
+
+  it('keeps the first save selection while its tooltip is open in the editor', () => {
+    const selection = {
+      changes: [{ hash: tooltip.hash, base: null, next: tooltip }],
+      submitted: {},
+    };
+    useSaveState.setState({ review: selection });
+    visitSaveTooltip();
+    expect(render()).toBe('');
+    expect(() =>
+      reviewSaveChanges([{ hash: 456, base: null, next: { ...tooltip, hash: 456 } }]),
+    ).toThrow('Finish the open save review first.');
+    expect(useSaveState.getState().review).toBe(selection);
+  });
 
   it('puts Save and Cancel in the footer slot, not the body', () => {
     const html = render();

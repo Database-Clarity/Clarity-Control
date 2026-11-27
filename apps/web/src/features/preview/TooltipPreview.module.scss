@@ -601,10 +601,16 @@ $symbol: 0.75rem;
 // Element-tagged text (`<solar Scorch />`): the icon is its own span before the text, exactly as
 // in the lowered `<solar/>Scorch`, so the text span draws no second icon and only the tint changes
 // (no box, no layout shift). Tints are the --el-* theme tokens (AA light variants in ui/tokens).
-// An icon and the word right after it (MarkupRenderer iconGlue): one unbreakable run, so an icon is
-// never left alone at a line end. A space after the icon still breaks.
+// Move the run as a unit unless it is wider than the entire line.
 .iconGlue {
-  white-space: nowrap;
+  display: inline-block;
+  max-inline-size: 100%;
+  word-break: break-all;
+}
+.iconJoin {
+  display: inline-flex;
+  align-items: baseline;
+  max-inline-size: 100%;
 }
 
 .elementText {

@@ -1,6 +1,7 @@
 import { decodeV2 } from '../../../decoder/decode-v2.mjs';
 import assets from './assets.json';
 import { iconSymbols } from '../../v2/vocabulary.js';
+import { symbolWrapEdges, symbolWrapRuns } from '../../../../core/src/markup/renderWrapping.js';
 
 const symbols = Object.fromEntries(
   [...iconSymbols, 'arrow', 'enhancedArrow'].map((id) => [
@@ -19,7 +20,7 @@ const symbols = Object.fromEntries(
 
 // Shipped as one readable, dependency-free ES module. No HTML from the data is interpreted.
 export const rendererSource =
-  `// SPDX-License-Identifier: MIT\n// Clarity format v2 reference renderer. Artwork provenance: kit/usage.json.\nexport const decode = ${decodeV2.toString()};\nconst artwork = ${JSON.stringify(symbols)};\n` +
+  `// SPDX-License-Identifier: MIT\n// Clarity format v2 reference renderer. Artwork provenance: kit/usage.json.\nexport const decode = ${decodeV2.toString()};\nconst wrapRuns = ${symbolWrapRuns.toString()};\nconst wrapEdges = ${symbolWrapEdges.toString()};\nconst artwork = ${JSON.stringify(symbols)};\n` +
   String.raw`
 const styles = new Set(['bold', 'exotic', 'pve', 'pvp']);
 const elements = new Set(['kinetic', 'arc', 'solar', 'void', 'stasis', 'strand', 'prismatic']);
@@ -149,17 +150,32 @@ export function renderDom(lines, options = {}) {
     const row = node(opts.nested ? 'span' : 'div', null, line.spacer ? 'clarity-line clarity-spacer' : 'clarity-line');
     decorate(row, line);
     const parts = line.parts || [];
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i], next = parts[i + 1];
-      // Match the editor's icon/first-word glue while leaving later words free to wrap.
-      const word = part.icon && hasIcon(part.icon) && next && !next.note && !next.link && /^\S+/.exec(next.text || '');
-      if (word) {
-        const glue = node('span', null, 'clarity-glue');
-        glue.append(draw(part), draw({ ...next, text: word[0] })); row.append(glue);
-        if (word[0].length < next.text.length) row.append(draw({ ...next, text: next.text.slice(word[0].length) }));
-        i++;
-      } else row.append(draw(part));
-    }
+    if (parts.some(part => hasIcon(part.icon))) {
+      const layout = parts.map(part => ({
+        text: part.text,
+        symbol: part.icon === 'arrow' ? 'arrow' : hasIcon(part.icon) ? 'icon' : undefined,
+        atomic: Boolean(part.note || part.link),
+      }));
+      const drawSlice = ({ index, from, to }) => {
+        const part = parts[index];
+        return draw(from === 0 && to === (part.text || '').length
+          ? part : { ...part, text: part.text.slice(from, to) });
+      };
+      const runs = wrapRuns(layout);
+      for (const { glued, slices } of runs) {
+        if (!glued) {
+          row.append(...slices.map(drawSlice));
+          continue;
+        }
+        const group = node('span', null, 'clarity-glue');
+        for (const edge of wrapEdges(layout, slices)) {
+          const target = edge.glued ? node('span', null, 'clarity-join') : group;
+          target.append(...edge.slices.map(drawSlice));
+          if (edge.glued) group.append(target);
+        }
+        row.append(group);
+      }
+    } else row.append(...parts.map(draw));
     root.append(row);
     root.append(...expansions);
   }

@@ -1,4 +1,13 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import { resolveCompendiumLink, type CompendiumData } from '@clarity/core';
 import { apiUrl, type User } from '../api';
 import { loadCompendium } from '../compendium';
@@ -28,7 +37,7 @@ import { permissionError, prepareChanges } from './pipeline';
 import { requestSaveValidation } from './validationWorker';
 import { liveFallback, noImpactAvailable } from './fallback';
 import type { TooltipValidationIssue } from '@clarity/core';
-import { useSaveProgress, useSaveState, type SaveReview } from './state';
+import { useSaveProgress, useSaveState, visitSaveTooltip, type SaveReview } from './state';
 import { openDraftSaveReview } from './openReview';
 import { changedSources, linksCompendium, sourceKey, type ChangedSource } from './compendiumSource';
 import { SaveSummary } from './SaveSummary';
@@ -65,6 +74,36 @@ export function SaveController() {
   return review ? <SaveSession review={review} onSaved={showNotice} /> : null;
 }
 
+function resumeReview() {
+  const { review } = useSaveState.getState();
+  const data = useDataStore.getState().data;
+  if (!review || !data) return;
+  const drafts = useDraftStore.getState().drafts;
+  const submitted: SaveReview['submitted'] = {};
+  const changes = review.changes.flatMap((change) => {
+    const { hash } = change;
+    if (!review.submitted[hash]) return [change];
+    const draft = drafts[hash];
+    if (!draft) return [];
+    submitted[hash] = draft;
+    return [
+      {
+        hash,
+        base: data.bundle.tooltips[hash] ? draft.base : null,
+        next: draft.next,
+        translationRevisions: draft.translationRevisions,
+      },
+    ];
+  });
+  if (changes.length)
+    useSaveState.setState({
+      review: { changes, submitted },
+      visitingTooltip: false,
+      locked: true,
+    });
+  else useSaveState.getState().close();
+}
+
 /**
  * The drafts popover or sheet body: how many drafts, the last save result, the `children` (the
  * draft rows) and the one primary action, Review and save. The review itself is the controller's;
@@ -85,6 +124,7 @@ export function SavePanel({
   const drafts = useDraftStore((state) => state.drafts);
   const user = useAuthStore((state) => state.user);
   const review = useSaveState((state) => state.review);
+  const visitingTooltip = useSaveState((state) => state.visitingTooltip);
   const notice = useSaveNotice((state) => state.notice);
   const dismiss = useSaveNotice((state) => state.dismiss);
   const count = Object.keys(drafts).length;
@@ -95,35 +135,46 @@ export function SavePanel({
   const unpreviewed = usePreviewReviewStore(
     (state) => Object.values(state.entries).filter((entry) => entry.dirty > entry.reviewed).length,
   );
-  const action =
-    open > 0 ? (
-      // Saving waits until every conflict is resolved; this takes the user to the next one.
-      <button
-        type="button"
-        data-autofocus
-        data-drafts-resolve
-        onClick={() => {
-          onReview?.();
-          onResolve?.(conflicts[0]!.hash);
-        }}
-      >
-        {open === 1 ? 'Resolve 1 conflict' : `Resolve ${open} conflicts`}
-      </button>
-    ) : (
-      <button
-        type="button"
-        data-autofocus
-        data-drafts-review
-        disabled={!apiUrl || !user?.role || !count || Boolean(review) || paused}
-        onClick={() => {
-          dismiss();
-          onReview?.();
-          openDraftSaveReview();
-        }}
-      >
-        {count > 1 ? `Review and save ${count} drafts` : 'Review and save draft'}
-      </button>
-    );
+  const action = visitingTooltip ? (
+    <button
+      type="button"
+      data-autofocus
+      data-drafts-review
+      onClick={() => {
+        onReview?.();
+        resumeReview();
+      }}
+    >
+      Resume save review
+    </button>
+  ) : open > 0 ? (
+    // Saving waits until every conflict is resolved; this takes the user to the next one.
+    <button
+      type="button"
+      data-autofocus
+      data-drafts-resolve
+      onClick={() => {
+        onReview?.();
+        onResolve?.(conflicts[0]!.hash);
+      }}
+    >
+      {open === 1 ? 'Resolve 1 conflict' : `Resolve ${open} conflicts`}
+    </button>
+  ) : (
+    <button
+      type="button"
+      data-autofocus
+      data-drafts-review
+      disabled={!apiUrl || !user?.role || !count || Boolean(review) || paused}
+      onClick={() => {
+        dismiss();
+        onReview?.();
+        openDraftSaveReview();
+      }}
+    >
+      {count > 1 ? `Review and save ${count} drafts` : 'Review and save draft'}
+    </button>
+  );
   // The count and the one primary action share the pinned head line, above any list, so the
   // action is reachable without scrolling at any draft count.
   return (
@@ -204,10 +255,20 @@ function SaveSession({
   const data = useDataStore((state) => state.data);
   const user = useAuthStore((state) => state.user);
   const close = useSaveState((state) => state.close);
+  const visitingTooltip = useSaveState((state) => state.visitingTooltip);
   const changes = review.changes;
   const openConflicts = useOpenConflicts();
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
+  const visitTooltip = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
+        return;
+      if (pending) event.preventDefault();
+      else visitSaveTooltip();
+    },
+    [pending],
+  );
   const [reloadRequired, setReloadRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const progress = useSaveProgress();
@@ -452,6 +513,7 @@ function SaveSession({
       if (!accountChanged(generation)) setPending(false);
     }
   }
+  if (visitingTooltip) return null;
   return (
     <Dialog
       title="Review save"
@@ -504,7 +566,14 @@ function SaveSession({
         </Suspense>
       )}
       {!validation && data && <p role="status">Validating save...</p>}
-      {data && <SaveSummary changes={changes} issues={validation?.issues ?? []} data={data} />}
+      {data && (
+        <SaveSummary
+          changes={changes}
+          issues={validation?.issues ?? []}
+          data={data}
+          onVisit={visitTooltip}
+        />
+      )}
       {changedSource.length > 0 && data && (
         <section aria-label="Compendium source changed">
           <h3>Compendium source changed</h3>

@@ -200,7 +200,9 @@ describe('PreviewColumn', () => {
     expect(row.textContent).toContain('• Submachine Guns:');
     expect(row.textContent).toContain('14');
     expect(row.textContent).toContain('13');
-    expect(row.querySelector('[role="img"]')).not.toBeNull();
+    expect(
+      row.querySelector('[aria-label="becomes"]')?.closest('[class*=iconGlue]')?.textContent,
+    ).toContain('1413');
     // Compare is one body under the one header: no second perk header.
     expect(host.querySelectorAll('header')).toHaveLength(1);
   });

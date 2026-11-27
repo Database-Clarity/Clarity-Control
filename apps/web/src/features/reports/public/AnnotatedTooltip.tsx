@@ -1,4 +1,9 @@
-import { memo, useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, memo, useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  symbolWrapEdges,
+  symbolWrapRuns,
+  type WrapPart,
+} from '../../../../../../packages/core/src/markup/renderWrapping';
 import preview from '../../preview/TooltipPreview.module.scss';
 import type { PublicAnchor } from '../../../services/reports';
 import {
@@ -220,8 +225,8 @@ export const AnnotatedTooltip = memo(function AnnotatedTooltip({
     return out;
   };
 
-  const parts = (cell: RenderPart[]) =>
-    cell.map((part, index) =>
+  const parts = (cell: RenderPart[]) => {
+    const draw = (part: RenderPart, index: number) =>
       part.kind === 'icon' ? (
         <span key={index} className={cls(part.classNames)}>
           <span />
@@ -230,8 +235,49 @@ export const AnnotatedTooltip = memo(function AnnotatedTooltip({
         <span key={index} className={cls(part.classNames)}>
           {piecesOf(part)}
         </span>
+      );
+    const layout = cell.map<WrapPart>((part) => ({
+      text: part.kind === 'text' ? part.text : undefined,
+      symbol: part.classNames?.includes('arrow')
+        ? 'arrow'
+        : part.kind === 'icon' || part.classNames?.includes('enhancedArrow')
+          ? 'icon'
+          : undefined,
+    }));
+    const runs = symbolWrapRuns(layout);
+    const content = (slices: (typeof runs)[number]['slices']) =>
+      slices.map(({ index, from, to }) => {
+        const part = cell[index];
+        if (part.kind === 'icon' || (from === 0 && to === part.text.length))
+          return draw(part, index);
+        return draw(
+          {
+            ...part,
+            text: part.text.slice(from, to),
+            start: part.start + from,
+            end: part.start + to,
+          },
+          index,
+        );
+      });
+    return runs.map(({ glued, slices }, index) =>
+      glued ? (
+        <span key={index} className={preview.iconGlue}>
+          {symbolWrapEdges(layout, slices).map((edge, key) =>
+            edge.glued ? (
+              <span className={preview.iconJoin} key={key}>
+                {content(edge.slices)}
+              </span>
+            ) : (
+              <Fragment key={key}>{content(edge.slices)}</Fragment>
+            ),
+          )}
+        </span>
+      ) : (
+        <Fragment key={index}>{content(slices)}</Fragment>
       ),
     );
+  };
 
   const lineMarked = (line: RenderLine) =>
     marks.some(({ note }) => isWholeLine(render.display, line, note.mark));

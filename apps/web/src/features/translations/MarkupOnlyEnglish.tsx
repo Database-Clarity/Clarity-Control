@@ -78,22 +78,34 @@ export function MarkupOnlyEnglish({
     const element = host.current;
     if (!element || !added.length) return;
     const mark = () => {
-      const spans = element.querySelectorAll<HTMLElement>(`.${previewStyles.elementText}`);
+      // Wrapping can split one tag into several tinted spans, but its icon remains a single span.
+      const elements = elementTagNames.map((name) => `.${previewStyles[name]}`);
+      const spans = element.querySelectorAll<HTMLElement>(elements.join(','));
       const counts = new Map<string, number>();
-      for (const span of spans) {
+      let fragments: HTMLElement[] = [];
+      const markTag = () => {
+        if (!fragments.length) return;
         const name = elementTagNames.find((element) =>
-          span.classList.contains(previewStyles[element] ?? '\0'),
+          fragments[0].classList.contains(previewStyles[element] ?? '\0'),
         );
-        const words = `${name}:${span.textContent?.trim() ?? ''}`;
+        const words = `${name}:${fragments
+          .map((span) => span.textContent)
+          .join('')
+          .trim()}`;
         const occurrence = counts.get(words) ?? 0;
         counts.set(words, occurrence + 1);
         const isNew = added.some(
           (tag) => `${tag.element}:${tag.text.trim()}` === words && tag.occurrence === occurrence,
         );
         // Attributes only: the observer below watches the rendering, not these marks.
-        if (isNew !== span.hasAttribute('data-new-tag'))
-          span.toggleAttribute('data-new-tag', isNew);
+        for (const span of fragments) span.toggleAttribute('data-new-tag', isNew);
+        fragments = [];
+      };
+      for (const span of spans) {
+        if (span.classList.contains(previewStyles.elementText)) fragments.push(span);
+        else markTag();
       }
+      markTag();
     };
     mark();
     const observer = new MutationObserver(mark);

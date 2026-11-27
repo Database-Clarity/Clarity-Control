@@ -1,5 +1,5 @@
 import { SkeletonBoundary } from '../../ui/Skeleton';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useState, type MouseEvent } from 'react';
 import { languageLabel } from '../../languageLabels';
 import {
   clearedEnglishMessage,
@@ -12,15 +12,20 @@ import type { Change } from '../api';
 import type { EditorData } from '../../stores/data';
 import { WordDiff } from '../../ui/diff';
 import { CompendiumFreshness } from '../../features/compendium/CompendiumFreshness';
+import { editorPath } from '../../features/queue/editorPath';
+
+type TooltipVisit = (event: MouseEvent<HTMLAnchorElement>) => void;
 
 export function SaveSummary({
   changes,
   issues,
   data,
+  onVisit,
 }: {
   changes: Change[];
   issues: TooltipValidationIssue[];
   data: EditorData;
+  onVisit?: TooltipVisit;
 }) {
   // Native dialog opening forces layout. Keep that first commit small, then append
   // bounded groups between frames. Memoized rows preserve selection and avoid re-diffing.
@@ -38,6 +43,27 @@ export function SaveSummary({
     severity === 'error' || message === clearedEnglishMessage;
   const open = issues.filter(isOpen);
   const warnings = issues.filter((issue) => !isOpen(issue));
+  const changesByHash = issues.length
+    ? new Map(changes.map((change) => [change.hash, change]))
+    : null;
+  const issueList = (rows: TooltipValidationIssue[]) =>
+    rows.length > 0 && (
+      <ul>
+        {rows.map(({ severity, hash, lang, message }, index) => {
+          const change = changesByHash?.get(hash);
+          const name = tooltipName(hash, data, change);
+          return (
+            <li key={index}>
+              <Link to={editorPath(hash, data, lang)} onClick={onVisit}>
+                {name}
+                {name !== hash && <small> ({hash})</small>} / {languageLabel(lang)}{' '}
+                <strong>{severity}</strong> · {message}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    );
   return (
     <>
       <p>
@@ -49,19 +75,19 @@ export function SaveSummary({
         <section aria-label="Save validation issues">
           <h3>Validation</h3>
           {/* Other warnings fold away (they can run to hundreds). */}
-          <IssueList issues={open} />
+          {issueList(open)}
           {warnings.length > 0 && (
             <details>
               <summary>
                 {warnings.length} warning{warnings.length === 1 ? '' : 's'}
               </summary>
-              <IssueList issues={warnings} />
+              {issueList(warnings)}
             </details>
           )}
         </section>
       )}
       {changes.slice(0, visible).map((change) => (
-        <SaveChange key={change.hash} change={change} data={data} />
+        <SaveChange key={change.hash} change={change} data={data} onVisit={onVisit} />
       ))}
       <SkeletonBoundary
         pending={visible < changes.length}
@@ -73,26 +99,21 @@ export function SaveSummary({
   );
 }
 
-function IssueList({ issues }: { issues: TooltipValidationIssue[] }) {
-  if (!issues.length) return null;
-  return (
-    <ul>
-      {issues.map((issue, index) => (
-        <li key={index}>
-          <strong>{issue.severity}</strong>: {issue.hash} / {languageLabel(issue.lang)}:{' '}
-          {issue.message}
-        </li>
-      ))}
-    </ul>
-  );
-}
+const tooltipName = (hash: number, data: EditorData, change?: Change): string | number =>
+  data.items[hash]?.name ??
+  change?.next.custom?.name ??
+  change?.base?.custom?.name ??
+  data.bundle.tooltips[hash]?.custom?.name ??
+  hash;
 
 const SaveChange = memo(function SaveChange({
   change,
   data,
+  onVisit,
 }: {
   change: Change;
   data: EditorData;
+  onVisit?: TooltipVisit;
 }) {
   const { hash, base, next } = change;
   const beforeFields = Object.fromEntries(
@@ -108,8 +129,10 @@ const SaveChange = memo(function SaveChange({
   return (
     <section key={hash}>
       <h3>
-        <Link to={`/t/${hash}`}>{data.items[hash]?.name ?? next.custom?.name ?? hash}</Link> ({hash}
-        )
+        <Link to={editorPath(hash, data)} onClick={onVisit}>
+          {tooltipName(hash, data, change)}
+        </Link>{' '}
+        ({hash})
       </h3>
       {languages
         .filter((lang) => (base?.text[lang]?.text ?? '') !== (next.text[lang]?.text ?? ''))

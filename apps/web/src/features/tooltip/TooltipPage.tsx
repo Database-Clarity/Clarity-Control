@@ -359,7 +359,7 @@ function TooltipWorkspace({
   const edit = batchEditing?.edit ?? currentEdit;
   const discard = batchEditing?.discard ?? currentDiscard;
   const hydrated = useDraftStore((state) => state.hydrated);
-  const saving = useSaveState((state) => state.locked);
+  const saving = useSaveState((state) => state.locked && !state.visitingTooltip);
   const sharedGlobals = useMemo<MarkupGlobals>(
     () => importGlobals(data, shown, lang),
     [data, shown, lang],

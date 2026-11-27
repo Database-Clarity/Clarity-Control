@@ -9,6 +9,11 @@ import {
   type ReactNode,
 } from 'react';
 import type { MarkupLine, MarkupSpan } from '@clarity/core';
+import {
+  symbolWrapEdges,
+  symbolWrapRuns,
+  type WrapPart,
+} from '../../../../../packages/core/src/markup/renderWrapping';
 import { HOVER_REST } from '../../ui/anchorPlacement';
 import { closeTitlePopover, isTitlePopoverOpen, openTitlePopover } from './titlePopover';
 import styles from './TooltipPreview.module.scss';
@@ -147,11 +152,7 @@ export function PreviewSpan({ part }: { part: MarkupSpan }) {
   const id = useId();
   const link = part.link ? linkUrl(part.link) : undefined;
   if (part.classNames?.includes('arrow'))
-    return (
-      <>
-        ⁠<span className={classNames(part.classNames)} aria-label="leads to" />⁠
-      </>
-    );
+    return <span className={classNames(part.classNames)} aria-label="leads to" />;
   return (
     <span className={classNames(part.classNames)}>
       {part.title ? (
@@ -188,12 +189,14 @@ function lineKey(line: MarkupLine) {
   return key;
 }
 type RenderParts = (parts: MarkupSpan[]) => ReactNode;
-const isIcon = (part: MarkupSpan) => !part.text && !part.title && !!part.classNames?.length;
-/** The first word of a plain text part (no title, no link), or nothing. */
-const firstWord = (part: MarkupSpan | undefined) =>
-  part && !part.title && !part.link && typeof part.text === 'string'
-    ? /^\S+/.exec(part.text)?.[0]
-    : undefined;
+function previewSymbol(part: MarkupSpan): WrapPart['symbol'] {
+  if (part.classNames?.includes('arrow')) return 'arrow';
+  if (
+    (!part.text && !part.title && part.classNames?.length) ||
+    part.classNames?.includes('enhancedArrow')
+  )
+    return 'icon';
+}
 function textPart(part: MarkupSpan, from: number, to = part.text!.length): MarkupSpan {
   return {
     ...part,
@@ -218,33 +221,47 @@ function textPart(part: MarkupSpan, from: number, to = part.text!.length): Marku
     }),
   };
 }
-/**
- * An icon and the word right after it (`<solar/>Scorch`, `<solar Scorch />`) share one
- * unbreakable run (iconGlue), so an icon is never left alone at a line end; a space after the icon
- * still breaks. Lines without such an icon render exactly as before.
- */
-const normalParts: RenderParts = (parts) => {
-  const out: ReactNode[] = [];
-  for (let index = 0; index < parts.length; index++) {
-    const part = parts[index];
-    const next = parts[index + 1];
-    const word = isIcon(part) ? firstWord(next) : undefined;
-    if (!word) {
-      out.push(<PreviewSpan key={index} part={part} />);
-      continue;
-    }
-    out.push(
-      <span key={index} className={styles.iconGlue}>
-        <PreviewSpan part={part} />
-        <PreviewSpan part={textPart(next, 0, word.length)} />
-      </span>,
+const normalParts: RenderParts = (parts) =>
+  parts.map((part, index) => <PreviewSpan key={index} part={part} />);
+
+export function renderWrappedParts(parts: MarkupSpan[], draw: RenderParts = normalParts) {
+  if (!parts.some(previewSymbol)) return draw(parts);
+  const layout = parts.map((part) => ({
+    text: part.text,
+    symbol: previewSymbol(part),
+    atomic: Boolean(part.title || part.link),
+    ranges:
+      part.slots?.length || part.variables?.length
+        ? [...(part.slots ?? []), ...(part.variables ?? [])]
+        : undefined,
+  }));
+  const runs = symbolWrapRuns(layout);
+  if (!runs.some((run) => run.glued)) return draw(parts);
+  const content = (slices: (typeof runs)[number]['slices']) =>
+    draw(
+      slices.map(({ index, from, to }) => {
+        const part = parts[index];
+        return from === 0 && to === (part.text?.length ?? 0) ? part : textPart(part, from, to);
+      }),
     );
-    if (word.length < next.text!.length)
-      out.push(<PreviewSpan key={`${index}+`} part={textPart(next, word.length)} />);
-    index++;
-  }
-  return out;
-};
+  return runs.map(({ glued, slices }, index) =>
+    glued ? (
+      <span key={index} className={styles.iconGlue}>
+        {symbolWrapEdges(layout, slices).map((edge, key) =>
+          edge.glued ? (
+            <span key={key} className={styles.iconJoin}>
+              {content(edge.slices)}
+            </span>
+          ) : (
+            <Fragment key={key}>{content(edge.slices)}</Fragment>
+          ),
+        )}
+      </span>
+    ) : (
+      <Fragment key={index}>{content(slices)}</Fragment>
+    ),
+  );
+}
 const PreviewLine = memo(
   function PreviewLine({
     line,
@@ -271,7 +288,7 @@ const PreviewLine = memo(
                   rowSpan={cell.rowSpan}
                   className={classNames(cell.classNames)}
                 >
-                  {renderParts(cell.cellContent)}
+                  {renderWrappedParts(cell.cellContent, renderParts)}
                 </td>
               ))}
             </tr>
@@ -279,7 +296,7 @@ const PreviewLine = memo(
         </tbody>
       </table>
     ) : (
-      <div className={className}>{renderParts(line.linesContent ?? [])}</div>
+      <div className={className}>{renderWrappedParts(line.linesContent ?? [], renderParts)}</div>
     );
   },
   (previous, next) =>
