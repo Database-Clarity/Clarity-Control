@@ -88,7 +88,7 @@ export function EditorMore({
             </button>
           </header>
           <ul className={styles.rows}>
-            {extra && <li>{extra}</li>}
+            {extra && <li className={styles.extra}>{extra}</li>}
             {markup && (
               <li>
                 <button

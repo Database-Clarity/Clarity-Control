@@ -310,7 +310,8 @@ function AssociatedTooltips({
   const open = picked !== null && associated.includes(picked) ? picked : null;
   if (!data) return null;
   if (!associated.length) return null;
-  // One compact line of names (wrapping only when it must); the open one's preview below it.
+  // One compact line of icons and names (wrapping only when it must); a name shows its preview
+  // below the line, which links to the tooltip itself.
   return (
     <section className={styles.associated} aria-label="Associated tooltip previews">
       <ul className={styles.associatedNames}>
@@ -322,14 +323,12 @@ function AssociatedTooltips({
               <button
                 type="button"
                 aria-expanded={target === open}
-                aria-label={`${target === open ? 'Hide' : 'Show'} ${name} preview`}
-                title={`${target === open ? 'Hide' : 'Show'} its preview`}
+                title={`${target === open ? 'Hide' : 'Show'} the ${name} preview`}
                 onClick={() => setPicked(target === open ? null : target)}
               >
-                <span aria-hidden="true">{target === open ? '▾' : '▸'}</span>
                 {item?.icon && <img src={`https://www.bungie.net${item.icon}`} alt="" />}
+                {name}
               </button>
-              <Link to={`/t/${canonicalHash(target, data)}`}>{name}</Link>
             </li>
           );
         })}
@@ -376,6 +375,7 @@ const AssociatedTooltip = memo(function AssociatedTooltip({
       ) : (
         <p>No {languageLabel(lang)} text yet.</p>
       )}
+      <Link to={`/t/${canonicalHash(target, data)}`}>Open {name}</Link>
     </div>
   );
 });

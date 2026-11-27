@@ -25,7 +25,7 @@ afterEach(() => {
 const toggle = (host: HTMLElement, name: string) =>
   act(async () =>
     [...host.querySelectorAll<HTMLButtonElement>('button')]
-      .find((button) => button.getAttribute('aria-label')?.endsWith(` ${name} preview`))!
+      .find((button) => button.hasAttribute('aria-expanded') && button.textContent === name)!
       .click(),
   );
 
@@ -68,18 +68,18 @@ test('associated tooltips are one line of names until one opens its full descrip
     expect(host.textContent).toContain('Sword');
     expect(host.textContent).toContain('Body');
     expect(host.querySelector('select')).toBeNull();
-    expect(host.querySelector('[aria-expanded="true"]')?.getAttribute('aria-label')).toBe(
-      'Hide Associated preview',
-    );
-    // One open at a time; the name still links to the tooltip.
+    expect(host.querySelector('[aria-expanded="true"]')?.textContent).toBe('Associated');
+    // The open preview links to the tooltip itself.
+    expect(
+      [...host.querySelectorAll('a')].find((link) => link.textContent === 'Open Associated'),
+    ).toBeDefined();
+    // One open at a time.
     await toggle(host, 'Second');
     expect(host.textContent).not.toContain('Body');
     expect(host.textContent).toContain('No German text yet.');
     await toggle(host, 'Second');
     expect(host.querySelector('[data-associated]')).toBeNull();
-    expect(
-      [...host.querySelectorAll('a')].find((link) => link.textContent === 'Associated'),
-    ).toBeDefined();
+    expect(host.querySelector('[aria-expanded="true"]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     host.remove();
