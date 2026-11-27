@@ -856,7 +856,7 @@ export class GitHub {
   ) {
     const invalid = (p: string) => !pathPattern.test(p) || p.includes('..') || p.includes('//');
     if (
-      paths.length + trees.length > (maxResponseBytes === undefined ? 41 : 55) ||
+      paths.length + trees.length > 41 ||
       paths.some(invalid) ||
       trees.some(
         ({ path, depth }) => invalid(path) || !Number.isInteger(depth) || depth < 1 || depth > 3,

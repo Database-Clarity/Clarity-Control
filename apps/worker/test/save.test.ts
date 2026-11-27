@@ -106,6 +106,23 @@ describe('save permission matrix', () => {
     expect(fixture.current()['tooltips/123.json']).toEqual(tooltip('mine'));
   });
 
+  it('uses the original two reads for a 50-change part without a combined probe', async () => {
+    const changes = Array.from({ length: 50 }, (_, i) => ({
+      hash: 124 + i,
+      base: null,
+      next: { ...tooltip('mine'), hash: 124 + i },
+    }));
+    const response = await fixture.request('/save', 'POST', {
+      changes,
+      message: 'Save 50 changes',
+    });
+    expect(response.status).toBe(200);
+    const timing = response.headers.get('Server-Timing');
+    expect(timing).toMatch(/head;dur=[\d.]+, files;dur=/);
+    expect(timing).not.toContain('head_files');
+    expect((await response.json()).tooltips).toEqual(changes.map(({ next }) => next));
+  });
+
   it('rejects stale alias drafts and creates with a clear canonical target and no writes', async () => {
     fixture.aliases[123] = { to: 456, kind: 'frame' };
     const response = await fixture.request('/save', 'POST', change());

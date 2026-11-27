@@ -7,10 +7,8 @@ import {
   clearsEnglish,
   hashSchema,
   globalsInPlacePath,
-  hasSandboxTargets,
   isTranslatable,
   merge3,
-  mergeSandboxPointers,
   permissionsSchema,
   reconcileNumberMap,
   refreshNumberFallbacks,
@@ -26,12 +24,7 @@ import { translationRevisionsSchema } from '../../../packages/core/src/translati
 import { loadAliases } from './catalog.js';
 import { exporter, needsLowering, publisherPinPath, refuseUnlowerable } from './elementTags.js';
 import { RefRace, SaveTiming, type GitHub } from './github.js';
-import {
-  consumerAliasScope,
-  loadSandboxConflicts,
-  storedSandboxPointers,
-  withSandboxPointers,
-} from './sandboxPointers.js';
+import { consumerAliasScope, withSandboxPointers } from './sandboxPointers.js';
 import { body, HttpError, json } from './http.js';
 import {
   clearedSaveMessage,
@@ -173,7 +166,9 @@ export async function saveChanges(
   ];
   let combine =
     !!github.saveTiming &&
-    hashes.length <= 50 &&
+    // Larger parts can exceed the response cap due to stored tooltip and alias data.
+    // Keep their original read path so they do not pay for a discarded GraphQL query.
+    hashes.length <= 20 &&
     !clears.length &&
     !input.changes.some(
       ({ hash, translationRevisions }) =>
@@ -210,22 +205,7 @@ export async function saveChanges(
         return (await consumerAliasScope(github, groups, pointersFile, hashes, false, {
           cachePinnedInputs: combine,
         }))!.aliases;
-      if (combine && !aliases && pointersFile && github.remaining >= 2) {
-        const [generated, sandbox] = await Promise.allSettled([
-          loadAliases(github.env, github),
-          (async () => {
-            const pointers = storedSandboxPointers(pointersFile);
-            const conflicts = hasSandboxTargets(pointers)
-              ? await loadSandboxConflicts(github.env, github)
-              : {};
-            return { pointers, conflicts };
-          })(),
-        ]);
-        if (generated.status === 'rejected') throw generated.reason;
-        if (sandbox.status === 'rejected') throw sandbox.reason;
-        aliases = generated.value;
-        return mergeSandboxPointers(aliases, sandbox.value.conflicts, sandbox.value.pointers);
-      }
+      // Both legacy reads use the moving generator branch. Preserve their order.
       aliases ??= await loadAliases(github.env, github);
       return withSandboxPointers(github, aliases, pointersFile);
     });
