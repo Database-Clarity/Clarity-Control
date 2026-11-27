@@ -230,6 +230,10 @@ export function renderWrappedParts(parts: MarkupSpan[], draw: RenderParts = norm
     text: part.text,
     symbol: previewSymbol(part),
     atomic: Boolean(part.title || part.link),
+    ranges:
+      part.slots?.length || part.variables?.length
+        ? [...(part.slots ?? []), ...(part.variables ?? [])]
+        : undefined,
   }));
   const runs = symbolWrapRuns(layout);
   if (!runs.some((run) => run.glued)) return draw(parts);

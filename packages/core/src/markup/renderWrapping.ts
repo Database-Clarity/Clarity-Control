@@ -2,6 +2,7 @@ export interface WrapPart {
   text?: string;
   symbol?: 'icon' | 'arrow';
   atomic?: boolean;
+  ranges?: readonly { from: number; to: number }[];
 }
 
 interface Slice {
@@ -34,8 +35,12 @@ export function symbolWrapEdges(parts: WrapPart[], slices: Slice[]) {
     }
     const text = part.text!.slice(from, to);
     const segments = graphemes.segment(text);
-    const head = left ? from + segments.containing(0)!.segment.length : from;
-    const tail = right ? from + segments.containing(text.length - 1)!.index : to;
+    let head = left ? from + segments.containing(0)!.segment.length : from;
+    let tail = right ? from + segments.containing(text.length - 1)!.index : to;
+    for (const range of part.ranges ?? []) {
+      if (range.from < head && head < range.to) head = range.to;
+      if (range.from < tail && tail < range.to) tail = range.from;
+    }
     if (head >= tail) add(slice, true);
     else {
       if (left) add({ ...slice, to: head }, true);
@@ -69,7 +74,7 @@ export function symbolWrapRuns(parts: WrapPart[]) {
     glued = false;
     afterSymbol = false;
   };
-  parts.forEach(({ text = '', symbol, atomic }, index) => {
+  parts.forEach(({ text = '', symbol, atomic, ranges }, index) => {
     if (symbol) {
       if (!afterSymbol && symbol !== 'arrow') flush();
       glued ||= word.length > 0;
@@ -83,6 +88,18 @@ export function symbolWrapRuns(parts: WrapPart[]) {
     }
     // A link or note must remain a single interactive element.
     const chunks = atomic ? [text] : (text.match(/\s+|\S+/g) ?? []);
+    if (ranges?.length) {
+      let boundary = 0;
+      for (let i = 0; i < chunks.length - 1; i++) {
+        boundary += chunks[i].length;
+        while (ranges.some(({ from, to }) => from < boundary && boundary < to)) {
+          const next = chunks.splice(i + 1, 1)[0];
+          if (next === undefined) break;
+          chunks[i] += next;
+          boundary += next.length;
+        }
+      }
+    }
     let from = 0;
     for (const chunk of chunks) {
       const slice = { index, from, to: from + chunk.length };
