@@ -149,6 +149,56 @@ it('keeps the mark and says why when resolving fails', async () => {
   await click('Resolve Needs retesting');
   expect(useMarksStore.getState().index.get(42)).toBeUndefined();
 });
+it('ignores a Resolve that finishes after the entry changed (no Undo for another entry)', async () => {
+  await render();
+  await click('Needs retesting');
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const original = vi.mocked(apiRequest).getMockImplementation()!;
+  vi.mocked(apiRequest).mockImplementation(async (path, init) => {
+    if (init?.method === 'PUT') await held;
+    return original(path, init);
+  });
+  const clicked = click('Resolve Needs retesting');
+  await act(async () => root.render(<MarksControl hash={43} />));
+  await act(async () => release());
+  await clicked;
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-haspopup]')!.click());
+  expect(document.querySelector('[data-resolved]')).toBeNull();
+  expect(button('Undo: restore Needs retesting')).toBeUndefined();
+  expect(
+    vi.mocked(apiRequest).mock.calls.filter(([, init]) => init?.method === 'PUT'),
+  ).toHaveLength(1);
+});
+it('keeps resolved rows in their places and returns focus from Cancel', async () => {
+  state.types.push({ id: 'copy', label: 'Copy edit', colour: 'blue', by: 1, at });
+  state.entries[42].push({ type: 'copy', note: 'Typo', by: 2, at });
+  useMarksStore.getState().accept(structuredClone(state));
+  vi.mocked(apiRequest).mockImplementation(async (_path, init) => {
+    if (init?.method === 'PUT') {
+      const change = JSON.parse(init.body as string).change;
+      const kept = (state.entries[42] ?? []).filter((entry) => entry.type !== change.type);
+      if (change.action === 'mark') kept.push({ type: change.type, note: change.note, by: 1, at });
+      state.entries[42] = kept;
+      if (!state.entries[42].length) delete state.entries[42];
+    }
+    return Response.json({ marks: state, revision });
+  });
+  await render();
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-haspopup]')!.click());
+  await click('Resolve Needs retesting');
+  await click('Resolve Copy edit');
+  expect(
+    [...document.querySelectorAll('[data-resolved]')].map(
+      (row) => row.textContent?.split('Resolved')[0],
+    ),
+  ).toEqual(['Needs retesting', 'Copy edit']);
+  await click('Undo: restore Copy edit');
+  await click('Add mark');
+  expect(document.activeElement?.tagName).toBe('SELECT');
+  await click('Cancel');
+  expect(document.activeElement).toBe(button('Add mark'));
+});
 it('forgets resolved marks when the popover closes', async () => {
   await render();
   await click('Needs retesting');

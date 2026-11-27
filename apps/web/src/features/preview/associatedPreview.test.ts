@@ -155,6 +155,17 @@ test('typing leaves associated previews alone while their own text and membershi
       }),
     );
     expect(host.querySelector('[aria-label="Associated tooltip previews"]')).toBeNull();
+    // Added back, it starts closed: the open one was forgotten when it left the list.
+    await act(async () =>
+      useDraftStore.setState({
+        drafts: {
+          ...useDraftStore.getState().drafts,
+          123: { base: parent, next: { ...parent, associated: [321] } },
+        },
+      }),
+    );
+    expect(host.querySelector('[aria-label="Associated tooltip previews"]')).not.toBeNull();
+    expect(host.querySelector('[data-associated]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     host.remove();

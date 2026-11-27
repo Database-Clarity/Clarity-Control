@@ -22,7 +22,7 @@ export function useMarksShown(hash: number | undefined): boolean {
 /** A mark resolved while the popover is open: kept in its place with Undo until it closes. */
 interface Resolved {
   mark: MarkDisplay;
-  /** Its place in the list when it was resolved. */
+  /** Its place in the list as shown when it was resolved. */
   index: number;
   /** Why Undo failed. */
   failed?: string;
@@ -60,8 +60,16 @@ export function MarksControl({
   const panel = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLSelectElement>(null);
   const saving = useRef(false);
+  /**
+   * Bumped when the popover closes or the entry or account changes: a write that finishes after
+   * that changes nothing here (no Undo revived, no focus taken in a later popover).
+   */
+  const session = useRef(0);
+  /** What opened the form ("add", "edit:<type>"): Cancel puts focus back there. */
+  const opener = useRef('add');
   const allowed = !!apiUrl && (user?.role === 'editor' || user?.role === 'maintainer');
   useEffect(() => {
+    session.current++;
     const previous = identity.current;
     identity.current = { hash, user, token };
     if (previous.hash !== hash || previous.user !== user || previous.token !== token) {
@@ -76,6 +84,7 @@ export function MarksControl({
   // Closing forgets what was resolved (Undo is for while the popover is open) and folds the form.
   useEffect(() => {
     if (open) return;
+    session.current++;
     setResolved([]);
     setFailed(null);
     setAdding(false);
@@ -115,22 +124,27 @@ export function MarksControl({
   }
   async function save(remove: boolean) {
     if (!allowed || !type) return;
+    const at = session.current;
     const failure = await write(
       remove ? { action: 'unmark', hash, type } : { action: 'mark', hash, type, note },
     );
     // A failure keeps the form; the shared error says why and offers the reload.
-    if (failure) return;
+    if (failure || at !== session.current) return;
     setType('');
     setNote('');
     setAdding(false);
+    setFocus(remove ? 'add' : `resolve:${type}`);
   }
+  /** `index`: the row's place in the list as shown, where its Undo stays. */
   async function resolve(mark: MarkDisplay, index: number) {
     if (!allowed) return;
     setFailed(null);
+    const at = session.current;
     const failure = await write(
       { action: 'unmark', hash, type: mark.type },
       `resolve:${mark.type}`,
     );
+    if (at !== session.current) return;
     if (failure) {
       setFailed({ type: mark.type, message: failure });
       return;
@@ -148,7 +162,9 @@ export function MarksControl({
   async function undo(item: Resolved) {
     if (!allowed) return;
     const { type: id, note: kept } = item.mark;
+    const at = session.current;
     const failure = await write({ action: 'mark', hash, type: id, note: kept }, `undo:${id}`);
+    if (at !== session.current) return;
     setResolved((list) =>
       failure
         ? list.map((entry) => (entry.mark.type === id ? { ...entry, failed: failure } : entry))
@@ -165,11 +181,10 @@ export function MarksControl({
   const shownResolved = resolved
     .filter((item) => !entries.some((entry) => entry.type === item.mark.type))
     .sort((a, b) => a.index - b.index);
-  const rows: { mark: MarkDisplay; index: number; resolved?: Resolved }[] = entries.map(
-    (mark, index) => ({ mark, index }),
-  );
+  // Each resolved mark goes back to where it was shown (in order, so earlier places hold).
+  const rows: { mark: MarkDisplay; resolved?: Resolved }[] = entries.map((mark) => ({ mark }));
   for (const item of shownResolved)
-    rows.splice(Math.min(item.index, rows.length), 0, { ...item, resolved: item });
+    rows.splice(Math.min(item.index, rows.length), 0, { mark: item.mark, resolved: item });
   // A row's own failure says why there; the shared alert would repeat it.
   const rowFailure = !!failed || shownResolved.some((item) => item.failed);
   const formShown = adding || !!type || (!entries.length && !shownResolved.length);
@@ -205,7 +220,7 @@ export function MarksControl({
         <strong>Entry marks</strong>
         {error && !rowFailure && <p role="alert">{error}</p>}
         {!rows.length && <p>No marks on this entry.</p>}
-        {rows.map((row) =>
+        {rows.map((row, position) =>
           row.resolved ? (
             <div key={row.mark.type} className={styles.detail} data-resolved>
               <span className={styles.resolvedLine}>
@@ -243,14 +258,18 @@ export function MarksControl({
                     aria-label={`Resolve ${row.mark.label}`}
                     title="Remove this mark (Undo stays here while this is open)"
                     disabled={busy || !writable}
-                    onClick={() => void resolve(row.mark, row.index)}
+                    onClick={() => void resolve(row.mark, position)}
                   >
                     {pending === `resolve:${row.mark.type}` ? 'Resolving…' : 'Resolve'}
                   </button>
                   <button
                     type="button"
                     disabled={busy || !writable}
-                    onClick={() => select(row.mark.type)}
+                    data-focus={`edit:${row.mark.type}`}
+                    onClick={() => {
+                      opener.current = `edit:${row.mark.type}`;
+                      select(row.mark.type);
+                    }}
                   >
                     Edit mark
                   </button>
@@ -264,7 +283,15 @@ export function MarksControl({
           <>
             <span className={styles.actions}>
               {!formShown && !!types.length && (
-                <button type="button" disabled={busy || !writable} onClick={() => setAdding(true)}>
+                <button
+                  type="button"
+                  data-focus="add"
+                  disabled={busy || !writable}
+                  onClick={() => {
+                    opener.current = 'add';
+                    setAdding(true);
+                  }}
+                >
                   Add mark
                 </button>
               )}
@@ -323,6 +350,7 @@ export function MarksControl({
                           setAdding(false);
                           setType('');
                           setNote('');
+                          setFocus(opener.current);
                         }}
                       >
                         Cancel

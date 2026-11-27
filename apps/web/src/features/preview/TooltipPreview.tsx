@@ -308,6 +308,7 @@ function AssociatedTooltips({
   // One open at a time; nothing is remembered once it leaves the list.
   const [picked, setPicked] = useState<number | null>(null);
   const open = picked !== null && associated.includes(picked) ? picked : null;
+  if (picked !== null && open === null) setPicked(null);
   if (!data) return null;
   if (!associated.length) return null;
   // One compact line of icons and names (wrapping only when it must); a name shows its preview

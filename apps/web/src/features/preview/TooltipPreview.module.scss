@@ -144,16 +144,20 @@ $name-floor: $name-size * 0.75;
   li {
     display: inline-flex;
     min-width: 0;
+    max-width: 100%;
   }
-  // Icon and name: shows the preview below the line (the open one stays underlined).
+  // Icon and name: shows the preview below the line (the open one stays underlined). A name longer
+  // than the column wraps inside its own button.
   button {
     display: inline-flex;
     align-items: center;
     gap: 0.3125rem;
+    min-width: 0;
     padding: 0;
     font: inherit;
     color: var(--tp-assoc-link);
-    white-space: nowrap;
+    text-align: start;
+    overflow-wrap: anywhere;
     background: none;
     border: 0;
     cursor: pointer;
@@ -163,6 +167,7 @@ $name-floor: $name-size * 0.75;
     }
   }
   img {
+    flex: none;
     width: 1.25rem;
     height: 1.25rem;
   }
