@@ -65,8 +65,14 @@ async function mount(
           activeOverride={undefined}
           onEditOverride={spies.onEditOverride}
           onBack={spies.onBack}
-          inactiveControl={props.inactive ? <button>Move to Inactive</button> : undefined}
-          worklistControl={props.worklist ? <button>Add to worklist</button> : undefined}
+          moreControls={
+            props.inactive || props.worklist ? (
+              <>
+                {props.worklist && <button>Add to worklist</button>}
+                {props.inactive && <button>Move to Inactive</button>}
+              </>
+            ) : undefined
+          }
           grouped={[{ hash: 9, name: 'Nine', enhanced: false, reason: 'canonical' }]}
           markup={{ open: true, toggle: spies.toggle }}
           queue={<span data-queue />}
@@ -180,13 +186,23 @@ describe('More (phone tool row)', () => {
     expect(shortcuts()).toBe(false);
   });
 
-  it('keeps every inline button on desktop', async () => {
+  it('keeps the everyday buttons inline on desktop; Grouped and the rare actions are in More', async () => {
     phone(false);
-    await mount(handlers());
-    expect(q('button[aria-label="More editor tools"]')).toBeNull();
+    await mount(handlers(), { inactive: true, worklist: true });
     expect(button('Markup tools')).toBeDefined();
+    // The shortcut is in the title, not a visible hint.
+    expect(button('Markup tools')?.textContent).toBe('Markup tools');
+    expect(button('Markup tools')?.title).toContain('Ctrl+.');
     expect(button('Discard this draft')).toBeDefined();
     expect(button('Edit enhanced')).toBeDefined();
+    expect(button('Grouped')).toBeUndefined();
+    expect(button('Add to worklist')).toBeUndefined();
+    expect(button('Move to Inactive')).toBeUndefined();
+    await openMore();
+    const sheet = q('[role="dialog"][aria-label="Editor tools"]')!;
+    expect(sheet.textContent).toContain('Items and perk effects');
+    expect(button('Add to worklist')?.closest('[role=dialog]')).toBe(sheet);
+    expect(button('Move to Inactive')?.closest('[role=dialog]')).toBe(sheet);
   });
 });
 
@@ -228,7 +244,7 @@ describe('inline tools (phone tool row)', () => {
 
   it('shows what fits inline with the same handlers, and More only for the overflow', async () => {
     phone(true);
-    // A row 1000px wide where every tool is 60px: everything fits inline, so no More.
+    // A row 1000px wide where every tool is 60px: everything fits inline; More holds only Grouped.
     let callback: (() => void) | undefined;
     vi.stubGlobal(
       'ResizeObserver',
@@ -256,7 +272,14 @@ describe('inline tools (phone tool row)', () => {
     const spies = handlers();
     await mount(spies);
     await act(async () => {});
-    expect(q('button[aria-label="More editor tools"]')).toBeNull();
+    expect(button('Grouped')).toBeUndefined();
+    await openMore();
+    expect(
+      [...document.querySelectorAll('[role="dialog"] li > button, [role="dialog"] li > a')].map(
+        (row) => row.textContent,
+      ),
+    ).toEqual(['Items and perk effects1 ›', 'Back to queueGerman, all categories']);
+    await click(q('button[aria-label="Close Editor tools"]')!);
     await click(button('Markup bar'));
     expect(spies.toggle).toHaveBeenCalledTimes(1);
     await click(button('Edit enhanced'));
@@ -273,19 +296,7 @@ describe('inline tools (phone tool row)', () => {
       ),
     );
     expect(spies.onDiscard).toHaveBeenCalledTimes(1);
-    // Inline Grouped is a sheet like More: it owns the workspace shortcuts while open (Alt+PageDown
-    // does not step the page behind it).
-    const shortcuts = () => workspaceShortcutsBlocked(new KeyboardEvent('keydown'));
-    expect(shortcuts()).toBe(false);
-    await click(button('Grouped'));
-    expect(q('[role="dialog"][aria-label="Items and perk effects"]')).not.toBeNull();
-    expect(shortcuts()).toBe(true);
-    await act(
-      async () =>
-        void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
-    );
-    expect(shortcuts()).toBe(false);
-    // Room for two tools beside More: the other two (Grouped, Edit enhanced) move into More.
+    // Room for two tools beside More: Edit enhanced joins Grouped there.
     room = 2 * 60 + 6 + 60 + 6;
     await act(async () => callback?.());
     expect(button('Markup bar')).toBeDefined();

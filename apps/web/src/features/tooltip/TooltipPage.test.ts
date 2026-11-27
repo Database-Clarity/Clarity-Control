@@ -394,15 +394,15 @@ describe('tooltip screen composition', () => {
     expect(previews[1].globals.type).toBe('Weapon Frame Enhanced');
     expect(markup).not.toContain('Edit enhanced');
   });
-  it('offers no override for a blank copy, and the grouped perks only to maintainers', () => {
+  it('offers no override for a blank copy; the grouped perks are never on the line', () => {
     const blank = tooltip(11, '');
     const derived = tooltip(11, base.text.en!.text);
-    for (const [variant, role, edit, grouped] of [
-      [blank, 'editor', false, false],
-      [derived, 'editor', false, false],
-      [derived, 'translator', false, false],
-      [derived, 'maintainer', false, true],
-      [enhanced, 'maintainer', true, true],
+    for (const [variant, role, edit] of [
+      [blank, 'editor', false],
+      [derived, 'editor', false],
+      [derived, 'translator', false],
+      [derived, 'maintainer', false],
+      [enhanced, 'maintainer', true],
     ] as const) {
       useAuthStore.setState({ user: { id: 1, login: 'alice', role } });
       useDataStore.setState({
@@ -414,7 +414,8 @@ describe('tooltip screen composition', () => {
       const markup = render();
       expect(markup.includes('Edit enhanced')).toBe(edit);
       expect(markup.includes('Stored form')).toBe(false);
-      expect(markup.includes('Which items and perk effects share this text')).toBe(grouped);
+      // Grouped sits in More (who sees it: EditorPage.layout.test.tsx).
+      expect(markup.includes('Which items and perk effects share this text')).toBe(false);
     }
   });
   it('composes one frame editor and projects shared imports into both editor and preview', () => {

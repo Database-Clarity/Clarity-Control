@@ -1,6 +1,6 @@
 import { ArchiveIcon } from '../archive/ArchiveIcon';
 import { languageLabel } from '../../languageLabels';
-import { memo, useContext, useMemo, type CSSProperties, type ReactNode } from 'react';
+import { memo, useContext, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   LivePreviewIdentity,
   previewIdentityFor,
@@ -305,13 +305,38 @@ function AssociatedTooltips({
         : [],
     [membership, hash, data],
   );
+  // One open at a time; nothing is remembered once it leaves the list.
+  const [picked, setPicked] = useState<number | null>(null);
+  const open = picked !== null && associated.includes(picked) ? picked : null;
   if (!data) return null;
   if (!associated.length) return null;
+  // One compact line of names (wrapping only when it must); the open one's preview below it.
   return (
     <section className={styles.associated} aria-label="Associated tooltip previews">
-      {associated.map((target) => (
-        <AssociatedTooltip key={target} target={target} data={data} lang={lang} globals={globals} />
-      ))}
+      <ul className={styles.associatedNames}>
+        {associated.map((target) => {
+          const item = itemFor(target, data);
+          const name = item?.name ?? `Tooltip ${target}`;
+          return (
+            <li key={target}>
+              <button
+                type="button"
+                aria-expanded={target === open}
+                aria-label={`${target === open ? 'Hide' : 'Show'} ${name} preview`}
+                title={`${target === open ? 'Hide' : 'Show'} its preview`}
+                onClick={() => setPicked(target === open ? null : target)}
+              >
+                <span aria-hidden="true">{target === open ? '▾' : '▸'}</span>
+                {item?.icon && <img src={`https://www.bungie.net${item.icon}`} alt="" />}
+              </button>
+              <Link to={`/t/${canonicalHash(target, data)}`}>{name}</Link>
+            </li>
+          );
+        })}
+      </ul>
+      {open !== null && (
+        <AssociatedTooltip key={open} target={open} data={data} lang={lang} globals={globals} />
+      )}
     </section>
   );
 }
@@ -338,11 +363,7 @@ const AssociatedTooltip = memo(function AssociatedTooltip({
     [globals, category?.legacyType],
   );
   return (
-    <details>
-      <summary>
-        {item?.icon && <img src={`https://www.bungie.net${item.icon}`} alt="" />}
-        <Link to={`/t/${canonicalHash(target, data)}`}>{name}</Link>
-      </summary>
+    <div className={styles.associatedOpen} data-associated={target}>
       {text !== undefined ? (
         <TooltipPreview
           text={text}
@@ -355,6 +376,6 @@ const AssociatedTooltip = memo(function AssociatedTooltip({
       ) : (
         <p>No {languageLabel(lang)} text yet.</p>
       )}
-    </details>
+    </div>
   );
 });

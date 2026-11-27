@@ -908,39 +908,32 @@ function TooltipWorkspace({
               {phone && batchEditing?.saveControl}
             </>
           }
-          worklistControl={
+          moreControls={
             user ? (
-              <AddToWorklist
-                items={[
-                  { hash: activeHash, name: itemFor(activeHash, data)?.name ?? String(activeHash) },
-                ]}
-                className={styles.ghost}
-              />
+              <>
+                <AddToWorklist
+                  items={[
+                    {
+                      hash: activeHash,
+                      name: itemFor(activeHash, data)?.name ?? String(activeHash),
+                    },
+                  ]}
+                  className={styles.ghost}
+                />
+                {!!apiUrl &&
+                  !readOnly &&
+                  !batchEditing &&
+                  (activeHash < 1 || activeHash > 3) &&
+                  user.role === 'maintainer' && (
+                    <InactiveHeaderControl
+                      hash={activeHash}
+                      name={nameOf(activeHash)}
+                      className={styles.ghost}
+                      compact={false}
+                    />
+                  )}
+              </>
             ) : undefined
-          }
-          inactiveControl={
-            !!apiUrl &&
-            !readOnly &&
-            !batchEditing &&
-            (activeHash < 1 || activeHash > 3) &&
-            user?.role === 'maintainer' && (
-              <InactiveHeaderControl
-                hash={activeHash}
-                name={nameOf(activeHash)}
-                className={`${styles.ghost} ${styles.inactiveControl}`}
-                compact={!phone}
-              />
-            )
-          }
-          inactiveMenuControl={
-            !phone && (
-              <InactiveHeaderControl
-                hash={activeHash}
-                name={nameOf(activeHash)}
-                className={styles.ghost}
-                compact={false}
-              />
-            )
           }
           inactiveHash={!readOnly && !batchEditing ? activeHash : undefined}
           markHash={hash}

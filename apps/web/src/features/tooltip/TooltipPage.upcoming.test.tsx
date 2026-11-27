@@ -231,8 +231,15 @@ it('hides global inactive moves in both the header and grouped list during a bat
   try {
     await page.settle();
     expect(document.querySelector('button[aria-label="Move to Inactive"]')).toBeNull();
-    const grouped = document.querySelector<HTMLButtonElement>('button[aria-label^="Grouped "]');
-    expect(grouped).not.toBeNull();
+    // Grouped is a row of More.
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('button[aria-label="More editor tools"]')!.click(),
+    );
+    expect(document.querySelector('button[aria-label="Move to Inactive"]')).toBeNull();
+    const grouped = [
+      ...document.querySelectorAll<HTMLButtonElement>('[aria-label="Editor tools"] button'),
+    ].find((button) => button.textContent?.startsWith('Items and perk effects'));
+    expect(grouped).toBeDefined();
     await act(async () => grouped!.click());
     expect(document.querySelector('[data-grouped]')).not.toBeNull();
     expect(document.querySelector('button[aria-label="Move to Inactive"]')).toBeNull();

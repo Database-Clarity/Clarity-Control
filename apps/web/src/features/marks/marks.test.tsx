@@ -98,9 +98,69 @@ it.each(['translator', 'trial', null] as const)(
     expect(document.body.textContent).toContain('GitHub user 2');
     expect(document.body.textContent).toContain('Marks are read-only');
     expect(document.querySelector('textarea')).toBeNull();
+    expect(button('Resolve Needs retesting')).toBeUndefined();
+    expect(button('Add mark')).toBeUndefined();
     expect(apiRequest).not.toHaveBeenCalled();
   },
 );
+it('resolves a mark in one click and Undo restores the same type and note', async () => {
+  await render();
+  await click('Needs retesting');
+  // With marks listed, the create form waits behind Add mark.
+  expect(document.querySelector('form')).toBeNull();
+  await click('Resolve Needs retesting');
+  expect(JSON.parse(vi.mocked(apiRequest).mock.calls.at(-1)![1]!.body as string).change).toEqual({
+    action: 'unmark',
+    hash: 42,
+    type: 'retest',
+  });
+  expect(useMarksStore.getState().index.get(42)).toBeUndefined();
+  // In place: the struck name, "Resolved", and Undo (focused); no empty-state create form.
+  expect(document.querySelector('[data-resolved]')!.textContent).toContain('Needs retesting');
+  expect(document.querySelector('[data-resolved] [role=status]')!.textContent).toBe('Resolved');
+  expect(document.activeElement).toBe(button('Undo: restore Needs retesting'));
+  expect(document.querySelector('form')).toBeNull();
+  expect(document.body.textContent).not.toContain('No marks on this entry');
+  await click('Undo: restore Needs retesting');
+  expect(JSON.parse(vi.mocked(apiRequest).mock.calls.at(-1)![1]!.body as string).change).toEqual({
+    action: 'mark',
+    hash: 42,
+    type: 'retest',
+    note: 'Arc damage',
+  });
+  expect(useMarksStore.getState().index.get(42)).toMatchObject([
+    { type: 'retest', note: 'Arc damage' },
+  ]);
+  expect(document.querySelector('[data-resolved]')).toBeNull();
+  expect(document.activeElement).toBe(button('Resolve Needs retesting'));
+});
+it('keeps the mark and says why when resolving fails', async () => {
+  await render();
+  await click('Needs retesting');
+  revision = 'c'.repeat(40);
+  await click('Resolve Needs retesting');
+  expect(useMarksStore.getState().index.get(42)).toHaveLength(1);
+  expect(document.querySelector('[data-resolved]')).toBeNull();
+  const alerts = [...document.querySelectorAll('[role=alert]')].map((alert) => alert.textContent);
+  expect(alerts).toEqual(['Not resolved: Marks changed; reload and retry']);
+  expect(button('Resolve Needs retesting').disabled).toBe(true);
+  await click('Reload marks');
+  expect(document.querySelector('[role=alert]')).toBeNull();
+  await click('Resolve Needs retesting');
+  expect(useMarksStore.getState().index.get(42)).toBeUndefined();
+});
+it('forgets resolved marks when the popover closes', async () => {
+  await render();
+  await click('Needs retesting');
+  await click('Resolve Needs retesting');
+  await act(async () =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
+  await click('Entry marks');
+  expect(document.querySelector('[data-resolved]')).toBeNull();
+  expect(document.body.textContent).toContain('No marks on this entry');
+  expect(document.querySelector('form')).not.toBeNull();
+});
 it('edits notes, removes a mark, and marks an empty entry', async () => {
   await render();
   await click('Needs retesting');
@@ -159,7 +219,8 @@ it('fails closed on malformed reloads while retaining read-only display', async 
   await render();
   await click('Needs retesting');
   expect(document.querySelector('[role=alert]')!.textContent).toContain('read-only');
-  expect(document.querySelector('fieldset')!.disabled).toBe(true);
+  expect(button('Resolve Needs retesting').disabled).toBe(true);
+  expect(button('Add mark').disabled).toBe(true);
   expect(document.body.textContent).toContain('Arc damage');
 });
 it('requires an in-page confirmation before removing a type and all its marks', async () => {

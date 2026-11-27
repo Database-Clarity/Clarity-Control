@@ -158,8 +158,11 @@ it('moves in and out from the mounted editor without changing its text or edit a
   await render();
   const editor = editors()[0];
   const confirm = async (trigger: string) => {
-    await act(async () => button(trigger)!.click());
-    const dialog = document.querySelector('[role=dialog]')!;
+    // Move to Inactive is a row of More.
+    expect(button(trigger)).toBeUndefined();
+    const sheet = await openMore();
+    await act(async () => inSheet(sheet, trigger)!.click());
+    const dialog = document.querySelector(`[role=dialog][aria-label="${trigger}"]`)!;
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement?.tagName).toBe('DIV');
     expect(dialog.querySelector('input')).toBeNull();
@@ -186,7 +189,8 @@ it('moves in and out from the mounted editor without changing its text or edit a
 let navigateRoute: ReturnType<typeof useNavigate>;
 it('offers only one move action for the open item when its grouped list is open', async () => {
   await render();
-  await act(async () => button('Grouped 4')!.click());
+  const sheet = await openMore();
+  await act(async () => inSheet(sheet, 'Items and perk effects')!.click());
   const moves = document.querySelectorAll('button[aria-label="Move to Inactive"]');
   // One header action, then only the other three grouped hashes.
   expect(moves).toHaveLength(4);
@@ -219,6 +223,19 @@ const editors = () => [...host.querySelectorAll<HTMLElement>('[data-editor]')];
 const button = (name: string) =>
   [...host.querySelectorAll('button')].find(
     (entry) => entry.textContent?.trim() === name || entry.getAttribute('aria-label') === name,
+  );
+/** Opens the editor's More and returns its sheet (Grouped and the rare actions live there). */
+const openMore = async () => {
+  const sheet = () =>
+    document.querySelector<HTMLElement>('[role="dialog"][aria-label="Editor tools"]');
+  // Still open after an action in it (the inactive confirm closes only itself).
+  if (!sheet()) await act(async () => button('More editor tools')!.click());
+  return sheet()!;
+};
+const inSheet = (sheet: HTMLElement, name: string) =>
+  [...sheet.querySelectorAll('button')].find(
+    (entry) =>
+      entry.textContent?.trim().startsWith(name) || entry.getAttribute('aria-label') === name,
   );
 const signIn = (role: 'maintainer' | 'editor' | 'translator' | null) =>
   useAuthStore.setState({
@@ -490,16 +507,16 @@ describe('editor page composition', () => {
     expect(history.textContent).toContain('Legacy tooltip upload');
   });
 
-  it('shows maintainers what shares the text in a popover; Stored form is gone', async () => {
+  it('shows maintainers what shares the text in More; Stored form is gone', async () => {
     await render();
     expect(button('Stored form')).toBeUndefined();
-    const trigger = button('Grouped 4')!;
-    expect(trigger).toBeDefined();
+    // Not on the line: one click away in More.
+    expect(button('Grouped 4')).toBeUndefined();
+    const trigger = button('More editor tools')!;
     expect(document.querySelector('[role="dialog"]')).toBeNull();
-    await act(async () => trigger.click());
-    const popover = document.querySelector('[role="dialog"]')!;
-    expect(popover.getAttribute('aria-label')).toBe('Items and perk effects');
-    const rows = [...popover.querySelectorAll<HTMLElement>('[data-grouped]')];
+    const sheet = await openMore();
+    await act(async () => inSheet(sheet, 'Items and perk effects')!.click());
+    const rows = [...sheet.querySelectorAll<HTMLElement>('[data-grouped]')];
     expect(rows.map((row) => row.dataset.grouped)).toEqual(['10', '11', '12', '13']);
     expect(rows[0].textContent).toContain('Text is here');
     // Escape closes it and returns focus to the trigger.
@@ -510,7 +527,7 @@ describe('editor page composition', () => {
     expect(document.activeElement).toBe(trigger);
     signIn('editor');
     await render();
-    expect(button('Grouped 4')).toBeUndefined();
+    expect(inSheet(await openMore(), 'Items and perk effects')).toBeUndefined();
   });
 
   it('gives a translator the same editor and rows, with English and the saved Compendium only', async () => {
@@ -523,7 +540,7 @@ describe('editor page composition', () => {
     expect(button('Compendium')).toBeDefined();
     expect(host.querySelector('[data-associations]')).not.toBeNull();
     expect(host.querySelector('[data-history]')).not.toBeNull();
-    expect(button('Grouped 4')).toBeUndefined();
+    expect(inSheet(await openMore(), 'Items and perk effects')).toBeUndefined();
   });
 
   describe('translator Compendium tab (read-only, saved snapshot only)', () => {
