@@ -107,3 +107,25 @@
     display: none;
   }
 }
+
+// A refused offer: only its reason, wrapped to a readable width instead of cut.
+.chip.refused {
+  height: auto;
+  min-height: 1.625rem;
+  max-width: min(calc(100vw - 16px), 22rem);
+  white-space: normal;
+
+  .accept {
+    padding-block: 0.25rem;
+    text-align: left;
+  }
+
+  .text {
+    overflow: visible;
+    color: var(--text);
+  }
+
+  @include theme.mobile-or-coarse {
+    min-height: var(--tap);
+  }
+}

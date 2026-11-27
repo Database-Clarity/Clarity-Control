@@ -491,6 +491,7 @@ describe('typed symbol placement', () => {
     expect(view.state.doc.toString()).toBe(`${doc}ember of torches`);
     expect(chipState(view.state)?.text).toMatch(/unclosed maths block or comment/);
     expect(chipNode()?.textContent).toMatch(/unclosed maths block or comment/);
+    expect(chipNode()?.querySelector('button')?.getAttribute('aria-label')).toMatch(/^Dismiss: /);
     press(view, 'Enter');
     expect(chipState(view.state)).toBeNull();
   });

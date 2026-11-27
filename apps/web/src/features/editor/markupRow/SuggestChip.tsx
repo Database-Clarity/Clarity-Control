@@ -120,13 +120,36 @@ export function SuggestChipView({
   onAccept,
   onDismiss,
 }: {
-  chip: Pick<Chip, 'markup' | 'text' | 'glyph'>;
+  chip: Pick<Chip, 'markup' | 'text' | 'glyph' | 'refused'>;
   acceptKey: ChipKey;
   surface?: RefObject<HTMLDivElement>;
   style?: CSSProperties;
   onAccept(): void;
   onDismiss(): void;
 }) {
+  if (chip.refused)
+    // Refused: the reason alone, and its one action (Enter or a click) dismisses it.
+    return (
+      <div
+        ref={surface}
+        className={`${styles.chip} ${styles.refused}`}
+        style={style}
+        role="status"
+        data-suggest-chip
+        data-refused
+        onMouseDown={(event) => event.preventDefault()}
+      >
+        <button
+          type="button"
+          className={styles.accept}
+          onClick={onAccept}
+          aria-label={`Dismiss: ${chip.text}`}
+        >
+          <span className={styles.text}>{chip.text}</span>
+          <kbd>{acceptKey === 'tab' ? 'Tab' : 'Enter'}</kbd>
+        </button>
+      </div>
+    );
   return (
     <div
       ref={surface}
